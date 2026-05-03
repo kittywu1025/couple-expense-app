@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useSettings } from '../composables/useSettings'
+import { formatCurrency } from '../utils/currency'
 
 const props = defineProps<{
   selectedMonth: string
@@ -21,16 +22,11 @@ const settlementText = computed(() => {
   return `${settings.value.meName} 参考补给 ${settings.value.partnerName}`
 })
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('ja-JP', {
-    style: 'currency',
-    currency: 'JPY',
-    maximumFractionDigits: 0,
-  }).format(value)
-
 const categoryEntries = computed(() =>
   Object.entries(props.categoryTotals).sort((left, right) => right[1] - left[1])
 )
+
+const formatAmount = (value: number) => formatCurrency(value, settings.value.defaultCurrency)
 </script>
 
 <template>
@@ -43,30 +39,30 @@ const categoryEntries = computed(() =>
       </div>
       <div class="summary-total">
         <span>分摊参考</span>
-        <strong>{{ formatCurrency(Math.abs(props.meNet)) }}</strong>
+        <strong>{{ formatAmount(Math.abs(props.meNet)) }}</strong>
       </div>
     </div>
 
     <div class="stats-grid summary-stats-grid">
       <div class="stat-card stat-card-emphasis">
         <span>本月总支出</span>
-        <strong>{{ formatCurrency(props.totalAmount) }}</strong>
+        <strong>{{ formatAmount(props.totalAmount) }}</strong>
       </div>
       <div class="stat-card">
         <span>{{ settings.meName }}已付</span>
-        <strong>{{ formatCurrency(props.mePaid) }}</strong>
+        <strong>{{ formatAmount(props.mePaid) }}</strong>
       </div>
       <div class="stat-card">
         <span>{{ settings.partnerName }}已付</span>
-        <strong>{{ formatCurrency(props.partnerPaid) }}</strong>
+        <strong>{{ formatAmount(props.partnerPaid) }}</strong>
       </div>
       <div class="stat-card">
         <span>{{ settings.meName }}应承担</span>
-        <strong>{{ formatCurrency(props.meShouldPay) }}</strong>
+        <strong>{{ formatAmount(props.meShouldPay) }}</strong>
       </div>
       <div class="stat-card">
         <span>{{ settings.partnerName }}应承担</span>
-        <strong>{{ formatCurrency(props.partnerShouldPay) }}</strong>
+        <strong>{{ formatAmount(props.partnerShouldPay) }}</strong>
       </div>
     </div>
 
@@ -84,7 +80,7 @@ const categoryEntries = computed(() =>
             <span>{{ categoryMap[categoryId]?.icon || '🧾' }}</span>
             <span>{{ categoryMap[categoryId]?.name || categoryId }}</span>
           </div>
-          <strong>{{ formatCurrency(amount) }}</strong>
+          <strong>{{ formatAmount(amount) }}</strong>
         </div>
       </div>
     </div>

@@ -2,6 +2,7 @@ export type Payer = 'me' | 'partner'
 export type Performer = 'me' | 'partner'
 export type Recurrence = 'none' | 'monthly'
 export type SplitPreset = 'equal' | 'rent' | 'custom' | 'payer-only'
+export type SupportedCurrency = 'JPY' | 'CNY' | 'USD' | 'KRW' | 'EUR'
 
 export interface SplitRule {
   me: number
@@ -18,6 +19,11 @@ export interface Expense {
   id: string
   title: string
   amount: number
+  originalAmount: number
+  originalCurrency: SupportedCurrency
+  baseCurrency: SupportedCurrency
+  exchangeRateUsed: number
+  exchangeRateDate: string
   date: string
   category: string
   payer: Payer
@@ -35,6 +41,7 @@ export interface Expense {
 export interface AppSettings {
   meName: string
   partnerName: string
+  defaultCurrency: SupportedCurrency
   defaultSplits: {
     standard: SplitRule
     rent: SplitRule

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import type { Expense, Payer, SplitPreset, SplitRule } from '../types'
+import type { Expense, Payer, SplitPreset, SplitRule, SupportedCurrency } from '../types'
 import { useSettings } from '../composables/useSettings'
+import { SUPPORTED_CURRENCIES, formatCurrency } from '../utils/currency'
 
 const props = withDefaults(
   defineProps<{
@@ -38,6 +39,11 @@ const createDefaultExpense = (): Expense => ({
   id: '',
   title: '',
   amount: 0,
+  originalAmount: 0,
+  originalCurrency: settings.value.defaultCurrency,
+  baseCurrency: settings.value.defaultCurrency,
+  exchangeRateUsed: 1,
+  exchangeRateDate: new Date().toISOString().slice(0, 10),
   date: new Date().toISOString().slice(0, 10),
   category: settings.value.categories.find((item) => item.id !== 'rent')?.id || 'food',
   payer: 'me',
@@ -48,11 +54,17 @@ const createDefaultExpense = (): Expense => ({
 })
 
 const form = reactive<Expense>(createDefaultExpense())
+const currencyOptions = SUPPORTED_CURRENCIES
+const isCrossCurrency = computed(() => form.originalCurrency !== form.baseCurrency)
+const convertedAmountPreview = computed(() =>
+  formatCurrency(form.amount || 0, form.baseCurrency, { maximumFractionDigits: form.baseCurrency === 'JPY' || form.baseCurrency === 'KRW' ? 0 : 2 })
+)
 const validationMessage = computed(() => {
   if (!form.title.trim()) return '请填写这笔消费的说明，例如“晚餐”或“5 月房租”。'
-  if (!(form.amount > 0)) return '请输入大于 0 的金额。'
+  if (!(form.originalAmount > 0)) return '请输入大于 0 的金额。'
   if (!form.date) return '请选择消费日期。'
   if (!form.category) return '请选择消费类别。'
+  if (isCrossCurrency.value && !(form.exchangeRateUsed > 0)) return '汇率获取失败，请手动填写汇率。'
   if (form.split.me < 0 || form.split.partner < 0) return '分摊比例不能为负数。'
   if (Math.abs(form.split.me + form.split.partner - 100) > 0.01) return '分摊比例总和必须等于 100%。'
   return ''
@@ -97,10 +109,17 @@ const syncSplitMode = () => {
 
 const syncFromExpense = (value?: Expense | null) => {
   const nextExpense = value ? { ...value } : createDefaultExpense()
+  if (!value) {
+    nextExpense.baseCurrency = settings.value.defaultCurrency
+    nextExpense.originalCurrency = settings.value.defaultCurrency
+    nextExpense.exchangeRateUsed = 1
+    nextExpense.exchangeRateDate = nextExpense.date
+  }
   Object.assign(form, nextExpense)
   if (!value) {
     form.recurrence = 'none'
   }
+  syncCurrencyFields()
   syncSplitMode()
 }
 
@@ -151,14 +170,59 @@ const updateSplitValue = (field: 'me' | 'partner', value: number) => {
   form.split[field === 'me' ? 'partner' : 'me'] = Number((100 - safeValue).toFixed(2))
 }
 
+const syncCurrencyFields = () => {
+  form.baseCurrency = form.baseCurrency || settings.value.defaultCurrency
+  form.originalCurrency = form.originalCurrency || form.baseCurrency
+  form.exchangeRateDate = form.date || form.exchangeRateDate
+  const precision = form.baseCurrency === 'JPY' || form.baseCurrency === 'KRW' ? 0 : 2
+
+  if (form.originalCurrency === form.baseCurrency) {
+    form.exchangeRateUsed = 1
+    form.amount = Number((Number(form.originalAmount) || 0).toFixed(precision))
+    return
+  }
+
+  form.amount = Number(
+    ((Number(form.originalAmount) || 0) * (Number(form.exchangeRateUsed) || 0)).toFixed(precision)
+  )
+}
+
+const updateOriginalCurrency = (currency: SupportedCurrency) => {
+  form.originalCurrency = currency
+  syncCurrencyFields()
+}
+
+watch(
+  () => settings.value.defaultCurrency,
+  (currency) => {
+    if (props.expense) return
+    form.baseCurrency = currency
+    if (!form.originalCurrency) {
+      form.originalCurrency = currency
+    }
+    syncCurrencyFields()
+  }
+)
+
+watch(
+  () => [form.originalAmount, form.exchangeRateUsed, form.date],
+  () => {
+    syncCurrencyFields()
+  }
+)
+
 const submit = () => {
   if (validationMessage.value) return
+
+  syncCurrencyFields()
 
   emit('save', {
     ...form,
     title: form.title.trim(),
     note: form.note?.trim() || '',
     amount: Number(form.amount),
+    originalAmount: Number(form.originalAmount),
+    exchangeRateUsed: Number(form.exchangeRateUsed),
     split: {
       me: Number(form.split.me.toFixed(2)),
       partner: Number(form.split.partner.toFixed(2)),
@@ -180,22 +244,27 @@ const submit = () => {
 
       <label class="field-group amount-field">
         <span class="field-label">金额</span>
-        <div class="amount-input-wrap">
-          <span class="currency-label">¥</span>
-          <input
-            v-model.number="form.amount"
-            type="number"
-            min="0"
-            step="0.01"
-            inputmode="decimal"
-            placeholder="0"
-          />
+        <div class="amount-currency-row">
+          <div class="amount-input-wrap">
+            <span class="currency-label">{{ form.originalCurrency }}</span>
+            <input
+              v-model.number="form.originalAmount"
+              type="number"
+              min="0"
+              step="0.01"
+              inputmode="decimal"
+              placeholder="0"
+            />
+          </div>
+          <label class="field-group currency-select-group">
+            <span class="field-label">货币</span>
+            <select :value="form.originalCurrency" @change="updateOriginalCurrency(($event.target as HTMLSelectElement).value as SupportedCurrency)">
+              <option v-for="currency in currencyOptions" :key="currency.code" :value="currency.code">
+                {{ currency.code }} {{ currency.label }}
+              </option>
+            </select>
+          </label>
         </div>
-      </label>
-
-      <label class="field-group">
-        <span class="field-label">消费说明</span>
-        <input v-model="form.title" type="text" placeholder="例如：晚餐、超市采购、5 月房租" />
       </label>
 
       <div class="field-row">
@@ -210,6 +279,50 @@ const submit = () => {
           <small>每月固定消费后续会放到单独入口管理。</small>
         </div>
       </div>
+
+      <div v-if="isCrossCurrency" class="exchange-panel">
+        <div class="exchange-panel-head">
+          <strong>汇率换算</strong>
+          <span class="info-pill soft">保存到 {{ form.baseCurrency }}</span>
+        </div>
+        <div class="field-row">
+          <label class="field-group">
+            <span class="field-label">汇率</span>
+            <input
+              v-model.number="form.exchangeRateUsed"
+              type="number"
+              min="0"
+              step="0.0001"
+              inputmode="decimal"
+              placeholder="例如：20.35"
+            />
+          </label>
+          <label class="field-group">
+            <span class="field-label">汇率日期</span>
+            <input v-model="form.exchangeRateDate" type="date" />
+          </label>
+        </div>
+        <p class="exchange-hint">汇率获取失败，请手动填写汇率</p>
+        <p class="exchange-result">按当前汇率将计入 {{ convertedAmountPreview }} {{ form.baseCurrency }}</p>
+      </div>
+
+      <div v-else class="exchange-panel exchange-panel-plain">
+        <div class="exchange-panel-head">
+          <strong>默认货币</strong>
+          <span class="info-pill soft">{{ form.baseCurrency }}</span>
+        </div>
+        <p class="exchange-result">这笔记录会直接按 {{ convertedAmountPreview }} 入账。</p>
+      </div>
+
+      <label class="field-group">
+        <span class="field-label">消费说明</span>
+        <input v-model="form.title" type="text" placeholder="例如：晚餐、超市采购、5 月房租" />
+      </label>
+
+      <label class="field-group">
+        <span class="field-label">记账基准货币</span>
+        <input :value="`${form.baseCurrency}（保存时的基准币种）`" type="text" disabled />
+      </label>
     </section>
 
     <section class="section-card">

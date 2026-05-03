@@ -4,6 +4,7 @@ import { useExpenses } from '../composables/useExpenses'
 import { useSupabaseAuth } from '../composables/useSupabaseAuth'
 import { useBooks } from '../composables/useBooks'
 import { useSettings } from '../composables/useSettings'
+import { SUPPORTED_CURRENCIES, formatCurrency } from '../utils/currency'
 
 const { settings, normalizeSplit } = useSettings()
 const { authUser, isSupabaseEnabled, signOut, updatePassword } = useSupabaseAuth()
@@ -22,6 +23,7 @@ const passwordForm = reactive({
   nextPassword: '',
   confirmPassword: '',
 })
+const currencyOptions = SUPPORTED_CURRENCIES
 
 const setSettingsMessage = (message: string) => {
   settingsMessage.value = message
@@ -147,6 +149,8 @@ const handlePasswordSubmit = async () => {
   closePasswordModal()
   setSettingsMessage('密码已设置成功，下次可以使用邮箱和密码登录。')
 }
+
+const formatAmount = (value: number) => formatCurrency(value, settings.value.defaultCurrency)
 </script>
 
 <template>
@@ -170,6 +174,16 @@ const handlePasswordSubmit = async () => {
           <input v-model="settings.partnerName" type="text" placeholder="例如：小宁" />
         </label>
       </div>
+
+      <label class="field-group">
+        <span class="field-label">默认货币</span>
+        <select v-model="settings.defaultCurrency">
+          <option v-for="currency in currencyOptions" :key="currency.code" :value="currency.code">
+            {{ currency.code }} {{ currency.label }}
+          </option>
+        </select>
+        <small class="settings-hint">新记录默认按这个币种入账。若之后切换默认货币，旧记录不会自动重算历史汇率。</small>
+      </label>
 
       <div class="settings-list">
         <div class="sync-card">
@@ -230,7 +244,7 @@ const handlePasswordSubmit = async () => {
         </div>
         <div class="settlement-preview-amount">
           <span>参考金额</span>
-          <strong>¥{{ Math.abs(monthlySummary.meNet).toLocaleString('ja-JP') }}</strong>
+          <strong>{{ formatAmount(Math.abs(monthlySummary.meNet)) }}</strong>
         </div>
       </div>
     </section>
@@ -364,7 +378,7 @@ const handlePasswordSubmit = async () => {
       </div>
     </section>
 
-    <p class="ui-version-tag">UI版本：2026-05-03-hero-removed</p>
+    <p class="ui-version-tag">UI版本：2026-05-03-pwa-currency-refresh</p>
 
     <div
       v-if="passwordModalOpen"
@@ -466,6 +480,12 @@ const handlePasswordSubmit = async () => {
   color: var(--text-faint);
   font-size: 0.76rem;
   text-align: center;
+}
+
+.settings-hint {
+  color: var(--text-soft);
+  font-size: 0.84rem;
+  line-height: 1.5;
 }
 
 @media (max-width: 640px) {

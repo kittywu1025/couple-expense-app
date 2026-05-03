@@ -23,7 +23,26 @@ alter table public.expenses
   add column if not exists book_id uuid references public.books(id) on delete cascade,
   add column if not exists created_by uuid references auth.users(id) on delete set null,
   add column if not exists created_at timestamptz default now(),
-  add column if not exists updated_at timestamptz default now();
+  add column if not exists updated_at timestamptz default now(),
+  add column if not exists original_amount numeric,
+  add column if not exists original_currency text,
+  add column if not exists base_currency text,
+  add column if not exists exchange_rate_used numeric,
+  add column if not exists exchange_rate_date date;
+
+update public.expenses
+set
+  original_amount = coalesce(original_amount, amount),
+  original_currency = coalesce(nullif(original_currency, ''), coalesce(nullif(base_currency, ''), 'JPY')),
+  base_currency = coalesce(nullif(base_currency, ''), 'JPY'),
+  exchange_rate_used = coalesce(exchange_rate_used, 1),
+  exchange_rate_date = coalesce(exchange_rate_date, date)
+where
+  original_amount is null
+  or original_currency is null
+  or base_currency is null
+  or exchange_rate_used is null
+  or exchange_rate_date is null;
 
 update public.expenses
 set created_by = coalesce(created_by, user_id)

@@ -1,7 +1,7 @@
 import { createApp } from 'vue'
 import './style.css'
 import App from './App.vue'
-import { showPwaUpdate } from './composables/usePwaUpdate'
+import { registerPwaRegistration, setPwaUpdated, showPwaUpdate } from './composables/usePwaUpdate'
 import { setAppError } from './composables/useRuntimeStatus'
 
 const renderFatalError = (message: string) => {
@@ -71,12 +71,15 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (hasReloadedForUpdate || !pendingActivation) return
       hasReloadedForUpdate = true
+      setPwaUpdated()
       window.location.reload()
     })
 
     navigator.serviceWorker
-      .register(`/service-worker.js?v=${encodeURIComponent(__APP_VERSION__)}`)
+      .register('/service-worker.js', { updateViaCache: 'none' })
       .then(async (registration) => {
+        registerPwaRegistration(registration)
+
         if (registration.waiting) {
           promptForUpdate(registration)
         }

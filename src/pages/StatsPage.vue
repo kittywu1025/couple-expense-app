@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import SummaryPanel from '../components/SummaryPanel.vue'
 import { useExpenses } from '../composables/useExpenses'
 import { useSettings } from '../composables/useSettings'
+import { formatCurrency } from '../utils/currency'
 
 const { settings, categoryMap } = useSettings()
 const { categoryTotals, monthlySummary, selectedYearMonth } = useExpenses()
@@ -18,12 +19,7 @@ const topCategories = computed(() =>
     .slice(0, 3)
 )
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('ja-JP', {
-    style: 'currency',
-    currency: 'JPY',
-    maximumFractionDigits: 0,
-  }).format(value)
+const formatAmount = (value: number) => formatCurrency(value, settings.value.defaultCurrency)
 </script>
 
 <template>
@@ -66,7 +62,7 @@ const formatCurrency = (value: number) =>
             <strong>{{ categoryMap[categoryId]?.icon || '🧾' }} {{ categoryMap[categoryId]?.name || categoryId }}</strong>
             <p>{{ settings.meName }} / {{ settings.partnerName }} 当前月累计</p>
           </div>
-          <span>{{ formatCurrency(amount) }}</span>
+          <span>{{ formatAmount(amount) }}</span>
         </div>
       </div>
     </section>

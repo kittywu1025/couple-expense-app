@@ -63,6 +63,7 @@ const normalizeCategories = (categories?: ExpenseCategory[]): ExpenseCategory[] 
 const createDefaultSettings = (): AppSettings => ({
   meName: '我',
   partnerName: '另一半',
+  defaultCurrency: 'JPY',
   defaultSplits: {
     standard: { me: 50, partner: 50 },
     rent: { me: 60, partner: 40 },
@@ -76,6 +77,7 @@ const normalizeSettings = (value?: Partial<AppSettings>): AppSettings => {
   return {
     meName: value?.meName?.trim() || defaults.meName,
     partnerName: value?.partnerName?.trim() || defaults.partnerName,
+    defaultCurrency: value?.defaultCurrency || defaults.defaultCurrency,
     defaultSplits: {
       standard: normalizeSplit(value?.defaultSplits?.standard, defaults.defaultSplits.standard),
       rent: normalizeSplit(value?.defaultSplits?.rent, defaults.defaultSplits.rent),

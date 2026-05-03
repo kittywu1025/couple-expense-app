@@ -1,3 +1,4 @@
+import { normalizeCurrency } from '../utils/currency'
 import type { Expense } from '../types'
 import { supabase } from '../lib/supabase'
 
@@ -5,6 +6,11 @@ const mapExpenseRow = (row: Record<string, unknown>): Expense => ({
   id: String(row.id),
   title: String(row.title ?? ''),
   amount: Number(row.amount ?? 0),
+  originalAmount: Number(row.original_amount ?? row.amount ?? 0),
+  originalCurrency: normalizeCurrency(String(row.original_currency ?? row.base_currency ?? 'JPY')),
+  baseCurrency: normalizeCurrency(String(row.base_currency ?? 'JPY')),
+  exchangeRateUsed: Number(row.exchange_rate_used ?? 1),
+  exchangeRateDate: String(row.exchange_rate_date ?? row.date ?? new Date().toISOString().slice(0, 10)),
   date: String(row.date ?? ''),
   category: String(row.category ?? 'others'),
   payer: (row.payer as Expense['payer']) || 'me',
@@ -23,6 +29,11 @@ const mapExpenseRecord = (expense: Expense) => ({
   id: expense.id || crypto.randomUUID(),
   title: expense.title,
   amount: expense.amount,
+  original_amount: expense.originalAmount,
+  original_currency: expense.originalCurrency,
+  base_currency: expense.baseCurrency,
+  exchange_rate_used: expense.exchangeRateUsed,
+  exchange_rate_date: expense.exchangeRateDate,
   date: expense.date,
   category: expense.category,
   payer: expense.payer,

@@ -6,6 +6,7 @@ import { useBooks } from './useBooks'
 import { useSettings } from './useSettings'
 import { deleteExpenseRemote, fetchExpenses, upsertExpense } from './useSupabaseExpenses'
 import { clearSyncWarning, setSyncWarning } from './useRuntimeStatus'
+import { normalizeCurrency } from '../utils/currency'
 
 const STORAGE_KEY = 'couple-expense-app-expenses'
 const selectedYearMonth = ref(new Date().toISOString().slice(0, 7))
@@ -71,6 +72,11 @@ const normalizeExpense = (expense: Partial<Expense>): Expense => {
     id: expense.id || crypto.randomUUID(),
     title: normalizedTitle,
     amount: Math.max(0, Number(expense.amount) || 0),
+    originalAmount: Math.max(0, Number(expense.originalAmount ?? expense.amount) || 0),
+    originalCurrency: normalizeCurrency(expense.originalCurrency || expense.baseCurrency || settings.value.defaultCurrency),
+    baseCurrency: normalizeCurrency(expense.baseCurrency || settings.value.defaultCurrency),
+    exchangeRateUsed: Math.max(0, Number(expense.exchangeRateUsed) || 1),
+    exchangeRateDate: expense.exchangeRateDate || expense.date || new Date().toISOString().slice(0, 10),
     date: expense.date || new Date().toISOString().slice(0, 10),
     category: expense.category || 'others',
     payer,
@@ -114,6 +120,18 @@ const loadRemoteExpenses = async () => {
     console.error('加载远程开销失败：', error)
     setSyncWarning('云端账本读取失败，当前继续使用本地缓存数据。')
   }
+}
+
+const refreshExpenses = async () => {
+  if (authUser.value?.id && currentBookId.value && !isLocalBookMode.value) {
+    await loadRemoteExpenses()
+    return
+  }
+
+  expenses.value = sortExpenses(
+    loadJSON<Expense[]>(STORAGE_KEY, []).map((expense) => normalizeExpense(expense))
+  )
+  clearSyncWarning()
 }
 
 watch(
@@ -280,5 +298,6 @@ export function useExpenses() {
     addExpense,
     updateExpense,
     deleteExpense,
+    refreshExpenses,
   }
 }

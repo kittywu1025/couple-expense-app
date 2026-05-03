@@ -4,6 +4,7 @@ import type { Expense } from '../types'
 import { useBooks } from '../composables/useBooks'
 import { getEffectiveExpenseDate, useExpenses } from '../composables/useExpenses'
 import { useSettings } from '../composables/useSettings'
+import { formatCurrency, getExpenseAmountLabel } from '../utils/currency'
 
 const emit = defineEmits<{
   (e: 'add'): void
@@ -12,7 +13,7 @@ const emit = defineEmits<{
   (e: 'open-settings'): void
 }>()
 
-const { categoryMap } = useSettings()
+const { settings, categoryMap } = useSettings()
 const { currentBook } = useBooks()
 const { filteredExpenses, monthlySummary, selectedYearMonth } = useExpenses()
 
@@ -28,13 +29,6 @@ const shiftMonth = (offset: number) => {
 }
 
 const recentExpenses = computed(() => filteredExpenses.value.slice(0, 8))
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('ja-JP', {
-    style: 'currency',
-    currency: 'JPY',
-    maximumFractionDigits: 0,
-  }).format(value)
-
 const formatGroupDate = (value: string) =>
   new Date(`${value}T00:00:00`).toLocaleDateString('zh-CN', {
     month: 'numeric',
@@ -75,17 +69,23 @@ const recentExpenseGroups = computed(() => {
 
   return Array.from(groups.values())
 })
+const formatMonthCurrency = (value: number) => formatCurrency(value, settings.value.defaultCurrency)
+const formatExpenseAmount = (expense: Expense) => getExpenseAmountLabel(expense)
 </script>
 
 <template>
   <section class="page-stack">
     <section class="home-app-header">
       <div class="home-app-bar home-app-bar-centered">
-        <button type="button" class="ghost-icon-button" @click="emit('open-settings')">⌂</button>
+        <span class="home-app-leading-spacer" aria-hidden="true"></span>
         <div class="home-app-title">
           <h1>{{ currentBook?.name || '我们的账本' }}</h1>
         </div>
-        <button type="button" class="ghost-icon-button" @click="emit('open-settings')">⋯</button>
+        <button type="button" class="ghost-icon-button" aria-label="打开设置" @click="emit('open-settings')">
+          <svg viewBox="0 0 24 24" class="icon-gear" aria-hidden="true">
+            <path d="M19.14 12.94a7.9 7.9 0 0 0 .05-.94 7.9 7.9 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.63l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.2 7.2 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.85a.5.5 0 0 0 .12.63l2.03 1.58a7.9 7.9 0 0 0-.05.94c0 .32.02.63.05.94l-2.03 1.58a.5.5 0 0 0-.12.63l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.51.4 1.05.71 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.23 1.12-.54 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.63zm-7.14 2.56A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z" />
+          </svg>
+        </button>
       </div>
 
       <div class="home-month-row">
@@ -104,7 +104,7 @@ const recentExpenseGroups = computed(() => {
     <section class="home-summary-card">
       <div class="home-summary-top">
         <span>总支出</span>
-        <strong>{{ formatCurrency(monthlySummary.totalAmount) }}</strong>
+        <strong>{{ formatMonthCurrency(monthlySummary.totalAmount) }}</strong>
       </div>
     </section>
 
@@ -112,7 +112,7 @@ const recentExpenseGroups = computed(() => {
       <div class="section-heading compact">
         <div>
           <p class="section-kicker">最近记录</p>
-          <h2>流水</h2>
+          <h2>最近记录</h2>
         </div>
       </div>
 
@@ -125,7 +125,7 @@ const recentExpenseGroups = computed(() => {
         <section v-for="group in recentExpenseGroups" :key="group.date" class="home-ledger-group">
           <header class="home-ledger-group-header">
             <span>{{ formatGroupDate(group.date) }}</span>
-            <strong>{{ formatCurrency(group.total) }}</strong>
+            <strong>{{ formatMonthCurrency(group.total) }}</strong>
           </header>
 
           <button
@@ -145,7 +145,7 @@ const recentExpenseGroups = computed(() => {
               </span>
               <span v-if="item.note" class="home-ledger-note">{{ item.note }}</span>
             </span>
-            <span class="home-ledger-amount">{{ formatCurrency(item.amount) }}</span>
+            <span class="home-ledger-amount">{{ formatExpenseAmount(item) }}</span>
           </button>
         </section>
       </div>

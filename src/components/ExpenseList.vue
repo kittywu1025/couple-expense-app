@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { Expense } from '../types'
 import { useSettings } from '../composables/useSettings'
+import { getExpenseAmountLabel } from '../utils/currency'
 
 const props = defineProps<{
   expenses: Expense[]
@@ -16,13 +17,6 @@ const emit = defineEmits<{
 
 const { settings, categoryMap } = useSettings()
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('ja-JP', {
-    style: 'currency',
-    currency: 'JPY',
-    maximumFractionDigits: 0,
-  }).format(value)
-
 const formatDate = (value: string) =>
   new Date(`${value}T00:00:00`).toLocaleDateString('zh-CN', {
     month: 'short',
@@ -34,6 +28,7 @@ const payerLabels = computed(() => ({
   me: settings.value.meName,
   partner: settings.value.partnerName,
 }))
+const formatExpenseAmount = (expense: Expense) => getExpenseAmountLabel(expense)
 </script>
 
 <template>
@@ -52,7 +47,7 @@ const payerLabels = computed(() => ({
                 {{ categoryMap[item.category]?.icon || '🧾' }} {{ categoryMap[item.category]?.name || item.category }}
               </span>
             </div>
-            <span class="expense-amount">{{ formatCurrency(item.amount) }}</span>
+            <span class="expense-amount">{{ formatExpenseAmount(item) }}</span>
           </div>
           <div class="expense-item-meta">
             <span>{{ formatDate(props.effectiveDate ? props.effectiveDate(item) : item.date) }}</span>
@@ -63,6 +58,9 @@ const payerLabels = computed(() => ({
 
       <div class="expense-item-tags">
         <span class="info-pill soft">{{ item.recurrence === 'monthly' ? '每月固定' : '单次消费' }}</span>
+        <span v-if="item.originalCurrency !== item.baseCurrency" class="info-pill soft">
+          按 {{ item.exchangeRateUsed }} 汇率计入 {{ item.baseCurrency }}
+        </span>
         <span class="info-pill">{{ settings.meName }} {{ item.split.me }}%</span>
         <span class="info-pill">{{ settings.partnerName }} {{ item.split.partner }}%</span>
       </div>

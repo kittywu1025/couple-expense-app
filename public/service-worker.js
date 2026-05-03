@@ -1,4 +1,4 @@
-const CACHE_VERSION = new URL(self.location.href).searchParams.get('v') || 'dev'
+const CACHE_VERSION = 'v2'
 const APP_PREFIX = 'couple-expense-app'
 const PAGE_CACHE_NAME = `${APP_PREFIX}-pages-${CACHE_VERSION}`
 const ASSET_CACHE_NAME = `${APP_PREFIX}-assets-${CACHE_VERSION}`
@@ -8,7 +8,6 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(ASSET_CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
   )
-  self.skipWaiting()
 })
 
 self.addEventListener('activate', (event) => {
@@ -52,6 +51,15 @@ self.addEventListener('fetch', (event) => {
 
   const requestUrl = new URL(event.request.url)
   const isSameOrigin = requestUrl.origin === self.location.origin
+  const shouldBypassCache =
+    requestUrl.pathname === '/' ||
+    requestUrl.pathname === '/index.html' ||
+    requestUrl.pathname === '/service-worker.js'
+
+  if (shouldBypassCache) {
+    event.respondWith(fetch(event.request, { cache: 'no-store' }))
+    return
+  }
 
   if (event.request.mode === 'navigate') {
     event.respondWith(

@@ -92,10 +92,9 @@ textarea {
 .app-shell {
   max-width: 760px;
   margin: 0 auto;
-  padding: 20px 16px 132px;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 132px;
 }
 
-.app-header,
 .page-card,
 .section-card,
 .hero-card,
@@ -107,14 +106,6 @@ textarea {
   backdrop-filter: blur(18px);
 }
 
-.app-header {
-  padding: 8px 2px 6px;
-  background: transparent;
-  border: none;
-  box-shadow: none;
-  backdrop-filter: none;
-}
-
 .page-card,
 .section-card,
 .hero-card,
@@ -122,7 +113,6 @@ textarea {
   padding: 18px;
 }
 
-.header-copy h1,
 .hero-card h2,
 .section-heading h2,
 .section-heading h3,
@@ -130,7 +120,6 @@ textarea {
   margin: 0;
 }
 
-.header-copy h1,
 .hero-card h2,
 .summary-hero h2 {
   font-size: clamp(1.8rem, 5vw, 2.4rem);
@@ -144,7 +133,6 @@ textarea {
   letter-spacing: -0.02em;
 }
 
-.header-text,
 .hero-text,
 .summary-hero-text,
 .subtitle {
@@ -160,11 +148,12 @@ textarea {
 
 .hero-card {
   display: grid;
-  gap: 16px;
+  gap: 14px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(249, 251, 254, 0.9) 100%);
 }
 
 .app-page-head,
+.home-app-bar,
 .hero-top,
 .section-heading,
 .summary-hero,
@@ -191,6 +180,30 @@ textarea {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.home-app-header {
+  display: grid;
+  gap: 12px;
+  padding: 4px 2px 0;
+}
+
+.home-app-bar {
+  align-items: flex-start;
+}
+
+.home-app-bar h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+}
+
+.home-app-month {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+  font-size: 0.94rem;
+  font-weight: 600;
 }
 
 .month-switch-row,
@@ -220,6 +233,14 @@ textarea {
 .month-switch-row {
   grid-template-columns: auto 1fr auto;
   align-items: center;
+}
+
+.month-switch-row-compact {
+  padding: 10px 12px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  backdrop-filter: blur(18px);
 }
 
 .month-switch-copy {
@@ -703,7 +724,7 @@ textarea {
 .floating-action-button {
   position: fixed;
   right: 22px;
-  bottom: calc(108px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(98px + env(safe-area-inset-bottom, 0px));
   width: 62px;
   height: 62px;
   border: none;
@@ -722,7 +743,7 @@ textarea {
   transform: translateX(-50%);
   width: min(calc(100% - 28px), 720px);
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   padding: 8px;
   border-radius: 28px;
@@ -755,7 +776,7 @@ textarea {
 
 @media (max-width: 640px) {
   .app-shell {
-    padding: 18px 12px 128px;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 128px;
   }
 
   .field-row,
@@ -796,6 +817,10 @@ textarea {
   .summary-total strong,
   .expense-amount {
     font-size: 1.34rem;
+  }
+
+  .home-app-bar h1 {
+    font-size: 1.36rem;
   }
 
   .tab-bar {

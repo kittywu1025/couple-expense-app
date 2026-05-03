@@ -4,7 +4,8 @@
 
 ## 功能介绍
 
-- 📱 移动端优先界面，底部 `TabBar` 切换页面
+- 📱 移动端优先界面，首页顶部采用更接近原生 App 的轻量账本头部，适配 iPhone 安全区
+- 🧭 底部 `TabBar` 精简为 `首页 / 记录 / 统计 / 设置` 四个主入口，新增消费由右下角悬浮按钮统一承担
 - 🧾 账本页面：新增、编辑、删除开销，按月统计消费
 - 🔍 搜索功能：支持按标题、备注、类别或支付方搜索账目
 - 🧾 固定账单支持：可以单独设置每月固定扣费（如话费、水电、宽带）
@@ -16,19 +17,31 @@
 
 ## 项目结构
 
-- `src/App.vue` - 应用入口，底部 TabBar 与页面路由
-- `src/pages/OverviewPage.vue` - 账本概览页面
-- `src/pages/CalendarPage.vue` - 消费日历页面
-- `src/pages/ChoresPage.vue` - 家务积分页面
-- `src/pages/CountdownPage.vue` - 倒数日页面
+- `src/App.vue` - 应用入口，页面切换、悬浮新增入口与底部导航
+- `src/pages/HomePage.vue` - 首页，包含账本头部、月度摘要与最近记录
+- `src/pages/AddExpensePage.vue` - 新增 / 编辑消费页面
+- `src/pages/RecordsPage.vue` - 消费记录筛选与列表页面
+- `src/pages/StatsPage.vue` - 统计页面
+- `src/pages/SettingsPage.vue` - 账本与个人设置页面
+- `src/pages/AuthPage.vue` - Supabase 邮箱登录页面
+- `src/pages/BookSetupPage.vue` - 创建 / 加入账本页面
 - `src/components/TabBar.vue` - 底部导航栏组件
 - `src/components/ExpenseForm.vue` - 开销新增 / 编辑表单
 - `src/components/ExpenseList.vue` - 开销列表
 - `src/components/SummaryPanel.vue` - 统计概览面板
+- `src/composables/useBooks.ts` - 账本读取、创建、加入与当前账本状态
 - `src/composables/useExpenses.ts` - 开销数据存储与计算逻辑
-- `src/composables/useChores.ts` - 家务积分数据存储与计算逻辑
-- `src/composables/useCountdown.ts` - 倒数日设置存储逻辑
+- `src/composables/useSupabaseAuth.ts` - Supabase 登录状态管理
+- `src/composables/useSupabaseExpenses.ts` - Supabase 开销同步逻辑
 - `src/types.ts` - 共享类型定义
+
+## 本次界面调整
+
+- 首页移除了网页式 Banner，不再显示 `COUPLE LEDGER`、超大中文标题和说明性文案。
+- 首页顶部改为轻量账本头部：显示当前账本名称、当前月份、月份切换按钮和设置入口。
+- 首页首屏结构调整为：轻量顶部、月度摘要卡片、最近记录，整体更贴近原生记账 App。
+- 底部导航移除了“添加”项，避免与右下角悬浮添加按钮重复。
+- 右下角悬浮按钮保留，继续作为新增消费的唯一主入口，不影响原有新增 / 编辑逻辑。
 
 ## 运行方式
 
@@ -43,6 +56,8 @@ npm run dev
 ```text
 http://localhost:5173
 ```
+
+移动端预览时，建议直接使用手机浏览器或设备模拟器查看，以确认顶部安全区、底部安全区和悬浮按钮位置表现正常。
 
 ## 构建生产版本
 

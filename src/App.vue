@@ -18,7 +18,6 @@ const { needsBookSetup } = useBooks()
 
 const tabs = [
   { key: 'home', label: '首页', icon: '⌂' },
-  { key: 'add', label: '添加', icon: '+' },
   { key: 'records', label: '记录', icon: '≣' },
   { key: 'stats', label: '统计', icon: '◔' },
   { key: 'settings', label: '设置', icon: '⚙' },
@@ -62,11 +61,6 @@ const handleCancelForm = () => {
 }
 
 const handleTabChange = (tab: string) => {
-  if (tab === 'add') {
-    openNewExpense('home')
-    return
-  }
-
   editingExpenseId.value = null
   activeTab.value = tab
 }
@@ -89,17 +83,6 @@ const handleDeleteSuccess = () => {
     <AuthPage v-if="isSupabaseEnabled && !authUser" />
 
     <template v-else>
-      <header class="app-header app-header-minimal">
-        <div class="header-copy">
-          <p class="section-kicker">Couple Ledger</p>
-          <h1>情侣同居记账</h1>
-          <p class="header-text">
-            参考 iCost 风格重做的浅色账本界面，保留原有业务逻辑。
-            {{ isSupabaseEnabled ? '当前已连接云端账本。' : '当前使用本地模式。' }}
-          </p>
-        </div>
-      </header>
-
       <div v-if="flashMessage" class="flash-message">{{ flashMessage }}</div>
       <div v-if="syncWarning && !needsBookSetup" class="warning-message">{{ syncWarning }}</div>
       <div v-if="appError" class="error-message error-banner">

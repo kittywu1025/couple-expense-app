@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import ExpenseList from '../components/ExpenseList.vue'
+import { useBooks } from '../composables/useBooks'
 import { getEffectiveExpenseDate, useExpenses } from '../composables/useExpenses'
 import { useSettings } from '../composables/useSettings'
 
@@ -11,6 +12,7 @@ const emit = defineEmits<{
 }>()
 
 const { settings, categoryMap } = useSettings()
+const { currentBook } = useBooks()
 const { categoryTotals, filteredExpenses, monthlySummary, selectedYearMonth } = useExpenses()
 
 const monthLabel = computed(() => {
@@ -50,24 +52,27 @@ const formatCurrency = (value: number) =>
 
 <template>
   <section class="page-stack">
-    <section class="hero-card">
-      <div class="app-page-head">
+    <section class="home-app-header">
+      <div class="home-app-bar">
         <div>
-          <p class="section-kicker">默认账本</p>
-          <h2>我们的账本</h2>
+          <p class="section-kicker">当前账本</p>
+          <h1>{{ currentBook?.name || '我们的账本' }}</h1>
+          <p class="home-app-month">{{ monthLabel }}</p>
         </div>
         <button type="button" class="ghost-icon-button" @click="emit('open-settings')">⋯</button>
       </div>
 
-      <div class="month-switch-row">
+      <div class="month-switch-row month-switch-row-compact">
         <button type="button" class="round-nav-button" @click="shiftMonth(-1)">‹</button>
         <div class="month-switch-copy">
-          <strong>{{ monthLabel }}</strong>
-          <p>本月账本总览</p>
+          <strong>本月概览</strong>
+          <p>{{ monthLabel }}</p>
         </div>
         <button type="button" class="round-nav-button" @click="shiftMonth(1)">›</button>
       </div>
+    </section>
 
+    <section class="hero-card">
       <div class="hero-balance-card">
         <span>总支出</span>
         <strong>{{ formatCurrency(monthlySummary.totalAmount) }}</strong>

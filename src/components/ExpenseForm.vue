@@ -92,6 +92,7 @@ const splitOptions = computed(() => [
 ])
 
 const splitSummary = computed(() => `${settings.value.meName}承担 ${form.split.me}% · ${settings.value.partnerName}承担 ${form.split.partner}%`)
+const defaultCurrencyHint = computed(() => `本笔将按 ${form.baseCurrency} 记账`)
 
 const syncSplitMode = () => {
   if (form.splitPreset === 'custom') {
@@ -107,11 +108,32 @@ const syncSplitMode = () => {
   splitMode.value = 'equal'
 }
 
+const syncCurrencyFields = () => {
+  form.baseCurrency = form.baseCurrency || settings.value.defaultCurrency || 'JPY'
+  form.originalCurrency = form.originalCurrency || form.baseCurrency
+  form.exchangeRateDate = form.date || form.exchangeRateDate || new Date().toISOString().slice(0, 10)
+  const precision = form.baseCurrency === 'JPY' || form.baseCurrency === 'KRW' ? 0 : 2
+
+  if (form.originalCurrency === form.baseCurrency) {
+    form.exchangeRateUsed = 1
+    form.amount = Number((Number(form.originalAmount) || 0).toFixed(precision))
+    return
+  }
+
+  const safeRate = Number(form.exchangeRateUsed) || 0
+  form.amount = Number(((Number(form.originalAmount) || 0) * safeRate).toFixed(precision))
+}
+
+const updateOriginalCurrency = (currency: SupportedCurrency) => {
+  form.originalCurrency = currency || settings.value.defaultCurrency || 'JPY'
+  syncCurrencyFields()
+}
+
 const syncFromExpense = (value?: Expense | null) => {
   const nextExpense = value ? { ...value } : createDefaultExpense()
   if (!value) {
-    nextExpense.baseCurrency = settings.value.defaultCurrency
-    nextExpense.originalCurrency = settings.value.defaultCurrency
+    nextExpense.baseCurrency = settings.value.defaultCurrency || 'JPY'
+    nextExpense.originalCurrency = settings.value.defaultCurrency || 'JPY'
     nextExpense.exchangeRateUsed = 1
     nextExpense.exchangeRateDate = nextExpense.date
   }
@@ -122,14 +144,6 @@ const syncFromExpense = (value?: Expense | null) => {
   syncCurrencyFields()
   syncSplitMode()
 }
-
-watch(
-  () => props.expense,
-  (value) => {
-    syncFromExpense(value)
-  },
-  { immediate: true }
-)
 
 const applySplitMode = (mode: 'equal' | 'personal' | 'treat' | 'custom') => {
   splitMode.value = mode
@@ -170,35 +184,21 @@ const updateSplitValue = (field: 'me' | 'partner', value: number) => {
   form.split[field === 'me' ? 'partner' : 'me'] = Number((100 - safeValue).toFixed(2))
 }
 
-const syncCurrencyFields = () => {
-  form.baseCurrency = form.baseCurrency || settings.value.defaultCurrency
-  form.originalCurrency = form.originalCurrency || form.baseCurrency
-  form.exchangeRateDate = form.date || form.exchangeRateDate
-  const precision = form.baseCurrency === 'JPY' || form.baseCurrency === 'KRW' ? 0 : 2
-
-  if (form.originalCurrency === form.baseCurrency) {
-    form.exchangeRateUsed = 1
-    form.amount = Number((Number(form.originalAmount) || 0).toFixed(precision))
-    return
-  }
-
-  form.amount = Number(
-    ((Number(form.originalAmount) || 0) * (Number(form.exchangeRateUsed) || 0)).toFixed(precision)
-  )
-}
-
-const updateOriginalCurrency = (currency: SupportedCurrency) => {
-  form.originalCurrency = currency
-  syncCurrencyFields()
-}
+watch(
+  () => props.expense,
+  (value) => {
+    syncFromExpense(value)
+  },
+  { immediate: true }
+)
 
 watch(
   () => settings.value.defaultCurrency,
   (currency) => {
     if (props.expense) return
-    form.baseCurrency = currency
+    form.baseCurrency = currency || 'JPY'
     if (!form.originalCurrency) {
-      form.originalCurrency = currency
+      form.originalCurrency = currency || 'JPY'
     }
     syncCurrencyFields()
   }
@@ -244,26 +244,31 @@ const submit = () => {
 
       <label class="field-group amount-field">
         <span class="field-label">金额</span>
-        <div class="amount-currency-row">
-          <div class="amount-input-wrap">
-            <span class="currency-label">{{ form.originalCurrency }}</span>
-            <input
-              v-model.number="form.originalAmount"
-              type="number"
-              min="0"
-              step="0.01"
-              inputmode="decimal"
-              placeholder="0"
-            />
-          </div>
-          <label class="field-group currency-select-group">
-            <span class="field-label">货币</span>
-            <select :value="form.originalCurrency" @change="updateOriginalCurrency(($event.target as HTMLSelectElement).value as SupportedCurrency)">
-              <option v-for="currency in currencyOptions" :key="currency.code" :value="currency.code">
-                {{ currency.code }} {{ currency.label }}
-              </option>
-            </select>
-          </label>
+        <div class="amount-header-row">
+          <strong class="amount-currency-badge">{{ form.originalCurrency || settings.defaultCurrency || 'JPY' }}</strong>
+          <span class="amount-header-hint">{{ defaultCurrencyHint }}</span>
+        </div>
+        <div class="amount-input-wrap">
+          <input
+            v-model.number="form.originalAmount"
+            type="number"
+            min="0"
+            step="0.01"
+            inputmode="decimal"
+            :placeholder="form.originalCurrency === 'JPY' || form.originalCurrency === 'KRW' ? '0' : '0.00'"
+          />
+        </div>
+
+        <div class="currency-pill-row" role="group" aria-label="货币选择">
+          <button
+            v-for="currency in currencyOptions"
+            :key="currency.code"
+            type="button"
+            :class="['currency-pill', { active: form.originalCurrency === currency.code }]"
+            @click="updateOriginalCurrency(currency.code)"
+          >
+            {{ currency.code }}
+          </button>
         </div>
       </label>
 
@@ -303,7 +308,7 @@ const submit = () => {
           </label>
         </div>
         <p class="exchange-hint">汇率获取失败，请手动填写汇率</p>
-        <p class="exchange-result">按当前汇率将计入 {{ convertedAmountPreview }} {{ form.baseCurrency }}</p>
+        <p class="exchange-result">按当前汇率将计入 {{ convertedAmountPreview }}</p>
       </div>
 
       <div v-else class="exchange-panel exchange-panel-plain">
@@ -311,7 +316,7 @@ const submit = () => {
           <strong>默认货币</strong>
           <span class="info-pill soft">{{ form.baseCurrency }}</span>
         </div>
-        <p class="exchange-result">这笔记录会直接按 {{ convertedAmountPreview }} 入账。</p>
+        <p class="exchange-result">当前默认货币：{{ form.baseCurrency }}</p>
       </div>
 
       <label class="field-group">

@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import './style.css'
 import App from './App.vue'
+import { showPwaUpdate } from './composables/usePwaUpdate'
 import { setAppError } from './composables/useRuntimeStatus'
 
 const renderFatalError = (message: string) => {
@@ -53,9 +54,48 @@ if ('serviceWorker' in navigator) {
       return
     }
 
+    let hasReloadedForUpdate = false
+    let pendingActivation = false
+
+    const activateWaitingWorker = (registration: ServiceWorkerRegistration) => {
+      if (!registration.waiting) return
+      pendingActivation = true
+      registration.waiting.postMessage({ type: 'SKIP_WAITING' })
+    }
+
+    const promptForUpdate = (registration: ServiceWorkerRegistration) => {
+      if (!registration.waiting) return
+      showPwaUpdate(__APP_VERSION__, () => activateWaitingWorker(registration))
+    }
+
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hasReloadedForUpdate || !pendingActivation) return
+      hasReloadedForUpdate = true
+      window.location.reload()
+    })
+
     navigator.serviceWorker
-      .register('/service-worker.js')
+      .register(`/service-worker.js?v=${encodeURIComponent(__APP_VERSION__)}`)
       .then(async (registration) => {
+        if (registration.waiting) {
+          promptForUpdate(registration)
+        }
+
+        registration.addEventListener('updatefound', () => {
+          const installingWorker = registration.installing
+          if (!installingWorker) return
+
+          installingWorker.addEventListener('statechange', () => {
+            if (
+              installingWorker.state === 'installed' &&
+              navigator.serviceWorker.controller &&
+              registration.waiting
+            ) {
+              promptForUpdate(registration)
+            }
+          })
+        })
+
         await registration.update()
       })
       .catch((error) => {

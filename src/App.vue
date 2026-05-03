@@ -8,6 +8,7 @@ import HomePage from './pages/HomePage.vue'
 import RecordsPage from './pages/RecordsPage.vue'
 import SettingsPage from './pages/SettingsPage.vue'
 import StatsPage from './pages/StatsPage.vue'
+import { applyPwaUpdate, dismissPwaUpdate, usePwaUpdate } from './composables/usePwaUpdate'
 import { useBooks } from './composables/useBooks'
 import { useSupabaseAuth } from './composables/useSupabaseAuth'
 import { useRuntimeStatus } from './composables/useRuntimeStatus'
@@ -15,6 +16,7 @@ import { useRuntimeStatus } from './composables/useRuntimeStatus'
 const { authUser, authLoading, isSupabaseEnabled } = useSupabaseAuth()
 const { appError, syncWarning, clearAppError } = useRuntimeStatus()
 const { needsBookSetup } = useBooks()
+const { updateAvailable } = usePwaUpdate()
 
 const tabs = [
   { key: 'home', label: '首页', icon: '⌂' },
@@ -83,6 +85,19 @@ const handleDeleteSuccess = () => {
     <AuthPage v-if="isSupabaseEnabled && !authUser" />
 
     <template v-else>
+      <div v-if="updateAvailable" class="update-toast" role="status" aria-live="polite">
+        <div>
+          <strong>发现新版本</strong>
+          <p>刷新后即可使用最新界面。</p>
+        </div>
+        <div class="update-toast-actions">
+          <button class="text-button" type="button" @click="dismissPwaUpdate">稍后</button>
+          <button class="primary-button compact-button" type="button" @click="applyPwaUpdate">
+            立即刷新
+          </button>
+        </div>
+      </div>
+
       <div v-if="flashMessage" class="flash-message">{{ flashMessage }}</div>
       <div v-if="syncWarning && !needsBookSetup" class="warning-message">{{ syncWarning }}</div>
       <div v-if="appError" class="error-message error-banner">

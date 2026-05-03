@@ -1,9 +1,12 @@
-const CACHE_NAME = 'couple-expense-app-v3'
-const CACHE_URLS = ['/', '/index.html', '/style.css', '/favicon.svg', '/manifest.webmanifest']
+const CACHE_VERSION = new URL(self.location.href).searchParams.get('v') || 'dev'
+const APP_PREFIX = 'couple-expense-app'
+const PAGE_CACHE_NAME = `${APP_PREFIX}-pages-${CACHE_VERSION}`
+const ASSET_CACHE_NAME = `${APP_PREFIX}-assets-${CACHE_VERSION}`
+const PRECACHE_URLS = ['/favicon.svg', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(CACHE_URLS))
+    caches.open(ASSET_CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
   )
   self.skipWaiting()
 })
@@ -13,13 +16,34 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) =>
       Promise.all(
         cacheNames
-          .filter((cacheName) => cacheName !== CACHE_NAME)
+          .filter(
+            (cacheName) =>
+              cacheName.startsWith(`${APP_PREFIX}-`) &&
+              cacheName !== PAGE_CACHE_NAME &&
+              cacheName !== ASSET_CACHE_NAME,
+          )
           .map((cacheName) => caches.delete(cacheName))
       )
     )
   )
   self.clients.claim()
 })
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') {
+    self.skipWaiting()
+  }
+})
+
+const putInCache = async (cacheName, request, response) => {
+  if (!response || response.status !== 200 || response.type !== 'basic') {
+    return response
+  }
+
+  const cache = await caches.open(cacheName)
+  await cache.put(request, response.clone())
+  return response
+}
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') {
@@ -31,55 +55,43 @@ self.addEventListener('fetch', (event) => {
 
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request)
+      fetch(event.request, { cache: 'no-store' })
         .then((response) => {
-          const responseClone = response.clone()
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put('/index.html', responseClone)
-          })
-          return response
+          return putInCache(PAGE_CACHE_NAME, '/index.html', response)
         })
-        .catch(() => caches.match('/index.html'))
+        .catch(async () => {
+          const cachedPage = await caches.match('/index.html')
+          return cachedPage || caches.match(event.request)
+        })
     )
     return
   }
 
-  if (isSameOrigin && ['script', 'style', 'worker'].includes(event.request.destination)) {
+  if (isSameOrigin && requestUrl.pathname.startsWith('/assets/')) {
     event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const responseClone = response.clone()
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseClone)
-            })
-          }
-          return response
-        })
-        .catch(() => caches.match(event.request))
+      caches.match(event.request).then((cachedResponse) => {
+        if (cachedResponse) {
+          return cachedResponse
+        }
+
+        return fetch(event.request).then((response) => putInCache(ASSET_CACHE_NAME, event.request, response))
+      })
     )
     return
   }
 
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
+    caches.match(event.request).then(async (cachedResponse) => {
       if (cachedResponse) {
         return cachedResponse
       }
 
-      return fetch(event.request)
-        .then((response) => {
-          if (!response || response.status !== 200 || response.type !== 'basic') {
-            return response
-          }
-
-          const responseClone = response.clone()
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone)
-          })
-          return response
-        })
-        .catch(() => caches.match('/index.html'))
+      try {
+        const response = await fetch(event.request)
+        return putInCache(ASSET_CACHE_NAME, event.request, response)
+      } catch {
+        return caches.match('/index.html')
+      }
     })
   )
 })

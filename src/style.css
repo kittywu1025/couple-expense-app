@@ -676,7 +676,8 @@ textarea {
 .status-message,
 .warning-message,
 .error-message,
-.empty-state {
+.empty-state,
+.update-toast {
   border-radius: 18px;
   padding: 13px 14px;
 }
@@ -702,6 +703,38 @@ textarea {
   justify-content: space-between;
   gap: 12px;
   align-items: center;
+}
+
+.update-toast {
+  position: sticky;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  background: rgba(255, 248, 229, 0.96);
+  border: 1px solid rgba(255, 200, 74, 0.32);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(18px);
+}
+
+.update-toast strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.update-toast p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.9rem;
+}
+
+.update-toast-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .empty-state {
@@ -797,6 +830,7 @@ textarea {
   .sync-card,
   .highlight-item,
   .error-banner,
+  .update-toast,
   .settings-action-row,
   .split-summary-row,
   .split-slider-labels,

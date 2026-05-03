@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import ExpenseList from '../components/ExpenseList.vue'
+import type { Expense } from '../types'
 import { useBooks } from '../composables/useBooks'
 import { getEffectiveExpenseDate, useExpenses } from '../composables/useExpenses'
 import { useSettings } from '../composables/useSettings'
@@ -13,7 +13,7 @@ const emit = defineEmits<{
 
 const { settings, categoryMap } = useSettings()
 const { currentBook } = useBooks()
-const { categoryTotals, filteredExpenses, monthlySummary, selectedYearMonth } = useExpenses()
+const { filteredExpenses, monthlySummary, selectedYearMonth } = useExpenses()
 
 const monthLabel = computed(() => {
   const [year, month] = selectedYearMonth.value.split('-')
@@ -26,21 +26,8 @@ const shiftMonth = (offset: number) => {
   selectedYearMonth.value = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`
 }
 
-const recentExpenses = computed(() => filteredExpenses.value.slice(0, 4))
+const recentExpenses = computed(() => filteredExpenses.value.slice(0, 8))
 const recordCount = computed(() => filteredExpenses.value.length)
-const topCategories = computed(() =>
-  Object.entries(categoryTotals.value)
-    .sort((left, right) => right[1] - left[1])
-    .slice(0, 3)
-)
-const topCategoryName = computed(() => {
-  const topCategoryId = topCategories.value[0]?.[0]
-  return topCategoryId ? categoryMap.value[topCategoryId]?.name || topCategoryId : ''
-})
-const topCategoryIcon = computed(() => {
-  const topCategoryId = topCategories.value[0]?.[0]
-  return topCategoryId ? categoryMap.value[topCategoryId]?.icon || '🧾' : ''
-})
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('ja-JP', {
@@ -48,98 +35,134 @@ const formatCurrency = (value: number) =>
     currency: 'JPY',
     maximumFractionDigits: 0,
   }).format(value)
+
+const formatGroupDate = (value: string) =>
+  new Date(`${value}T00:00:00`).toLocaleDateString('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    weekday: 'short',
+  })
+
+const formatTime = (expense: Expense) => {
+  if (expense.createdAt) {
+    return new Date(expense.createdAt).toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+  }
+
+  return '00:00'
+}
+
+const recentExpenseGroups = computed(() => {
+  const groups = new Map<string, { date: string; total: number; items: Expense[] }>()
+
+  recentExpenses.value.forEach((expense) => {
+    const date = getEffectiveExpenseDate(expense, selectedYearMonth.value)
+    const current = groups.get(date)
+    if (current) {
+      current.items.push(expense)
+      current.total += expense.amount
+      return
+    }
+
+    groups.set(date, {
+      date,
+      total: expense.amount,
+      items: [expense],
+    })
+  })
+
+  return Array.from(groups.values())
+})
 </script>
 
 <template>
   <section class="page-stack">
     <section class="home-app-header">
-      <div class="home-app-bar">
-        <div>
-          <p class="section-kicker">当前账本</p>
+      <div class="home-app-bar home-app-bar-centered">
+        <button type="button" class="ghost-icon-button" @click="emit('open-settings')">⌂</button>
+        <div class="home-app-title">
           <h1>{{ currentBook?.name || '我们的账本' }}</h1>
-          <p class="home-app-month">{{ monthLabel }}</p>
         </div>
         <button type="button" class="ghost-icon-button" @click="emit('open-settings')">⋯</button>
       </div>
 
-      <div class="month-switch-row month-switch-row-compact">
+      <div class="home-month-row">
         <button type="button" class="round-nav-button" @click="shiftMonth(-1)">‹</button>
-        <div class="month-switch-copy">
-          <strong>本月概览</strong>
-          <p>{{ monthLabel }}</p>
-        </div>
+        <strong>{{ monthLabel }}</strong>
         <button type="button" class="round-nav-button" @click="shiftMonth(1)">›</button>
       </div>
     </section>
 
-    <section class="hero-card">
-      <div class="hero-balance-card">
+    <section class="home-summary-card">
+      <div class="home-summary-top">
         <span>总支出</span>
         <strong>{{ formatCurrency(monthlySummary.totalAmount) }}</strong>
-        <div class="hero-balance-meta">
-          <span>记录 {{ recordCount }} 笔</span>
-          <span>共同支出 {{ formatCurrency(monthlySummary.sharedTotal) }}</span>
-        </div>
       </div>
 
-      <div class="stats-grid home-stats-grid">
-        <div class="stat-card stat-card-emphasis">
-          <span>本月支出重点</span>
-          <strong>{{ topCategories[0] ? `${topCategoryIcon} ${topCategoryName}` : '暂无重点分类' }}</strong>
-        </div>
-        <div class="stat-card">
-          <span>已记录笔数</span>
+      <div class="home-summary-metrics">
+        <div class="home-summary-metric">
+          <span>本月记录数</span>
           <strong>{{ recordCount }} 笔</strong>
         </div>
-        <div class="stat-card">
-          <span>一起分摊的消费</span>
+        <div class="home-summary-metric">
+          <span>共同支出</span>
           <strong>{{ formatCurrency(monthlySummary.sharedTotal) }}</strong>
         </div>
-        <div class="stat-card">
+        <div class="home-summary-metric">
           <span>{{ settings.meName }}本月已付</span>
           <strong>{{ formatCurrency(monthlySummary.mePaid) }}</strong>
         </div>
-        <div class="stat-card">
+        <div class="home-summary-metric">
           <span>{{ settings.partnerName }}本月已付</span>
           <strong>{{ formatCurrency(monthlySummary.partnerPaid) }}</strong>
         </div>
       </div>
     </section>
 
-    <section class="section-card" v-if="topCategories.length">
-      <div class="section-heading">
-        <div>
-          <p class="section-kicker">分类概览</p>
-          <h3>这个月主要花在这些地方</h3>
-        </div>
-      </div>
-
-      <div class="highlight-list">
-        <div v-for="[categoryId, amount] in topCategories" :key="categoryId" class="highlight-item">
-          <div>
-            <strong>{{ categoryMap[categoryId]?.icon || '🧾' }} {{ categoryMap[categoryId]?.name || categoryId }}</strong>
-            <p>本月累计</p>
-          </div>
-          <span>{{ formatCurrency(amount) }}</span>
-        </div>
-      </div>
-    </section>
-
-    <section class="section-card">
-      <div class="section-heading">
+    <section class="home-ledger-section">
+      <div class="section-heading compact">
         <div>
           <p class="section-kicker">最近记录</p>
-          <h3>最近消费</h3>
+          <h2>流水</h2>
         </div>
       </div>
 
-      <ExpenseList
-        :expenses="recentExpenses"
-        :effective-date="(expense) => getEffectiveExpenseDate(expense, selectedYearMonth)"
-        :show-delete="false"
-        @edit="emit('edit', $event.id)"
-        @delete="() => undefined"
-      />
+      <div v-if="!recentExpenseGroups.length" class="home-ledger-empty">
+        <strong>这个月还没有消费记录</strong>
+        <p>从右下角的 + 开始记第一笔。</p>
+      </div>
+
+      <div v-else class="home-ledger-groups">
+        <section v-for="group in recentExpenseGroups" :key="group.date" class="home-ledger-group">
+          <header class="home-ledger-group-header">
+            <span>{{ formatGroupDate(group.date) }}</span>
+            <strong>{{ formatCurrency(group.total) }}</strong>
+          </header>
+
+          <button
+            v-for="item in group.items"
+            :key="item.id"
+            type="button"
+            class="home-ledger-item"
+            @click="emit('edit', item.id)"
+          >
+            <span class="home-ledger-icon">
+              {{ categoryMap[item.category]?.icon || '🧾' }}
+            </span>
+            <span class="home-ledger-copy">
+              <strong>{{ item.title }}</strong>
+              <span class="home-ledger-meta">
+                {{ formatTime(item) }} · {{ categoryMap[item.category]?.name || item.category }}
+              </span>
+              <span v-if="item.note" class="home-ledger-note">{{ item.note }}</span>
+            </span>
+            <span class="home-ledger-amount">{{ formatCurrency(item.amount) }}</span>
+          </button>
+        </section>
+      </div>
     </section>
 
     <button type="button" class="floating-action-button" @click="emit('add')">+</button>

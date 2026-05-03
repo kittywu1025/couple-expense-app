@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import TabBar from './components/TabBar.vue'
 import AuthPage from './pages/AuthPage.vue'
 import AddExpensePage from './pages/AddExpensePage.vue'
 import BookSetupPage from './pages/BookSetupPage.vue'
+import CalendarPage from './pages/CalendarPage.vue'
 import HomePage from './pages/HomePage.vue'
 import RecordsPage from './pages/RecordsPage.vue'
 import SettingsPage from './pages/SettingsPage.vue'
@@ -26,6 +27,7 @@ const tabs = [
 ]
 
 const activeTab = ref('home')
+const visibleTab = computed(() => (activeTab.value === 'calendar' ? 'home' : activeTab.value))
 const editingExpenseId = ref<string | null>(null)
 const afterSaveTab = ref<'home' | 'records'>('home')
 const flashMessage = ref('')
@@ -114,7 +116,13 @@ const handleDeleteSuccess = () => {
           v-else-if="activeTab === 'home'"
           @add="openNewExpense('home')"
           @edit="openEditExpense($event, 'home')"
+          @open-calendar="handleTabChange('calendar')"
           @open-settings="handleTabChange('settings')"
+        />
+        <CalendarPage
+          v-else-if="activeTab === 'calendar'"
+          @back="handleTabChange('home')"
+          @edit="openEditExpense($event, 'home')"
         />
         <AddExpensePage
           v-else-if="activeTab === 'add'"
@@ -134,7 +142,7 @@ const handleDeleteSuccess = () => {
       <TabBar
         v-if="!needsBookSetup"
         :tabs="tabs"
-        :active-tab="activeTab"
+        :active-tab="visibleTab"
         @change="handleTabChange"
       />
     </template>

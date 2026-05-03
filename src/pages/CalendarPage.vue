@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useExpenses } from '../composables/useExpenses'
-import { useChores } from '../composables/useChores'
+import { computed, ref } from 'vue'
+import { getEffectiveExpenseDate, useExpenses } from '../composables/useExpenses'
+import { useSettings } from '../composables/useSettings'
 
-const {
-  expenses,
-  selectedYearMonth,
-} = useExpenses()
+const emit = defineEmits<{
+  (e: 'back'): void
+  (e: 'edit', expenseId: string): void
+}>()
 
-const { chores } = useChores()
+const { filteredExpenses, selectedYearMonth } = useExpenses()
+const { categoryMap } = useSettings()
 
 const monthLabel = computed(() => {
   const [year, month] = selectedYearMonth.value.split('-')
@@ -25,45 +26,35 @@ const firstWeekday = computed(() => new Date(parsedMonth.value.year, parsedMonth
 
 const dailyTotals = computed(() => {
   const totals: Record<string, number> = {}
-  expenses.value.forEach((expense) => {
-    if (expense.date.startsWith(selectedYearMonth.value)) {
-      totals[expense.date] = (totals[expense.date] || 0) + expense.amount
-    }
+  filteredExpenses.value.forEach((expense) => {
+    const date = getEffectiveExpenseDate(expense, selectedYearMonth.value)
+    totals[date] = (totals[date] || 0) + expense.amount
   })
   return totals
 })
 
-const dailyChores = computed(() => {
-  const choresMap: Record<string, Array<{ title: string; performer: string }>> = {}
-  chores.value.forEach((item) => {
-    if (item.done && item.date.startsWith(selectedYearMonth.value)) {
-      choresMap[item.date] = choresMap[item.date] || []
-      choresMap[item.date].push({ title: item.title, performer: item.performer })
-    }
-  })
-  return choresMap
-})
-
-const totalSpend = computed(() =>
-  Object.values(dailyTotals.value).reduce((sum, value) => sum + value, 0)
-)
-
-const averageSpend = computed(() =>
-  monthDays.value ? totalSpend.value / monthDays.value : 0
-)
-
-const bestDay = computed(() => {
-  const entries = Object.entries(dailyTotals.value)
-  if (!entries.length) return null
-  return entries.reduce((best, current) =>
-    current[1] > best[1] ? current : best
-  )
-})
-
 const weekdayLabels = ['日', '一', '二', '三', '四', '五', '六']
+const selectedDate = ref<string | null>(null)
+
+const monthTotal = computed(() => Object.values(dailyTotals.value).reduce((sum, value) => sum + value, 0))
+const maxDailyAmount = computed(() => Math.max(0, ...Object.values(dailyTotals.value)))
+
+const shiftMonth = (offset: number) => {
+  const [year, month] = selectedYearMonth.value.split('-').map(Number)
+  const next = new Date(year, month - 1 + offset, 1)
+  selectedYearMonth.value = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`
+  selectedDate.value = null
+}
+
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat('ja-JP', {
+    style: 'currency',
+    currency: 'JPY',
+    maximumFractionDigits: 0,
+  }).format(value)
 
 const calendarCells = computed(() => {
-  const cells: Array<{ day: number; date: string; amount: number; chores: Array<{ title: string; performer: string }> } | null> = []
+  const cells: Array<{ day: number; date: string; amount: number } | null> = []
   const totalCells = firstWeekday.value + monthDays.value
   for (let i = 0; i < totalCells; i += 1) {
     if (i < firstWeekday.value) {
@@ -75,7 +66,6 @@ const calendarCells = computed(() => {
         day,
         date,
         amount: dailyTotals.value[date] || 0,
-        chores: dailyChores.value[date] || [],
       })
     }
   }
@@ -87,76 +77,120 @@ const calendarCells = computed(() => {
   }
   return cells
 })
+
+const selectedDayExpenses = computed(() => {
+  if (!selectedDate.value) return []
+  return filteredExpenses.value.filter(
+    (expense) => getEffectiveExpenseDate(expense, selectedYearMonth.value) === selectedDate.value
+  )
+})
+
+const selectedDayTotal = computed(() =>
+  selectedDayExpenses.value.reduce((sum, expense) => sum + expense.amount, 0)
+)
+
+const activeDateLabel = computed(() => {
+  if (!selectedDate.value) return ''
+  return new Date(`${selectedDate.value}T00:00:00`).toLocaleDateString('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    weekday: 'short',
+  })
+})
+
+const cellTone = (amount: number) => {
+  if (amount <= 0 || maxDailyAmount.value <= 0) {
+    return {
+      backgroundColor: 'rgba(255, 255, 255, 0.78)',
+      borderColor: 'rgba(15, 23, 42, 0.05)',
+    }
+  }
+
+  const ratio = amount / maxDailyAmount.value
+  const alpha = 0.14 + ratio * 0.42
+  return {
+    backgroundColor: `rgba(76, 141, 255, ${alpha.toFixed(3)})`,
+    borderColor: `rgba(76, 141, 255, ${(0.12 + ratio * 0.18).toFixed(3)})`,
+  }
+}
 </script>
 
 <template>
-  <section class="page-card">
-    <div class="page-title-row">
-      <div>
-        <p class="eyebrow">日历</p>
-        <h2>{{ monthLabel }} 花费日历</h2>
+  <section class="page-stack">
+    <section class="calendar-shell">
+      <div class="calendar-topbar">
+        <button type="button" class="ghost-icon-button" @click="emit('back')">‹</button>
+        <div class="calendar-title-block">
+          <p class="section-kicker">收支日历</p>
+          <h2>{{ monthLabel }}</h2>
+        </div>
+        <div class="calendar-total-pill">{{ formatCurrency(monthTotal) }}</div>
       </div>
-      <label class="month-picker-inline">
-        月份
-        <input type="month" v-model="selectedYearMonth" />
-      </label>
-    </div>
 
-    <div class="summary-row">
-      <div class="mini-card">
-        <span>本月总消费</span>
-        <strong>{{ totalSpend.toFixed(2) }} 元</strong>
+      <div class="calendar-month-toolbar">
+        <div class="home-month-group">
+          <button type="button" class="round-nav-button" @click="shiftMonth(-1)">‹</button>
+          <strong>{{ monthLabel }}</strong>
+          <button type="button" class="round-nav-button" @click="shiftMonth(1)">›</button>
+        </div>
       </div>
-      <div class="mini-card">
-        <span>平均每日</span>
-        <strong>{{ averageSpend.toFixed(2) }} 元</strong>
-      </div>
-      <div class="mini-card">
-        <span>最高消费</span>
-        <strong>{{ bestDay ? `${bestDay[0].slice(-2)} 日` : '暂无' }}</strong>
-      </div>
-    </div>
 
-    <div class="calendar-grid">
-      <div class="calendar-header" v-for="label in weekdayLabels" :key="label">{{ label }}</div>
-      <div
-        v-for="(cell, index) in calendarCells"
-        :key="index"
-        class="calendar-cell"
-        :class="{
-          empty: !cell,
-          highlight: cell && cell.amount > 0,
-          hasChore: cell && cell.chores.length > 0,
-        }"
-      >
-        <template v-if="cell">
-          <div class="calendar-day-row">
+      <div class="calendar-grid calendar-grid-heatmap">
+        <div class="calendar-header" v-for="label in weekdayLabels" :key="label">{{ label }}</div>
+        <button
+          v-for="(cell, index) in calendarCells"
+          :key="index"
+          type="button"
+          class="calendar-cell"
+          :class="{
+            empty: !cell,
+            selected: cell && cell.date === selectedDate,
+          }"
+          :style="cell ? cellTone(cell.amount) : undefined"
+          :disabled="!cell"
+          @click="selectedDate = cell?.date || null"
+        >
+          <template v-if="cell">
             <span class="calendar-day">{{ cell.day }}</span>
-            <small>{{ cell.amount ? `${cell.amount.toFixed(0)}元` : '0元' }}</small>
-          </div>
-          <div class="chore-badges">
-            <div
-              v-for="(chore, index) in cell.chores.slice(0, 2)"
-              :key="`${chore.title}-${index}`"
-              :class="['chore-badge', chore.performer === 'me' ? 'chore-me' : 'chore-partner']"
-            >
-              {{ chore.title }} ✅
-            </div>
-            <div v-if="cell.chores.length > 2" class="chore-badge more-badge">
-              +{{ cell.chores.length - 2 }} 项
-            </div>
-          </div>
-        </template>
+            <small>{{ cell.amount ? formatCurrency(cell.amount) : '' }}</small>
+          </template>
+        </button>
       </div>
-    </div>
 
-    <div class="compare-card">
-      <h3>日均对比</h3>
-      <p>当前月消费趋势已按天展示，绿色表示低于平均，紫色表示高于平均。</p>
-      <div class="compare-line">
-        <span>平均</span>
-        <strong>{{ averageSpend.toFixed(2) }} 元</strong>
+      <div v-if="monthTotal === 0" class="calendar-empty-state">
+        <strong>暂无数据</strong>
+        <p>这个月还没有消费记录。</p>
       </div>
-    </div>
+
+      <div v-else-if="selectedDate" class="calendar-day-sheet">
+        <div class="calendar-day-sheet-header">
+          <div>
+            <p class="section-kicker">当日流水</p>
+            <h3>{{ activeDateLabel }}</h3>
+          </div>
+          <strong>{{ formatCurrency(selectedDayTotal) }}</strong>
+        </div>
+
+        <div v-if="!selectedDayExpenses.length" class="calendar-day-empty">
+          <p>当天暂无记录。</p>
+        </div>
+
+        <button
+          v-for="expense in selectedDayExpenses"
+          :key="expense.id"
+          type="button"
+          class="calendar-day-expense"
+          @click="emit('edit', expense.id)"
+        >
+          <span class="home-ledger-icon">{{ categoryMap[expense.category]?.icon || '🧾' }}</span>
+          <span class="home-ledger-copy">
+            <strong>{{ expense.title }}</strong>
+            <span class="home-ledger-meta">{{ categoryMap[expense.category]?.name || expense.category }}</span>
+            <span v-if="expense.note" class="home-ledger-note">{{ expense.note }}</span>
+          </span>
+          <span class="home-ledger-amount">{{ formatCurrency(expense.amount) }}</span>
+        </button>
+      </div>
+    </section>
   </section>
 </template>

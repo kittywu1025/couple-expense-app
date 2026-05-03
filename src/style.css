@@ -244,17 +244,35 @@ textarea {
 }
 
 .home-month-row {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-self: center;
+  justify-content: space-between;
   gap: 12px;
   padding: 4px 0 2px;
+}
+
+.home-month-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .home-month-row strong {
   font-size: 1rem;
   color: var(--text-soft);
   letter-spacing: -0.02em;
+}
+
+.home-calendar-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--text-soft);
+  box-shadow: var(--shadow-sm);
 }
 
 .month-switch-copy {
@@ -293,11 +311,11 @@ textarea {
 
 .home-summary-card {
   display: grid;
-  gap: 18px;
-  padding: 20px 18px 18px;
+  gap: 10px;
+  padding: 18px 18px 16px;
   border-radius: 30px;
   background:
-    radial-gradient(circle at top right, rgba(255, 200, 74, 0.2), transparent 32%),
+    radial-gradient(circle at top right, rgba(255, 200, 74, 0.16), transparent 30%),
     linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
   border: 1px solid rgba(255, 255, 255, 0.82);
   box-shadow: var(--shadow-md);
@@ -318,27 +336,6 @@ textarea {
   font-size: clamp(2.2rem, 9vw, 3rem);
   line-height: 1;
   letter-spacing: -0.06em;
-}
-
-.home-summary-metrics {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.home-summary-metric {
-  display: grid;
-  gap: 6px;
-  padding: 14px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(15, 23, 42, 0.05);
-}
-
-.home-summary-metric strong {
-  font-size: 1rem;
-  line-height: 1.2;
-  letter-spacing: -0.03em;
 }
 
 .hero-balance-card span,
@@ -778,13 +775,139 @@ textarea {
 .home-ledger-empty {
   display: grid;
   gap: 4px;
-  padding: 18px 4px 6px;
+  padding: 12px 4px 6px;
   color: var(--text-soft);
 }
 
 .home-ledger-empty strong {
   color: var(--text);
   font-size: 1rem;
+}
+
+.calendar-shell {
+  display: grid;
+  gap: 16px;
+}
+
+.calendar-topbar,
+.calendar-day-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.calendar-title-block {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.calendar-title-block h2,
+.calendar-day-sheet-header h3 {
+  margin: 0;
+  letter-spacing: -0.03em;
+}
+
+.calendar-total-pill {
+  min-width: 42px;
+  padding: 10px 12px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+}
+
+.calendar-month-toolbar {
+  display: flex;
+  justify-content: center;
+}
+
+.calendar-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.calendar-header {
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.calendar-cell {
+  min-height: 76px;
+  padding: 10px 6px 8px;
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  border-radius: 18px;
+  display: grid;
+  align-content: space-between;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--text);
+  text-align: left;
+}
+
+.calendar-cell small {
+  color: inherit;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  opacity: 0.84;
+  word-break: break-word;
+}
+
+.calendar-cell.selected {
+  box-shadow: inset 0 0 0 2px rgba(76, 141, 255, 0.22);
+}
+
+.calendar-cell.empty {
+  visibility: hidden;
+}
+
+.calendar-day {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.calendar-empty-state,
+.calendar-day-empty {
+  display: grid;
+  gap: 4px;
+  padding: 4px 2px 0;
+  color: var(--text-soft);
+}
+
+.calendar-empty-state strong {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.calendar-day-sheet {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.calendar-day-sheet-header strong {
+  font-size: 1rem;
+  letter-spacing: -0.03em;
+}
+
+.calendar-day-expense {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow-sm);
+  text-align: left;
 }
 
 .category-row,
@@ -1017,10 +1140,6 @@ textarea {
     font-size: 1.2rem;
   }
 
-  .home-summary-metrics {
-    grid-template-columns: 1fr;
-  }
-
   .home-ledger-item {
     grid-template-columns: 42px minmax(0, 1fr) auto;
     gap: 10px;
@@ -1030,6 +1149,21 @@ textarea {
   .home-ledger-icon {
     width: 42px;
     height: 42px;
+  }
+
+  .home-month-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .calendar-cell {
+    min-height: 68px;
+    padding: 8px 5px 7px;
+  }
+
+  .calendar-day-expense {
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+    gap: 10px;
   }
 
   .tab-bar {

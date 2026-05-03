@@ -8,10 +8,11 @@ import { useSettings } from '../composables/useSettings'
 const emit = defineEmits<{
   (e: 'add'): void
   (e: 'edit', expenseId: string): void
+  (e: 'open-calendar'): void
   (e: 'open-settings'): void
 }>()
 
-const { settings, categoryMap } = useSettings()
+const { categoryMap } = useSettings()
 const { currentBook } = useBooks()
 const { filteredExpenses, monthlySummary, selectedYearMonth } = useExpenses()
 
@@ -27,8 +28,6 @@ const shiftMonth = (offset: number) => {
 }
 
 const recentExpenses = computed(() => filteredExpenses.value.slice(0, 8))
-const recordCount = computed(() => filteredExpenses.value.length)
-
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('ja-JP', {
     style: 'currency',
@@ -90,9 +89,15 @@ const recentExpenseGroups = computed(() => {
       </div>
 
       <div class="home-month-row">
-        <button type="button" class="round-nav-button" @click="shiftMonth(-1)">‹</button>
-        <strong>{{ monthLabel }}</strong>
-        <button type="button" class="round-nav-button" @click="shiftMonth(1)">›</button>
+        <div class="home-month-group">
+          <button type="button" class="round-nav-button" @click="shiftMonth(-1)">‹</button>
+          <strong>{{ monthLabel }}</strong>
+          <button type="button" class="round-nav-button" @click="shiftMonth(1)">›</button>
+        </div>
+        <button type="button" class="home-calendar-link" @click="emit('open-calendar')">
+          <span>📅</span>
+          <span>收支日历</span>
+        </button>
       </div>
     </section>
 
@@ -100,25 +105,6 @@ const recentExpenseGroups = computed(() => {
       <div class="home-summary-top">
         <span>总支出</span>
         <strong>{{ formatCurrency(monthlySummary.totalAmount) }}</strong>
-      </div>
-
-      <div class="home-summary-metrics">
-        <div class="home-summary-metric">
-          <span>本月记录数</span>
-          <strong>{{ recordCount }} 笔</strong>
-        </div>
-        <div class="home-summary-metric">
-          <span>共同支出</span>
-          <strong>{{ formatCurrency(monthlySummary.sharedTotal) }}</strong>
-        </div>
-        <div class="home-summary-metric">
-          <span>{{ settings.meName }}本月已付</span>
-          <strong>{{ formatCurrency(monthlySummary.mePaid) }}</strong>
-        </div>
-        <div class="home-summary-metric">
-          <span>{{ settings.partnerName }}本月已付</span>
-          <strong>{{ formatCurrency(monthlySummary.partnerPaid) }}</strong>
-        </div>
       </div>
     </section>
 
@@ -131,8 +117,8 @@ const recentExpenseGroups = computed(() => {
       </div>
 
       <div v-if="!recentExpenseGroups.length" class="home-ledger-empty">
-        <strong>这个月还没有消费记录</strong>
-        <p>从右下角的 + 开始记第一笔。</p>
+        <strong>暂无数据</strong>
+        <p>点击右下角 + 添加第一笔消费</p>
       </div>
 
       <div v-else class="home-ledger-groups">

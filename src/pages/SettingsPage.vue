@@ -364,6 +364,8 @@ const handlePasswordSubmit = async () => {
       </div>
     </section>
 
+    <p class="ui-version-tag">UI版本：2026-05-03-hero-removed</p>
+
     <div
       v-if="passwordModalOpen"
       class="settings-modal-overlay"
@@ -456,6 +458,14 @@ const handlePasswordSubmit = async () => {
   justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.ui-version-tag {
+  margin: 0;
+  padding: 0 4px calc(8px + env(safe-area-inset-bottom, 0px));
+  color: var(--text-faint);
+  font-size: 0.76rem;
+  text-align: center;
 }
 
 @media (max-width: 640px) {

@@ -1,0 +1,16 @@
+{
+  "name": "情侣同居开销记录",
+  "short_name": "同居开销",
+  "description": "记录情侣日常开销，支持离线使用与安装体验。",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f8ff",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

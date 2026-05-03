@@ -1,0 +1,62 @@
+import { createApp } from 'vue'
+import './style.css'
+import App from './App.vue'
+import { setAppError } from './composables/useRuntimeStatus'
+
+const renderFatalError = (message: string) => {
+  const target = document.querySelector('#app')
+  if (!target) return
+
+  target.innerHTML = `
+    <div style="max-width:720px;margin:24px auto;padding:16px;">
+      <div style="border:1px solid rgba(198,93,93,.18);background:rgba(255,255,255,.95);border-radius:20px;padding:20px;box-shadow:0 18px 40px rgba(70,52,38,.08);">
+        <p style="margin:0 0 8px;color:#b25353;font-weight:700;">页面加载失败</p>
+        <p style="margin:0;color:#243244;line-height:1.6;">${message}</p>
+      </div>
+    </div>
+  `
+}
+
+window.addEventListener('error', (event) => {
+  const message = event.error?.message || event.message || '应用发生未知错误。'
+  setAppError(message)
+})
+
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason instanceof Error ? event.reason.message : String(event.reason)
+  setAppError(reason || '应用发生未处理的异步错误。')
+})
+
+try {
+  const app = createApp(App)
+  app.config.errorHandler = (error) => {
+    const message = error instanceof Error ? error.message : String(error)
+    setAppError(message)
+    console.error(error)
+  }
+  app.mount('#app')
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error)
+  setAppError(message)
+  renderFatalError(message)
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', async () => {
+    if (import.meta.env.DEV) {
+      const registrations = await navigator.serviceWorker.getRegistrations()
+      await Promise.all(registrations.map((registration) => registration.unregister()))
+      if ('caches' in window) {
+        const cacheNames = await caches.keys()
+        await Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)))
+      }
+      return
+    }
+
+    navigator.serviceWorker
+      .register('/service-worker.js')
+      .catch((error) => {
+        console.warn('Service Worker registration failed:', error)
+      })
+  })
+}

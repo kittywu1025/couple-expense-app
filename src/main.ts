@@ -55,6 +55,9 @@ if ('serviceWorker' in navigator) {
 
     navigator.serviceWorker
       .register('/service-worker.js')
+      .then(async (registration) => {
+        await registration.update()
+      })
       .catch((error) => {
         console.warn('Service Worker registration failed:', error)
       })

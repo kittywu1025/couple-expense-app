@@ -1,4 +1,4 @@
-const CACHE_NAME = 'couple-expense-app-v2'
+const CACHE_NAME = 'couple-expense-app-v3'
 const CACHE_URLS = ['/', '/index.html', '/style.css', '/favicon.svg', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
@@ -26,6 +26,9 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
+  const requestUrl = new URL(event.request.url)
+  const isSameOrigin = requestUrl.origin === self.location.origin
+
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
@@ -37,6 +40,23 @@ self.addEventListener('fetch', (event) => {
           return response
         })
         .catch(() => caches.match('/index.html'))
+    )
+    return
+  }
+
+  if (isSameOrigin && ['script', 'style', 'worker'].includes(event.request.destination)) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const responseClone = response.clone()
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseClone)
+            })
+          }
+          return response
+        })
+        .catch(() => caches.match(event.request))
     )
     return
   }

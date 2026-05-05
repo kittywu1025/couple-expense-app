@@ -19,6 +19,7 @@ const mapExpenseRow = (row: Record<string, unknown>): Expense => ({
   recurrence: (row.recurrence as Expense['recurrence']) || 'none',
   note: row.note ? String(row.note) : '',
   shared: typeof row.shared === 'boolean' ? row.shared : undefined,
+  syncStatus: 'synced',
   bookId: row.book_id ? String(row.book_id) : undefined,
   createdBy: row.created_by ? String(row.created_by) : undefined,
   createdAt: row.created_at ? String(row.created_at) : undefined,

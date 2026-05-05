@@ -34,6 +34,7 @@ export interface Expense {
   recurrence: Recurrence
   note?: string
   shared?: boolean
+  syncStatus?: 'synced' | 'pending'
   createdAt?: string
   updatedAt?: string
 }

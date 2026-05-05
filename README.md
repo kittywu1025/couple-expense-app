@@ -149,6 +149,20 @@
   - `message`: `Could not find the 'split' column of 'expenses' in the schema cache`
   - `details`: `null`
   - `hint`: `null`
+- 添加/修改保存时，开发环境现在会在 `console.error` 输出完整诊断信息：
+  - Supabase `code / message / details / hint`
+  - 当前 insert/update payload
+  - `book_id`
+  - `user_id`
+  - 默认货币 / 原始货币 / 基准货币
+  - 当前是否云端模式
+- 保存流程已区分：
+  - 表单校验失败：表单内直接提示，不走保存链路
+  - 云端成功：toast `记录已保存 / 记录已更新`
+  - 云端失败但本地暂存成功：只提示一次 warning
+    - `本地已保存，但云端同步失败，对方暂时看不到`
+  - 本地也失败：才提示 `保存失败，请稍后重试。`
+- 同一次保存不会再重复弹出“同步提醒”和“保存失败”两条冲突 toast。
 - 当前云端实测结果：
   - 新增：失败，原因是 `split` 列不存在
   - 修改：失败，原因是 `split` 列不存在

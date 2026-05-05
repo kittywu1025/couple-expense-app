@@ -13,6 +13,13 @@ const selectedYearMonth = ref(new Date().toISOString().slice(0, 7))
 const { settings } = useSettings()
 const { currentBookId, isLocalBookMode } = useBooks()
 
+type ExpenseMutationResult = {
+  status: 'synced' | 'local_fallback' | 'local_only'
+  expense: Expense
+  stage: 'insert' | 'update'
+  error?: unknown
+}
+
 const normalizeSplit = (split: Partial<SplitRule> | undefined, fallback: SplitRule): SplitRule => {
   const meValue = Number(split?.me)
   const partnerValue = Number(split?.partner)
@@ -87,6 +94,7 @@ const normalizeExpense = (expense: Partial<Expense>): Expense => {
     recurrence: expense.recurrence === 'monthly' ? 'monthly' : 'none',
     note: expense.note?.trim() || '',
     shared: split.me !== 100 && split.partner !== 100,
+    syncStatus: expense.syncStatus || 'synced',
     createdAt: expense.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }
@@ -112,7 +120,18 @@ const loadRemoteExpenses = async () => {
       throw error
     }
     if (data) {
-      expenses.value = sortExpenses(data.map((expense) => normalizeExpense(expense)))
+      const remoteExpenses = data.map((expense) => normalizeExpense(expense))
+      const localPendingExpenses = expenses.value.filter(
+        (expense) => expense.syncStatus === 'pending' && expense.bookId === currentBookId.value
+      )
+      const merged = new Map<string, Expense>()
+      remoteExpenses.forEach((expense) => merged.set(expense.id, expense))
+      localPendingExpenses.forEach((expense) => {
+        if (!merged.has(expense.id)) {
+          merged.set(expense.id, expense)
+        }
+      })
+      expenses.value = sortExpenses(Array.from(merged.values()))
       saveJSON(STORAGE_KEY, expenses.value)
     }
     clearSyncWarning()
@@ -244,53 +263,120 @@ const syncRemoteExpense = async (expense: Expense) => {
 
   const { error } = await upsertExpense(expense)
   if (error) {
-    console.error('同步远程开销失败：', {
-      code: error.code,
-      message: error.message,
-      details: error.details,
-      hint: error.hint,
-    })
-    setSyncWarning('云端保存失败，对方暂时看不到这笔记录。')
     throw error
   }
 
   clearSyncWarning()
 }
 
-const addExpense = async (expense: Expense) => {
+const buildSaveDebugPayload = (expense: Expense) => ({
+  id: expense.id,
+  title: expense.title,
+  amount: expense.amount,
+  original_amount: expense.originalAmount,
+  original_currency: expense.originalCurrency,
+  base_currency: expense.baseCurrency,
+  exchange_rate_used: expense.exchangeRateUsed,
+  exchange_rate_date: expense.exchangeRateDate,
+  date: expense.date,
+  category: expense.category,
+  payer: expense.payer,
+  split: expense.split,
+  split_preset: expense.splitPreset,
+  recurrence: expense.recurrence,
+  note: expense.note || '',
+  shared: expense.shared,
+  book_id: expense.bookId,
+  created_by: expense.createdBy,
+  created_at: expense.createdAt,
+  updated_at: expense.updatedAt,
+})
+
+const logSaveFailure = (stage: 'insert' | 'update', error: unknown, expense: Expense) => {
+  const supabaseError = error as { code?: string; message?: string; details?: string | null; hint?: string | null }
+  console.error(`开销${stage === 'insert' ? '新增' : '更新'}失败：`, {
+    stage,
+    code: supabaseError?.code ?? null,
+    message: supabaseError?.message ?? null,
+    details: supabaseError?.details ?? null,
+    hint: supabaseError?.hint ?? null,
+    payload: buildSaveDebugPayload(expense),
+    book_id: currentBookId.value ?? expense.bookId ?? null,
+    user_id: authUser.value?.id ?? expense.createdBy ?? null,
+    default_currency: settings.value.defaultCurrency,
+    original_currency: expense.originalCurrency,
+    base_currency: expense.baseCurrency,
+    is_cloud_mode: Boolean(authUser.value?.id && currentBookId.value && !isLocalBookMode.value),
+  })
+}
+
+const persistPendingExpense = (expense: Expense, stage: 'insert' | 'update') => {
+  const pendingExpense = normalizeExpense({
+    ...expense,
+    syncStatus: 'pending',
+  })
+
+  if (stage === 'insert') {
+    expenses.value = sortExpenses([pendingExpense, ...expenses.value.filter((item) => item.id !== pendingExpense.id)])
+  } else {
+    expenses.value = sortExpenses(
+      expenses.value.map((item) => (item.id === pendingExpense.id ? pendingExpense : item))
+    )
+  }
+
+  return pendingExpense
+}
+
+const addExpense = async (expense: Expense): Promise<ExpenseMutationResult> => {
   const normalized = normalizeExpense({
     ...expense,
     bookId: currentBookId.value || expense.bookId,
     createdBy: authUser.value?.id || expense.createdBy,
+    syncStatus: 'synced',
   })
 
   if (authUser.value?.id && currentBookId.value && !isLocalBookMode.value) {
-    await syncRemoteExpense(normalized)
-    expenses.value = sortExpenses([normalized, ...expenses.value])
-    return
+    try {
+      await syncRemoteExpense(normalized)
+      expenses.value = sortExpenses([normalized, ...expenses.value])
+      return { status: 'synced', expense: normalized, stage: 'insert' }
+    } catch (error) {
+      logSaveFailure('insert', error, normalized)
+      const pendingExpense = persistPendingExpense(normalized, 'insert')
+      return { status: 'local_fallback', expense: pendingExpense, stage: 'insert', error }
+    }
   }
 
   expenses.value = sortExpenses([normalized, ...expenses.value])
+  return { status: 'local_only', expense: normalized, stage: 'insert' }
 }
 
-const updateExpense = async (expense: Expense) => {
+const updateExpense = async (expense: Expense): Promise<ExpenseMutationResult> => {
   const normalized = normalizeExpense({
     ...expense,
     bookId: currentBookId.value || expense.bookId,
     createdBy: expense.createdBy || authUser.value?.id,
+    syncStatus: 'synced',
   })
 
   if (authUser.value?.id && currentBookId.value && !isLocalBookMode.value) {
-    await syncRemoteExpense(normalized)
-    expenses.value = sortExpenses(
-      expenses.value.map((item) => (item.id === normalized.id ? normalized : item))
-    )
-    return
+    try {
+      await syncRemoteExpense(normalized)
+      expenses.value = sortExpenses(
+        expenses.value.map((item) => (item.id === normalized.id ? normalized : item))
+      )
+      return { status: 'synced', expense: normalized, stage: 'update' }
+    } catch (error) {
+      logSaveFailure('update', error, normalized)
+      const pendingExpense = persistPendingExpense(normalized, 'update')
+      return { status: 'local_fallback', expense: pendingExpense, stage: 'update', error }
+    }
   }
 
   expenses.value = sortExpenses(
     expenses.value.map((item) => (item.id === normalized.id ? normalized : item))
   )
+  return { status: 'local_only', expense: normalized, stage: 'update' }
 }
 
 const deleteExpense = async (expenseId: string) => {

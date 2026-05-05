@@ -80,7 +80,9 @@ const openEditExpense = (
 }
 
 const handleSaved = (message: string) => {
-  toast.success(message)
+  if (message) {
+    toast.success(message)
+  }
   editingExpenseId.value = null
   activeTab.value = afterSaveTab.value
   if (pendingDetailExpenseId.value) {

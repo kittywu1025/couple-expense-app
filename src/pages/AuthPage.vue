@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useSupabaseAuth } from '../composables/useSupabaseAuth'
+import { toast } from '../composables/useToast'
+import { toUserMessage } from '../utils/userMessage'
 
 type AuthMode = 'login' | 'register' | 'otp'
 
@@ -8,10 +10,7 @@ const mode = ref<AuthMode>('login')
 const email = ref('')
 const password = ref('')
 const confirmPassword = ref('')
-const status = ref('')
-const errorMessage = ref('')
 const submitting = ref(false)
-const sentLoginEmail = ref('')
 const showExistingAccountModal = ref(false)
 
 const { signInWithEmail, signInWithPassword, signUpWithPassword } = useSupabaseAuth()
@@ -42,9 +41,6 @@ const subtitle = computed(() => modeCopy[mode.value].subtitle)
 const submitLabel = computed(() => (submitting.value ? modeCopy[mode.value].loadingLabel : modeCopy[mode.value].submitLabel))
 
 const resetFeedback = () => {
-  status.value = ''
-  errorMessage.value = ''
-  sentLoginEmail.value = ''
   showExistingAccountModal.value = false
 }
 
@@ -56,11 +52,9 @@ const switchMode = (nextMode: AuthMode) => {
 const useExistingEmailForLogin = () => {
   showExistingAccountModal.value = false
   mode.value = 'login'
-  status.value = '这个邮箱已经注册过，请直接输入密码登录。'
-  errorMessage.value = ''
-  sentLoginEmail.value = ''
   password.value = ''
   confirmPassword.value = ''
+  toast.info('这个邮箱已经注册过，请直接输入密码登录。')
 }
 
 const dismissExistingAccountModal = () => {
@@ -68,9 +62,6 @@ const dismissExistingAccountModal = () => {
   email.value = ''
   password.value = ''
   confirmPassword.value = ''
-  status.value = ''
-  errorMessage.value = ''
-  sentLoginEmail.value = ''
 }
 
 const handleSubmit = async () => {
@@ -78,17 +69,17 @@ const handleSubmit = async () => {
 
   const trimmedEmail = email.value.trim()
   if (!trimmedEmail) {
-    errorMessage.value = '请输入邮箱地址。'
+    toast.warning('请输入邮箱地址。')
     return
   }
 
   if (mode.value !== 'otp' && password.value.length < 6) {
-    errorMessage.value = '密码至少需要 6 位。'
+    toast.warning('密码至少需要 6 位。')
     return
   }
 
   if (mode.value === 'register' && password.value !== confirmPassword.value) {
-    errorMessage.value = '两次输入的密码不一致。'
+    toast.warning('两次输入的密码不一致。')
     return
   }
 
@@ -99,8 +90,10 @@ const handleSubmit = async () => {
     submitting.value = false
 
     if (error) {
-      errorMessage.value = error.message || '邮箱或密码错误。'
+      toast.error(toUserMessage(error, '登录失败，请稍后重试。'))
+      return
     }
+    toast.success('登录成功。')
     return
   }
 
@@ -114,14 +107,14 @@ const handleSubmit = async () => {
     }
 
     if (error) {
-      errorMessage.value = error.message || '注册失败，请稍后重试。'
+      toast.error(toUserMessage(error, '注册失败，请稍后重试。'))
       return
     }
 
     if (data?.session) {
-      status.value = '注册成功，已自动登录。'
+      toast.success('注册成功，已自动登录。')
     } else {
-      status.value = '注册请求已提交。请前往邮箱点击确认链接后再返回登录。如果没有收到邮件，请检查垃圾邮件，或尝试使用邮箱验证登录。'
+      toast.info('验证邮件已发送，请前往邮箱点击确认链接后再返回登录。')
     }
     return
   }
@@ -130,10 +123,9 @@ const handleSubmit = async () => {
   submitting.value = false
 
   if (error) {
-    errorMessage.value = error.message || '登录邮件发送失败，请稍后重试。'
+    toast.error(toUserMessage(error, '登录邮件发送失败，请稍后重试。'))
   } else {
-    sentLoginEmail.value = trimmedEmail
-    status.value = '登录邮件已发送，请前往邮箱点击登录链接完成登录。这个页面不会出现验证码输入框。'
+    toast.info(`登录邮件已发送，请前往 ${trimmedEmail} 收件箱完成登录。`)
   }
 }
 </script>
@@ -213,16 +205,6 @@ const handleSubmit = async () => {
           </button>
         </form>
 
-        <div v-if="status" class="status-message auth-feedback">
-          <p>{{ status }}</p>
-          <template v-if="mode === 'otp' && sentLoginEmail">
-            <p>已发送到：{{ sentLoginEmail }}</p>
-            <p>请检查收件箱和垃圾邮件；你可能会在邮箱打开新的页面完成登录。</p>
-          </template>
-        </div>
-
-        <p v-if="errorMessage" class="error-message auth-feedback">{{ errorMessage }}</p>
-
         <div class="auth-footer-links">
           <button
             v-if="mode === 'login'"
@@ -243,7 +225,7 @@ const handleSubmit = async () => {
           </button>
 
           <button
-            v-if="mode === 'otp' && sentLoginEmail"
+            v-if="mode === 'otp'"
             type="button"
             class="text-button"
             @click="handleSubmit"
@@ -377,15 +359,6 @@ const handleSubmit = async () => {
 .auth-submit {
   min-height: 50px;
   margin-top: 6px;
-}
-
-.auth-feedback {
-  display: grid;
-  gap: 8px;
-}
-
-.auth-feedback p {
-  margin: 0;
 }
 
 .auth-footer-links {

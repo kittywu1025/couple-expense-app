@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useExpenses } from '../composables/useExpenses'
 import { useSupabaseAuth } from '../composables/useSupabaseAuth'
 import { useBooks } from '../composables/useBooks'
 import { useSettings } from '../composables/useSettings'
+import { toast } from '../composables/useToast'
 import { SUPPORTED_CURRENCIES, formatCurrency } from '../utils/currency'
+import { toUserMessage } from '../utils/userMessage'
 
 const { settings, normalizeSplit } = useSettings()
 const { authUser, isSupabaseEnabled, signOut, updatePassword } = useSupabaseAuth()
@@ -15,24 +17,13 @@ const newCategory = reactive({
   name: '',
   icon: '🧾',
 })
-const settingsMessage = ref('')
 const passwordModalOpen = ref(false)
 const passwordLoading = ref(false)
-const passwordError = ref('')
 const passwordForm = reactive({
   nextPassword: '',
   confirmPassword: '',
 })
 const currencyOptions = SUPPORTED_CURRENCIES
-
-const setSettingsMessage = (message: string) => {
-  settingsMessage.value = message
-  window.setTimeout(() => {
-    if (settingsMessage.value === message) {
-      settingsMessage.value = ''
-    }
-  }, 2200)
-}
 
 const monthLabel = computed(() => {
   const [year, month] = selectedYearMonth.value.split('-')
@@ -55,10 +46,10 @@ const copyInviteCode = async () => {
   if (!currentBook.value?.inviteCode) return
   try {
     await navigator.clipboard.writeText(currentBook.value.inviteCode)
-    setSettingsMessage('邀请码已复制。')
+    toast.success('邀请码已复制。')
   } catch (error) {
     console.error('复制邀请码失败：', error)
-    setSettingsMessage('复制失败，请稍后重试。')
+    toast.error('复制失败，请稍后重试。')
   }
 }
 
@@ -67,12 +58,15 @@ const saveProfile = () => {
   settings.value.partnerName = settings.value.partnerName.trim() || '另一半'
   settings.value.defaultSplits.standard = normalizeSplit(settings.value.defaultSplits.standard, { me: 50, partner: 50 })
   settings.value.defaultSplits.rent = normalizeSplit(settings.value.defaultSplits.rent, { me: 60, partner: 40 })
-  setSettingsMessage('设置已保存到当前设备。')
+  toast.success('设置已保存。')
 }
 
 const addCategory = () => {
   const name = newCategory.name.trim()
-  if (!name) return
+  if (!name) {
+    toast.warning('请填写新分类名称。')
+    return
+  }
 
   settings.value.categories.push({
     id: crypto.randomUUID(),
@@ -82,7 +76,7 @@ const addCategory = () => {
 
   newCategory.name = ''
   newCategory.icon = '🧾'
-  setSettingsMessage('新分类已添加。')
+  toast.success('新分类已添加。')
 }
 
 const removeCategory = (categoryId: string) => {
@@ -97,12 +91,16 @@ const updateSplit = (type: 'standard' | 'rent', field: 'me' | 'partner', value: 
 }
 
 const handleSignOut = async () => {
-  await signOut()
-  setSettingsMessage('已退出登录。')
+  const { error } = await signOut()
+  if (error) {
+    console.error('退出登录失败：', error)
+    toast.error('退出失败，请稍后重试。')
+    return
+  }
+  toast.success('退出成功。')
 }
 
 const openPasswordModal = () => {
-  passwordError.value = ''
   passwordForm.nextPassword = ''
   passwordForm.confirmPassword = ''
   passwordModalOpen.value = true
@@ -111,28 +109,26 @@ const openPasswordModal = () => {
 const closePasswordModal = () => {
   if (passwordLoading.value) return
   passwordModalOpen.value = false
-  passwordError.value = ''
   passwordForm.nextPassword = ''
   passwordForm.confirmPassword = ''
 }
 
 const handlePasswordSubmit = async () => {
-  passwordError.value = ''
   const nextPassword = passwordForm.nextPassword.trim()
   const confirmPassword = passwordForm.confirmPassword.trim()
 
   if (!nextPassword || !confirmPassword) {
-    passwordError.value = '请填写完整的新密码和确认密码。'
+    toast.warning('请填写完整的新密码和确认密码。')
     return
   }
 
   if (nextPassword.length < 6) {
-    passwordError.value = '密码至少需要 6 位。'
+    toast.warning('密码至少需要 6 位。')
     return
   }
 
   if (nextPassword !== confirmPassword) {
-    passwordError.value = '两次输入的密码不一致。'
+    toast.warning('两次输入的密码不一致。')
     return
   }
 
@@ -142,15 +138,24 @@ const handlePasswordSubmit = async () => {
 
   if (error) {
     console.error('设置/修改密码失败：', error)
-    passwordError.value = error.message || '密码设置失败，请稍后重试。'
+    toast.error(toUserMessage(error, '密码设置失败，请稍后重试。'))
     return
   }
 
   closePasswordModal()
-  setSettingsMessage('密码已设置成功，下次可以使用邮箱和密码登录。')
+  toast.success('密码修改成功。')
 }
 
 const formatAmount = (value: number) => formatCurrency(value, settings.value.defaultCurrency)
+
+onMounted(() => {
+  if (isLocalBookMode.value) {
+    toast.info('当前是本地模式，只能本机保存，不能情侣同步。', {
+      id: 'local-mode-info',
+      duration: 4500,
+    })
+  }
+})
 </script>
 
 <template>
@@ -225,8 +230,6 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
           </div>
         </div>
       </div>
-      <p v-if="isLocalBookMode" class="warning-message">当前是 localStorage 本地模式，只能本机保存，不能情侣同步。</p>
-      <p v-if="settingsMessage" class="status-message">{{ settingsMessage }}</p>
     </section>
 
     <section class="section-card">
@@ -415,8 +418,6 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
               placeholder="再次输入新密码"
             />
           </label>
-
-          <p v-if="passwordError" class="error-message">{{ passwordError }}</p>
         </div>
 
         <div class="settings-modal-actions">

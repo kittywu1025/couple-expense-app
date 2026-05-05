@@ -4,42 +4,41 @@ import App from './App.vue'
 import { registerPwaRegistration, setPwaUpdated, showPwaUpdate } from './composables/usePwaUpdate'
 import { setAppError } from './composables/useRuntimeStatus'
 
-const renderFatalError = (message: string) => {
+const renderFatalError = () => {
   const target = document.querySelector('#app')
   if (!target) return
 
   target.innerHTML = `
-    <div style="max-width:720px;margin:24px auto;padding:16px;">
-      <div style="border:1px solid rgba(198,93,93,.18);background:rgba(255,255,255,.95);border-radius:20px;padding:20px;box-shadow:0 18px 40px rgba(70,52,38,.08);">
-        <p style="margin:0 0 8px;color:#b25353;font-weight:700;">页面加载失败</p>
-        <p style="margin:0;color:#243244;line-height:1.6;">${message}</p>
+    <div style="position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top, 0px));transform:translateX(-50%);width:min(calc(100% - 24px), 560px);z-index:9999;">
+      <div style="border:1px solid rgba(227,93,84,.18);background:rgba(255,255,255,.96);border-radius:22px;padding:16px 18px;box-shadow:0 18px 40px rgba(70,52,38,.08);backdrop-filter:blur(18px);">
+        <p style="margin:0 0 4px;color:#b25353;font-weight:700;">页面加载失败</p>
+        <p style="margin:0;color:#243244;line-height:1.6;">页面出现问题，请刷新后重试。</p>
       </div>
     </div>
   `
 }
 
 window.addEventListener('error', (event) => {
-  const message = event.error?.message || event.message || '应用发生未知错误。'
-  setAppError(message)
+  console.error(event.error || event.message || event)
+  setAppError()
 })
 
 window.addEventListener('unhandledrejection', (event) => {
-  const reason = event.reason instanceof Error ? event.reason.message : String(event.reason)
-  setAppError(reason || '应用发生未处理的异步错误。')
+  console.error(event.reason)
+  setAppError()
 })
 
 try {
   const app = createApp(App)
   app.config.errorHandler = (error) => {
-    const message = error instanceof Error ? error.message : String(error)
-    setAppError(message)
     console.error(error)
+    setAppError()
   }
   app.mount('#app')
 } catch (error) {
-  const message = error instanceof Error ? error.message : String(error)
-  setAppError(message)
-  renderFatalError(message)
+  console.error(error)
+  setAppError()
+  renderFatalError()
 }
 
 if ('serviceWorker' in navigator) {

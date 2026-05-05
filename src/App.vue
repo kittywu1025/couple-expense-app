@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import TabBar from './components/TabBar.vue'
+import ToastViewport from './components/ToastViewport.vue'
 import AuthPage from './pages/AuthPage.vue'
 import AddExpensePage from './pages/AddExpensePage.vue'
 import BookSetupPage from './pages/BookSetupPage.vue'
@@ -13,10 +14,9 @@ import { applyPwaUpdate, checkForPwaUpdate, dismissPwaUpdate, usePwaUpdate } fro
 import { useBooks } from './composables/useBooks'
 import { useExpenses } from './composables/useExpenses'
 import { useSupabaseAuth } from './composables/useSupabaseAuth'
-import { useRuntimeStatus } from './composables/useRuntimeStatus'
+import { toast } from './composables/useToast'
 
 const { authUser, authLoading, isSupabaseEnabled } = useSupabaseAuth()
-const { appError, syncWarning, clearAppError } = useRuntimeStatus()
 const { needsBookSetup } = useBooks()
 const { refreshExpenses } = useExpenses()
 const { updateAvailable, updateMessage, isApplyingUpdate } = usePwaUpdate()
@@ -32,24 +32,14 @@ const activeTab = ref('home')
 const visibleTab = computed(() => (activeTab.value === 'calendar' ? 'home' : activeTab.value))
 const editingExpenseId = ref<string | null>(null)
 const afterSaveTab = ref<'home' | 'records'>('home')
-const flashMessage = ref('')
-let flashTimer: ReturnType<typeof setTimeout> | null = null
 const pullState = ref<'idle' | 'pulling' | 'ready' | 'refreshing' | 'done'>('idle')
 const pullDistance = ref(0)
 const touchStartY = ref(0)
 const isTrackingPull = ref(false)
 
-const setFlashMessage = (message: string) => {
-  flashMessage.value = message
-  if (flashTimer) clearTimeout(flashTimer)
-  flashTimer = setTimeout(() => {
-    flashMessage.value = ''
-  }, 2400)
-}
-
 if (typeof window !== 'undefined' && window.sessionStorage.getItem('pwa-updated') === '1') {
   window.sessionStorage.removeItem('pwa-updated')
-  setFlashMessage('已更新')
+  toast.success('已更新到最新版本。')
 }
 
 const openNewExpense = (returnTab: 'home' | 'records' = 'home') => {
@@ -65,7 +55,7 @@ const openEditExpense = (expenseId: string, returnTab: 'home' | 'records' = 'rec
 }
 
 const handleSaved = (message: string) => {
-  setFlashMessage(message)
+  toast.success(message)
   editingExpenseId.value = null
   activeTab.value = afterSaveTab.value
 }
@@ -81,7 +71,7 @@ const handleTabChange = (tab: string) => {
 }
 
 const handleDeleteSuccess = () => {
-  setFlashMessage('记录已删除。')
+  toast.success('记录已删除。')
 }
 
 const pullMessage = computed(() => {
@@ -102,7 +92,7 @@ const resetPullState = () => {
 
 const finishPullState = (message: '已是最新' | '已更新') => {
   pullState.value = 'done'
-  setFlashMessage(message)
+  toast.info(message)
   window.setTimeout(() => {
     if (pullState.value === 'done') {
       pullState.value = 'idle'
@@ -154,6 +144,36 @@ const handleTouchEnd = async () => {
   resetPullState()
 }
 
+watch(
+  [updateAvailable, updateMessage, isApplyingUpdate],
+  ([visible, message, applying]) => {
+    if (!visible) {
+      toast.dismiss('pwa-update')
+      return
+    }
+
+    toast.info(message, {
+      id: 'pwa-update',
+      title: '发现新版本',
+      duration: 0,
+      actions: [
+        {
+          label: '稍后',
+          kind: 'text',
+          onClick: () => dismissPwaUpdate(),
+        },
+        {
+          label: applying ? '正在刷新' : '立即刷新',
+          kind: 'primary',
+          disabled: applying,
+          onClick: () => applyPwaUpdate(),
+        },
+      ],
+    })
+  },
+  { immediate: true }
+)
+
 </script>
 
 <template>
@@ -174,29 +194,6 @@ const handleTouchEnd = async () => {
         :style="{ transform: `translate(-50%, ${Math.min(pullDistance, 72) - 72}px)` }"
       >
         {{ pullMessage }}
-      </div>
-
-      <div v-if="updateAvailable" class="update-toast" role="status" aria-live="polite">
-        <div>
-          <strong>发现新版本</strong>
-          <p>{{ updateMessage }}</p>
-        </div>
-        <div class="update-toast-actions">
-          <button class="text-button" type="button" @click="dismissPwaUpdate">稍后</button>
-          <button class="primary-button compact-button" type="button" @click="applyPwaUpdate">
-            {{ isApplyingUpdate ? '正在刷新' : '立即刷新' }}
-          </button>
-        </div>
-      </div>
-
-      <div v-if="flashMessage" class="flash-message">{{ flashMessage }}</div>
-      <div v-if="syncWarning && !needsBookSetup" class="warning-message">{{ syncWarning }}</div>
-      <div v-if="appError" class="error-message error-banner">
-        <div>
-          <strong>页面运行出现问题</strong>
-          <p>{{ appError }}</p>
-        </div>
-        <button class="secondary-button" type="button" @click="clearAppError">关闭提示</button>
       </div>
 
       <main
@@ -242,4 +239,6 @@ const handleTouchEnd = async () => {
       />
     </template>
   </div>
+
+  <ToastViewport />
 </template>

@@ -2,7 +2,8 @@
 import { computed } from 'vue'
 import ExpenseForm from '../components/ExpenseForm.vue'
 import { useExpenses } from '../composables/useExpenses'
-import { clearAppError, setAppError } from '../composables/useRuntimeStatus'
+import { toast } from '../composables/useToast'
+import { toUserMessage } from '../utils/userMessage'
 
 const props = defineProps<{
   expenseId?: string | null
@@ -20,8 +21,6 @@ const editingExpense = computed(() =>
 )
 
 const handleSave = async (expense: (typeof expenses.value)[number]) => {
-  clearAppError()
-
   try {
     if (editingExpense.value) {
       await updateExpense(expense)
@@ -32,8 +31,8 @@ const handleSave = async (expense: (typeof expenses.value)[number]) => {
     await addExpense(expense)
     emit('saved', '记录已保存。')
   } catch (error) {
-    const message = error instanceof Error ? error.message : '保存失败，请重试。'
-    setAppError(message)
+    console.error('保存消费失败：', error)
+    toast.error(toUserMessage(error, '保存失败，请稍后重试。'))
   }
 }
 </script>

@@ -245,7 +245,7 @@ const syncRemoteExpense = async (expense: Expense) => {
   const { error } = await upsertExpense(expense)
   if (error) {
     console.error('同步远程开销失败：', error.message)
-    throw error
+    throw new Error('云端保存失败，请稍后重试。')
   }
 }
 

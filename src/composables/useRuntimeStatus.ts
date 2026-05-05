@@ -1,28 +1,34 @@
-import { ref } from 'vue'
+import { toast } from './useToast'
 
-export const appError = ref('')
-export const syncWarning = ref('')
+const RUNTIME_TOAST_ID = 'runtime-error'
+const SYNC_WARNING_TOAST_ID = 'sync-warning'
 
-export const setAppError = (message: string) => {
-  appError.value = message
+export const setAppError = (_message?: string) => {
+  toast.error('页面出现问题，请刷新后重试。', {
+    id: RUNTIME_TOAST_ID,
+    title: '运行异常',
+    duration: 5000,
+  })
 }
 
 export const clearAppError = () => {
-  appError.value = ''
+  toast.dismiss(RUNTIME_TOAST_ID)
 }
 
 export const setSyncWarning = (message: string) => {
-  syncWarning.value = message
+  toast.warning(message, {
+    id: SYNC_WARNING_TOAST_ID,
+    title: '同步提醒',
+    duration: 5000,
+  })
 }
 
 export const clearSyncWarning = () => {
-  syncWarning.value = ''
+  toast.dismiss(SYNC_WARNING_TOAST_ID)
 }
 
 export function useRuntimeStatus() {
   return {
-    appError,
-    syncWarning,
     setAppError,
     clearAppError,
     setSyncWarning,

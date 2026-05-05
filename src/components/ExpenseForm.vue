@@ -2,6 +2,7 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import type { Expense, Payer, SplitPreset, SplitRule, SupportedCurrency } from '../types'
 import { useSettings } from '../composables/useSettings'
+import { toast } from '../composables/useToast'
 import { SUPPORTED_CURRENCIES, formatCurrency } from '../utils/currency'
 
 const props = withDefaults(
@@ -25,7 +26,6 @@ const splitMode = ref<'equal' | 'personal' | 'treat' | 'custom'>('equal')
 const amountInputRef = ref<HTMLInputElement | null>(null)
 const exchangeRateInputRef = ref<HTMLInputElement | null>(null)
 const titleInputRef = ref<HTMLInputElement | null>(null)
-const validationMessageRef = ref<HTMLParagraphElement | null>(null)
 
 function getSplitByPreset(preset: SplitPreset, payer: Payer, category: string): SplitRule {
   if (preset === 'payer-only') {
@@ -219,9 +219,8 @@ watch(
 
 function submit() {
   if (validationMessage.value) {
+    toast.warning(validationMessage.value)
     void nextTick(() => {
-      validationMessageRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-
       if (!form.title.trim()) {
         titleInputRef.value?.focus()
         return
@@ -496,8 +495,6 @@ function submit() {
         <span class="field-label">备注（可选）</span>
         <textarea v-model="form.note" rows="3" placeholder="晚餐、5月房租、超市购物" />
       </label>
-
-      <p v-if="validationMessage" ref="validationMessageRef" class="error-message">{{ validationMessage }}</p>
 
       <div class="form-actions">
         <button type="button" class="secondary-button" @click="emit('cancel')">取消</button>

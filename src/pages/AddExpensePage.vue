@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import ExpenseForm from '../components/ExpenseForm.vue'
 import { useExpenses } from '../composables/useExpenses'
+import { clearAppError, setAppError } from '../composables/useRuntimeStatus'
 
 const props = defineProps<{
   expenseId?: string | null
@@ -18,15 +19,22 @@ const editingExpense = computed(() =>
   props.expenseId ? expenses.value.find((item) => item.id === props.expenseId) || null : null
 )
 
-const handleSave = (expense: (typeof expenses.value)[number]) => {
-  if (editingExpense.value) {
-    updateExpense(expense)
-    emit('saved', '记录已更新。')
-    return
-  }
+const handleSave = async (expense: (typeof expenses.value)[number]) => {
+  clearAppError()
 
-  addExpense(expense)
-  emit('saved', '记录已保存。')
+  try {
+    if (editingExpense.value) {
+      await updateExpense(expense)
+      emit('saved', '记录已更新。')
+      return
+    }
+
+    await addExpense(expense)
+    emit('saved', '记录已保存。')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '保存失败，请重试。'
+    setAppError(message)
+  }
 }
 </script>
 

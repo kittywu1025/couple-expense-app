@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import type { Expense, Payer, SplitPreset, SplitRule, SupportedCurrency } from '../types'
 import { useSettings } from '../composables/useSettings'
 import { SUPPORTED_CURRENCIES, formatCurrency } from '../utils/currency'
@@ -22,6 +22,10 @@ const emit = defineEmits<{
 
 const { settings, categoryMap } = useSettings()
 const splitMode = ref<'equal' | 'personal' | 'treat' | 'custom'>('equal')
+const amountInputRef = ref<HTMLInputElement | null>(null)
+const exchangeRateInputRef = ref<HTMLInputElement | null>(null)
+const titleInputRef = ref<HTMLInputElement | null>(null)
+const validationMessageRef = ref<HTMLParagraphElement | null>(null)
 
 function getSplitByPreset(preset: SplitPreset, payer: Payer, category: string): SplitRule {
   if (preset === 'payer-only') {
@@ -214,7 +218,26 @@ watch(
 )
 
 function submit() {
-  if (validationMessage.value) return
+  if (validationMessage.value) {
+    void nextTick(() => {
+      validationMessageRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+
+      if (!form.title.trim()) {
+        titleInputRef.value?.focus()
+        return
+      }
+
+      if (!(form.originalAmount > 0)) {
+        amountInputRef.value?.focus()
+        return
+      }
+
+      if (isCrossCurrency.value && !(form.exchangeRateUsed > 0)) {
+        exchangeRateInputRef.value?.focus()
+      }
+    })
+    return
+  }
 
   syncCurrencyFields()
 
@@ -252,6 +275,7 @@ function submit() {
         </div>
         <div class="amount-input-wrap">
           <input
+            ref="amountInputRef"
             v-model.number="form.originalAmount"
             type="number"
             min="0"
@@ -309,6 +333,7 @@ function submit() {
           <label class="field-group">
             <span class="field-label">汇率</span>
             <input
+              ref="exchangeRateInputRef"
               v-model.number="form.exchangeRateUsed"
               type="number"
               min="0"
@@ -336,7 +361,7 @@ function submit() {
 
       <label class="field-group">
         <span class="field-label">消费说明</span>
-        <input v-model="form.title" type="text" placeholder="例如：晚餐、超市采购、5 月房租" />
+        <input ref="titleInputRef" v-model="form.title" type="text" placeholder="例如：晚餐、超市采购、5 月房租" />
       </label>
 
       <label class="field-group">
@@ -472,7 +497,7 @@ function submit() {
         <textarea v-model="form.note" rows="3" placeholder="晚餐、5月房租、超市购物" />
       </label>
 
-      <p v-if="validationMessage" class="error-message">{{ validationMessage }}</p>
+      <p v-if="validationMessage" ref="validationMessageRef" class="error-message">{{ validationMessage }}</p>
 
       <div class="form-actions">
         <button type="button" class="secondary-button" @click="emit('cancel')">取消</button>

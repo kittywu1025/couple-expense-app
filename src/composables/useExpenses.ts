@@ -239,23 +239,27 @@ const monthlySummary = computed(() => ({
   rentTotal: rentTotal.value,
 }))
 
-const addExpense = (expense: Expense) => {
+const syncRemoteExpense = async (expense: Expense) => {
+  if (!authUser.value?.id || !currentBookId.value || isLocalBookMode.value) return
+
+  const { error } = await upsertExpense(expense)
+  if (error) {
+    console.error('同步远程开销失败：', error.message)
+    throw error
+  }
+}
+
+const addExpense = async (expense: Expense) => {
   const normalized = normalizeExpense({
     ...expense,
     bookId: currentBookId.value || expense.bookId,
     createdBy: authUser.value?.id || expense.createdBy,
   })
   expenses.value = sortExpenses([normalized, ...expenses.value])
-  if (authUser.value?.id && currentBookId.value && !isLocalBookMode.value) {
-    upsertExpense(normalized).then(({ error }) => {
-      if (error) {
-        console.error('同步远程开销失败：', error.message)
-      }
-    })
-  }
+  await syncRemoteExpense(normalized)
 }
 
-const updateExpense = (expense: Expense) => {
+const updateExpense = async (expense: Expense) => {
   const normalized = normalizeExpense({
     ...expense,
     bookId: currentBookId.value || expense.bookId,
@@ -264,13 +268,7 @@ const updateExpense = (expense: Expense) => {
   expenses.value = sortExpenses(
     expenses.value.map((item) => (item.id === normalized.id ? normalized : item))
   )
-  if (authUser.value?.id && currentBookId.value && !isLocalBookMode.value) {
-    upsertExpense(normalized).then(({ error }) => {
-      if (error) {
-        console.error('同步远程开销失败：', error.message)
-      }
-    })
-  }
+  await syncRemoteExpense(normalized)
 }
 
 const deleteExpense = (expenseId: string) => {

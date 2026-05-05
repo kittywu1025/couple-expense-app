@@ -87,7 +87,7 @@ const handleDelete = (id: string) => {
 
         <label class="field-group search-field">
           <span class="field-label">搜索</span>
-          <input v-model="searchText" type="search" placeholder="搜索标题、备注、类别" />
+          <input v-model="searchText" type="search" placeholder="搜索说明、类别" />
         </label>
       </div>
     </section>

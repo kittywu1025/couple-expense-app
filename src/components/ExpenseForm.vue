@@ -25,7 +25,6 @@ const { settings, categoryMap } = useSettings()
 const splitMode = ref<'equal' | 'personal' | 'treat' | 'custom'>('equal')
 const amountInputRef = ref<HTMLInputElement | null>(null)
 const exchangeRateInputRef = ref<HTMLInputElement | null>(null)
-const titleInputRef = ref<HTMLInputElement | null>(null)
 
 function getSplitByPreset(preset: SplitPreset, payer: Payer, category: string): SplitRule {
   if (preset === 'payer-only') {
@@ -66,7 +65,6 @@ const convertedAmountPreview = computed(() =>
   formatCurrency(form.amount || 0, form.baseCurrency, { maximumFractionDigits: form.baseCurrency === 'JPY' || form.baseCurrency === 'KRW' ? 0 : 2 })
 )
 const validationMessage = computed(() => {
-  if (!form.title.trim()) return '请填写这笔消费的说明，例如“晚餐”或“5 月房租”。'
   if (!(form.originalAmount > 0)) return '请输入大于 0 的金额。'
   if (!form.date) return '请选择消费日期。'
   if (!form.category) return '请选择消费类别。'
@@ -131,7 +129,14 @@ function syncCurrencyFields() {
 }
 
 function updateOriginalCurrency(currency: SupportedCurrency) {
+  const previousCurrency = form.originalCurrency
   form.originalCurrency = currency || settings.value.defaultCurrency || 'JPY'
+  if (
+    form.originalCurrency !== form.baseCurrency &&
+    (previousCurrency === form.baseCurrency || form.exchangeRateUsed === 1)
+  ) {
+    form.exchangeRateUsed = 0
+  }
   syncCurrencyFields()
 }
 
@@ -221,11 +226,6 @@ function submit() {
   if (validationMessage.value) {
     toast.warning(validationMessage.value)
     void nextTick(() => {
-      if (!form.title.trim()) {
-        titleInputRef.value?.focus()
-        return
-      }
-
       if (!(form.originalAmount > 0)) {
         amountInputRef.value?.focus()
         return
@@ -243,7 +243,7 @@ function submit() {
   emit('save', {
     ...form,
     title: form.title.trim(),
-    note: form.note?.trim() || '',
+    note: '',
     amount: Number(form.amount),
     originalAmount: Number(form.originalAmount),
     exchangeRateUsed: Number(form.exchangeRateUsed),
@@ -359,8 +359,8 @@ function submit() {
       </div>
 
       <label class="field-group">
-        <span class="field-label">消费说明</span>
-        <input ref="titleInputRef" v-model="form.title" type="text" placeholder="例如：晚餐、超市采购、5 月房租" />
+        <span class="field-label">消费说明（可选）</span>
+        <input v-model="form.title" type="text" placeholder="例如：晚餐、超市采购、5 月房租" />
       </label>
 
       <label class="field-group">
@@ -491,11 +491,6 @@ function submit() {
     </section>
 
     <section class="section-card">
-      <label class="field-group">
-        <span class="field-label">备注（可选）</span>
-        <textarea v-model="form.note" rows="3" placeholder="晚餐、5月房租、超市购物" />
-      </label>
-
       <div class="form-actions">
         <button type="button" class="secondary-button" @click="emit('cancel')">取消</button>
         <button type="submit" class="primary-button">{{ props.submitLabel }}</button>

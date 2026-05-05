@@ -42,13 +42,35 @@ const settlementText = computed(() => {
   return `${settings.value.meName} 需要补给 ${settings.value.partnerName}`
 })
 
+const fallbackCopyText = (value: string) => {
+  const input = document.createElement('textarea')
+  input.value = value
+  input.setAttribute('readonly', 'true')
+  input.style.position = 'fixed'
+  input.style.opacity = '0'
+  document.body.appendChild(input)
+  input.select()
+  input.setSelectionRange(0, value.length)
+  const copied = document.execCommand('copy')
+  document.body.removeChild(input)
+  return copied
+}
+
 const copyInviteCode = async () => {
   if (!currentBook.value?.inviteCode) return
   try {
-    await navigator.clipboard.writeText(currentBook.value.inviteCode)
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(currentBook.value.inviteCode)
+    } else if (!fallbackCopyText(currentBook.value.inviteCode)) {
+      throw new Error('clipboard unavailable')
+    }
     toast.success('邀请码已复制。')
   } catch (error) {
     console.error('复制邀请码失败：', error)
+    if (fallbackCopyText(currentBook.value.inviteCode)) {
+      toast.success('邀请码已复制。')
+      return
+    }
     toast.error('复制失败，请稍后重试。')
   }
 }

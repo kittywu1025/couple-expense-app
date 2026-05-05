@@ -104,6 +104,28 @@ const sortExpenses = (items: Expense[]) =>
     return right.createdAt?.localeCompare(left.createdAt || '') ?? 0
   })
 
+const mergeExpenseLists = (remoteItems: Expense[], localItems: Expense[]) => {
+  const merged = new Map<string, Expense>()
+
+  localItems.forEach((expense) => {
+    merged.set(expense.id, expense)
+  })
+
+  remoteItems.forEach((expense) => {
+    const existing = merged.get(expense.id)
+    if (!existing) {
+      merged.set(expense.id, expense)
+      return
+    }
+
+    const existingUpdatedAt = existing.updatedAt || existing.createdAt || ''
+    const remoteUpdatedAt = expense.updatedAt || expense.createdAt || ''
+    merged.set(expense.id, remoteUpdatedAt >= existingUpdatedAt ? expense : existing)
+  })
+
+  return sortExpenses(Array.from(merged.values()))
+}
+
 const loadRemoteExpenses = async () => {
   if (!authUser.value?.id || !currentBookId.value) return
   try {
@@ -112,7 +134,9 @@ const loadRemoteExpenses = async () => {
       throw error
     }
     if (data) {
-      expenses.value = sortExpenses(data.map((expense) => normalizeExpense(expense)))
+      const localCached = loadJSON<Expense[]>(STORAGE_KEY, []).map((expense) => normalizeExpense(expense))
+      const remoteNormalized = data.map((expense) => normalizeExpense(expense))
+      expenses.value = mergeExpenseLists(remoteNormalized, localCached)
       saveJSON(STORAGE_KEY, expenses.value)
     }
     clearSyncWarning()
@@ -245,21 +269,21 @@ const syncRemoteExpense = async (expense: Expense) => {
   const { error } = await upsertExpense(expense)
   if (error) {
     console.error('同步远程开销失败：', error.message)
-    throw new Error('云端保存失败，请稍后重试。')
+    setSyncWarning('云端保存失败，但这笔记录已经保存在当前设备。')
   }
 }
 
-const addExpense = async (expense: Expense) => {
+const addExpense = (expense: Expense) => {
   const normalized = normalizeExpense({
     ...expense,
     bookId: currentBookId.value || expense.bookId,
     createdBy: authUser.value?.id || expense.createdBy,
   })
   expenses.value = sortExpenses([normalized, ...expenses.value])
-  await syncRemoteExpense(normalized)
+  void syncRemoteExpense(normalized)
 }
 
-const updateExpense = async (expense: Expense) => {
+const updateExpense = (expense: Expense) => {
   const normalized = normalizeExpense({
     ...expense,
     bookId: currentBookId.value || expense.bookId,
@@ -268,7 +292,7 @@ const updateExpense = async (expense: Expense) => {
   expenses.value = sortExpenses(
     expenses.value.map((item) => (item.id === normalized.id ? normalized : item))
   )
-  await syncRemoteExpense(normalized)
+  void syncRemoteExpense(normalized)
 }
 
 const deleteExpense = (expenseId: string) => {

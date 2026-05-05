@@ -62,13 +62,14 @@ const form = reactive<Expense>(createDefaultExpense())
 const currencyOptions = SUPPORTED_CURRENCIES
 const isCrossCurrency = computed(() => form.originalCurrency !== form.baseCurrency)
 const convertedAmountPreview = computed(() =>
-  formatCurrency(form.amount || 0, form.baseCurrency, { maximumFractionDigits: form.baseCurrency === 'JPY' || form.baseCurrency === 'KRW' ? 0 : 2 })
+  formatCurrency(form.amount || 0, form.baseCurrency, { maximumFractionDigits: form.baseCurrency === 'JPY' ? 0 : 2 })
 )
+const exchangeRateHint = computed(() => `请输入 1 ${form.originalCurrency} = 多少 ${form.baseCurrency}`)
 const validationMessage = computed(() => {
   if (!(form.originalAmount > 0)) return '请输入大于 0 的金额。'
   if (!form.date) return '请选择消费日期。'
   if (!form.category) return '请选择消费类别。'
-  if (isCrossCurrency.value && !(form.exchangeRateUsed > 0)) return '汇率获取失败，请手动填写汇率。'
+  if (isCrossCurrency.value && !(form.exchangeRateUsed > 0)) return exchangeRateHint.value
   if (form.split.me < 0 || form.split.partner < 0) return '分摊比例不能为负数。'
   if (Math.abs(form.split.me + form.split.partner - 100) > 0.01) return '分摊比例总和必须等于 100%。'
   return ''
@@ -116,7 +117,7 @@ function syncCurrencyFields() {
   form.baseCurrency = form.baseCurrency || settings.value.defaultCurrency || 'JPY'
   form.originalCurrency = form.originalCurrency || form.baseCurrency
   form.exchangeRateDate = form.date || form.exchangeRateDate || new Date().toISOString().slice(0, 10)
-  const precision = form.baseCurrency === 'JPY' || form.baseCurrency === 'KRW' ? 0 : 2
+  const precision = form.baseCurrency === 'JPY' ? 0 : 2
 
   if (form.originalCurrency === form.baseCurrency) {
     form.exchangeRateUsed = 1
@@ -280,7 +281,7 @@ function submit() {
             min="0"
             step="0.01"
             inputmode="decimal"
-            :placeholder="form.originalCurrency === 'JPY' || form.originalCurrency === 'KRW' ? '0' : '0.00'"
+            :placeholder="form.originalCurrency === 'JPY' ? '0' : '0.00'"
           />
         </div>
       </label>
@@ -338,7 +339,7 @@ function submit() {
               min="0"
               step="0.0001"
               inputmode="decimal"
-              placeholder="例如：20.35"
+              :placeholder="form.baseCurrency === 'JPY' ? '例如：20.35' : '例如：0.049'"
             />
           </label>
           <label class="field-group">
@@ -346,7 +347,7 @@ function submit() {
             <input v-model="form.exchangeRateDate" type="date" />
           </label>
         </div>
-        <p class="exchange-hint">汇率获取失败，请手动填写汇率</p>
+        <p class="exchange-hint">{{ exchangeRateHint }}</p>
         <p class="exchange-result">按当前汇率将计入 {{ convertedAmountPreview }}</p>
       </div>
 

@@ -2,7 +2,7 @@ export type Payer = 'me' | 'partner'
 export type Performer = 'me' | 'partner'
 export type Recurrence = 'none' | 'monthly'
 export type SplitPreset = 'equal' | 'rent' | 'custom' | 'payer-only'
-export type SupportedCurrency = 'JPY' | 'CNY' | 'USD' | 'KRW' | 'EUR'
+export type SupportedCurrency = 'JPY' | 'CNY'
 
 export interface SplitRule {
   me: number

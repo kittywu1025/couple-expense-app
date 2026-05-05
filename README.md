@@ -7,7 +7,7 @@
 - 📱 移动端优先界面，首页简化为总支出与最近记录两块核心内容，适配 iPhone 安全区
 - 🧭 底部 `TabBar` 精简为 `首页 / 记录 / 统计 / 设置` 四个主入口，新增消费由右下角悬浮按钮统一承担
 - 🧾 账本页面：新增、编辑、删除开销，按月统计消费
-- 💱 货币支持：设置默认货币；单笔消费可选择原始货币，并按填写汇率换算保存
+- 💱 货币支持：当前仅支持 `JPY` 与 `CNY`；单笔消费可选择原始货币，并按手动填写汇率换算保存
 - 🔍 搜索功能：支持按标题、备注、类别或支付方搜索账目
 - 🧾 固定账单支持：可以单独设置每月固定扣费（如话费、水电、宽带）
 - 🤝 共享结算：自动计算共同支出结算差额，显示“我欠对方 / 对方欠我”
@@ -64,16 +64,20 @@
 
 ## 货币与汇率
 
-- 设置页支持默认货币，当前提供：`JPY / CNY / USD / KRW / EUR`。
+- 设置页默认货币现已简化为：`JPY / CNY`，默认值为 `JPY`。
 - 添加消费页已修复货币字段初始化顺序问题；`syncCurrencyFields` 改为函数声明，避免在初始化链路里出现 `Cannot access 'syncCurrencyFields' before initialization`。
 - 添加消费时，金额输入与货币选择已拆开：金额卡片单独展示，货币区域改为轻量下拉加快捷 pill，不再和金额输入挤在同一块。
-- 若原始货币和默认货币不同，表单会显示汇率与汇率日期输入框。
+- 单笔消费货币现仅允许选择：`JPY / CNY`，默认跟随设置页默认货币。
+- 若原始货币和默认货币不同，表单会显示汇率与汇率日期输入框；若两者相同，则不需要填写汇率。
 - 若原始货币和默认货币相同，提示文案改为更自然的“当前默认货币：xxx”或“本笔将按 xxx 记账”。
 - 当前是 MVP 实现：
   - 优先保证可追溯保存原始金额、原始货币、基准货币、汇率和汇率日期
-  - 汇率自动获取暂未接入银联接口，原因是前端直连公开汇率源通常会遇到 CORS 或稳定性问题
-  - 现阶段使用手动填写汇率，保存时会计算并写入基准货币金额
-- 记录列表里，跨币种记录会显示 `原始金额 + 货币代码 ≈ 基准金额 + 货币代码`，避免 `JPY` 和 `CNY` 都显示成 `¥` 时混淆。
+  - 汇率自动获取暂未接入任何 API
+  - 当前只做手动汇率输入：
+    - 默认货币是 `JPY`、单笔是 `CNY` 时，输入 `1 CNY = 多少 JPY`
+    - 默认货币是 `CNY`、单笔是 `JPY` 时，输入 `1 JPY = 多少 CNY`
+  - 保存时会把金额换算成默认货币金额，同时保留原始金额和原始货币
+- 页面金额展示统一改成 `货币代码 + 数字`，例如 `JPY 1,078`、`CNY 50`、`CNY 50 ≈ JPY 1,050`，避免 `JPY` 和 `CNY` 都显示成 `¥` 时混淆。
 
 ## 全站提示
 
@@ -91,7 +95,7 @@
   - 已注册邮箱注册时的 modal 提示
   - 邮箱登录链接入口的发送提示
   - 设置页默认货币修改与刷新后保留
-  - 添加消费页 `JPY` / 跨币种 `USD` 流程
+  - 添加消费页 `JPY` / `CNY` 跨币种流程
   - 跨币种汇率缺失时 toast 提示
   - 首页、记录页、统计页、收支日历页的有数据 / 无数据场景
   - 全站 toast 提示替换 inline alert
@@ -101,9 +105,52 @@
   - 远端拉取不应覆盖本地未同步记录，现已改为合并远端与本地缓存。
   - 消费表单的“消费说明 / 备注”已合并为单个可选字段。
 - 当前已知限制：
-  - 当前测试环境里，Supabase 开销写入返回失败，因此页面会提示“云端保存失败，但这笔记录已经保存在当前设备。”
+  - 当前 Supabase 实例尚未执行最新 `expenses` 字段升级 SQL；在执行 SQL 前，页面仍可能提示“云端保存失败，但这笔记录已经保存在当前设备。”
   - 当前 in-app browser 环境下，`复制邀请码` 仍可能因剪贴板权限限制失败；真实浏览器环境建议继续实机验证。
-  - “创建账本 / 加入已有账本 / 错误邀请码 toast”未用第二个独立测试账号完整走通，本次主要验证了已加入账本账号的正常进入与现有账本展示。
+  - 第二个独立测试账号注册后需要邮箱确认，因此本轮无法在未确认邮箱的前提下完成 B 账号登录和双向消费同步验证。
+
+## 云端同步修复
+
+- 已定位真实写入失败原因：Supabase `expenses` 表缺少前端已使用的字段，真实错误为：
+  - `code`: `PGRST204`
+  - `message`: `Could not find the 'base_currency' column of 'expenses' in the schema cache`
+  - `details`: `null`
+  - `hint`: `null`
+- 已在 [supabase/couple_books.sql](/Users/wu/Desktop/couple-expense-app/supabase/couple_books.sql:1) 与 [supabase/migrations/20260505_fix_expenses_currency_and_pairing.sql](/Users/wu/Desktop/couple-expense-app/supabase/migrations/20260505_fix_expenses_currency_and_pairing.sql:1) 中补齐：
+  - `original_amount`
+  - `original_currency`
+  - `base_currency`
+  - `exchange_rate_used`
+  - `exchange_rate_date`
+  - `split`
+  - `split_preset`
+  - `book_id`
+  - `created_by`
+  - `created_at`
+  - `updated_at`
+- 已补充 `join_book_by_invite()` 的未登录保护，避免未认证时出现数据库 `user_id is null` 约束错误。
+- 如果线上或本地云端同步继续报 `PGRST204`，请到 Supabase SQL Editor 执行：
+  - [supabase/migrations/20260505_fix_expenses_currency_and_pairing.sql](/Users/wu/Desktop/couple-expense-app/supabase/migrations/20260505_fix_expenses_currency_and_pairing.sql:1)
+- 旧数据会按 `JPY` 回填：
+  - `original_amount = amount`
+  - `original_currency = 'JPY'`
+  - `base_currency = 'JPY'`
+  - `exchange_rate_used = 1`
+  - `exchange_rate_date = date` 或 `created_at::date`
+- 执行后建议等待几秒，再回到应用重新保存一笔消费，确保 PostgREST schema cache 已刷新。
+
+## 配对测试结果
+
+- 账号 A：
+  - 已验证可登录。
+  - 已通过 RPC 成功创建测试账本并拿到邀请码。
+- 账号 B：
+  - 已成功注册独立测试账号。
+  - 当前项目开启邮箱确认，B 账号未确认邮箱前不能密码登录。
+  - 因此本轮无法完成“B 登录后输入邀请码加入账本”以及后续 A/B 双向消费同步的最终验证。
+- 已验证的配对相关接口结果：
+  - 错误邀请码：返回 `邀请码不存在`
+  - 当前未确认邮箱的 B 账号直接调用加入：因无会话导致 `user_id null`，该情况已在 SQL 中补了未登录保护
 
 ## 运行方式
 

@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { getEffectiveExpenseDate, useExpenses } from '../composables/useExpenses'
 import { useSettings } from '../composables/useSettings'
+import { formatCurrency } from '../utils/currency'
 
 const emit = defineEmits<{
   (e: 'back'): void
@@ -9,7 +10,7 @@ const emit = defineEmits<{
 }>()
 
 const { filteredExpenses, selectedYearMonth } = useExpenses()
-const { categoryMap } = useSettings()
+const { categoryMap, settings } = useSettings()
 
 const monthLabel = computed(() => {
   const [year, month] = selectedYearMonth.value.split('-')
@@ -46,12 +47,7 @@ const shiftMonth = (offset: number) => {
   selectedDate.value = null
 }
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('ja-JP', {
-    style: 'currency',
-    currency: 'JPY',
-    maximumFractionDigits: 0,
-  }).format(value)
+const formatAmount = (value: number) => formatCurrency(value, settings.value.defaultCurrency)
 
 const calendarCells = computed(() => {
   const cells: Array<{ day: number; date: string; amount: number } | null> = []
@@ -124,7 +120,7 @@ const cellTone = (amount: number) => {
           <p class="section-kicker">收支日历</p>
           <h2>{{ monthLabel }}</h2>
         </div>
-        <div class="calendar-total-pill">{{ formatCurrency(monthTotal) }}</div>
+        <div class="calendar-total-pill">{{ formatAmount(monthTotal) }}</div>
       </div>
 
       <div class="calendar-month-toolbar">
@@ -152,7 +148,7 @@ const cellTone = (amount: number) => {
         >
           <template v-if="cell">
             <span class="calendar-day">{{ cell.day }}</span>
-            <small>{{ cell.amount ? formatCurrency(cell.amount) : '' }}</small>
+            <small>{{ cell.amount ? formatAmount(cell.amount) : '' }}</small>
           </template>
         </button>
       </div>
@@ -168,7 +164,7 @@ const cellTone = (amount: number) => {
             <p class="section-kicker">当日流水</p>
             <h3>{{ activeDateLabel }}</h3>
           </div>
-          <strong>{{ formatCurrency(selectedDayTotal) }}</strong>
+          <strong>{{ formatAmount(selectedDayTotal) }}</strong>
         </div>
 
         <div v-if="!selectedDayExpenses.length" class="calendar-day-empty">
@@ -188,7 +184,7 @@ const cellTone = (amount: number) => {
             <span class="home-ledger-meta">{{ categoryMap[expense.category]?.name || expense.category }}</span>
             <span v-if="expense.note" class="home-ledger-note">{{ expense.note }}</span>
           </span>
-          <span class="home-ledger-amount">{{ formatCurrency(expense.amount) }}</span>
+          <span class="home-ledger-amount">{{ formatAmount(expense.amount) }}</span>
         </button>
       </div>
     </section>

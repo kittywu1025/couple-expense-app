@@ -268,7 +268,12 @@ const syncRemoteExpense = async (expense: Expense) => {
 
   const { error } = await upsertExpense(expense)
   if (error) {
-    console.error('同步远程开销失败：', error.message)
+    console.error('同步远程开销失败：', {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    })
     setSyncWarning('云端保存失败，但这笔记录已经保存在当前设备。')
   }
 }

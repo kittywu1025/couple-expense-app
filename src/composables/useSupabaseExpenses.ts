@@ -1,9 +1,11 @@
 import { normalizeCurrency } from '../utils/currency'
 import type { Expense } from '../types'
 import { supabase } from '../lib/supabase'
+import { normalizeCategoryId } from '../utils/categories'
 
 const mapExpenseRow = (row: Record<string, unknown>): Expense => ({
   id: String(row.id),
+  recordType: row.record_type === 'income' ? 'income' : 'expense',
   title: String(row.title ?? ''),
   amount: Number(row.amount ?? 0),
   originalAmount: Number(row.original_amount ?? row.amount ?? 0),
@@ -12,7 +14,7 @@ const mapExpenseRow = (row: Record<string, unknown>): Expense => ({
   exchangeRateUsed: Number(row.exchange_rate_used ?? 1),
   exchangeRateDate: String(row.exchange_rate_date ?? row.date ?? new Date().toISOString().slice(0, 10)),
   date: String(row.date ?? ''),
-  category: String(row.category ?? 'others'),
+  category: normalizeCategoryId(String(row.category ?? 'misc'), row.record_type === 'income' ? 'income' : 'expense'),
   payer: (row.payer as Expense['payer']) || 'me',
   split: (row.split as Expense['split']) || { me: 50, partner: 50 },
   splitPreset: (row.split_preset as Expense['splitPreset']) || (row.splitPreset as Expense['splitPreset']) || 'equal',
@@ -29,6 +31,7 @@ const mapExpenseRow = (row: Record<string, unknown>): Expense => ({
 const mapExpenseRecord = (expense: Expense) => ({
   id: expense.id || crypto.randomUUID(),
   title: expense.title,
+  record_type: expense.recordType,
   amount: expense.amount,
   original_amount: expense.originalAmount,
   original_currency: expense.originalCurrency,

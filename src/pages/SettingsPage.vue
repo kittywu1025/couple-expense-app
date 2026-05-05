@@ -12,11 +12,9 @@ const { settings, normalizeSplit } = useSettings()
 const { authUser, isSupabaseEnabled, signOut, updatePassword } = useSupabaseAuth()
 const { currentBook, currentBookRole, isLocalBookMode } = useBooks()
 const { monthlySummary, recurringExpenses, selectedYearMonth } = useExpenses()
-
-const newCategory = reactive({
-  name: '',
-  icon: '🧾',
-})
+defineEmits<{
+  (e: 'open-categories'): void
+}>()
 const passwordModalOpen = ref(false)
 const passwordLoading = ref(false)
 const passwordForm = reactive({
@@ -24,6 +22,12 @@ const passwordForm = reactive({
   confirmPassword: '',
 })
 const currencyOptions = SUPPORTED_CURRENCIES
+const expenseCategoryCount = computed(
+  () => settings.value.categories.filter((item) => item.recordType === 'expense' && item.active).length
+)
+const incomeCategoryCount = computed(
+  () => settings.value.categories.filter((item) => item.recordType === 'income' && item.active).length
+)
 
 const monthLabel = computed(() => {
   const [year, month] = selectedYearMonth.value.split('-')
@@ -81,29 +85,6 @@ const saveProfile = () => {
   settings.value.defaultSplits.standard = normalizeSplit(settings.value.defaultSplits.standard, { me: 50, partner: 50 })
   settings.value.defaultSplits.rent = normalizeSplit(settings.value.defaultSplits.rent, { me: 60, partner: 40 })
   toast.success('设置已保存。')
-}
-
-const addCategory = () => {
-  const name = newCategory.name.trim()
-  if (!name) {
-    toast.warning('请填写新分类名称。')
-    return
-  }
-
-  settings.value.categories.push({
-    id: crypto.randomUUID(),
-    name,
-    icon: newCategory.icon.trim() || '🧾',
-  })
-
-  newCategory.name = ''
-  newCategory.icon = '🧾'
-  toast.success('新分类已添加。')
-}
-
-const removeCategory = (categoryId: string) => {
-  if (categoryId === 'rent' || categoryId === 'others') return
-  settings.value.categories = settings.value.categories.filter((item) => item.id !== categoryId)
 }
 
 const updateSplit = (type: 'standard' | 'rent', field: 'me' | 'partner', value: number) => {
@@ -249,6 +230,13 @@ onMounted(() => {
             </div>
           </div>
         </div>
+        <button type="button" class="sync-card sync-card-button" @click="$emit('open-categories')">
+          <span>分类管理</span>
+          <div class="settings-action-row">
+            <strong>{{ expenseCategoryCount }} 个支出分类 · {{ incomeCategoryCount }} 个收入分类</strong>
+            <small>新增、改名、停用</small>
+          </div>
+        </button>
       </div>
     </section>
 
@@ -349,50 +337,6 @@ onMounted(() => {
           <span>当前固定消费</span>
           <strong>{{ recurringExpenses.length }} 笔</strong>
         </div>
-      </div>
-    </section>
-
-    <section class="section-card">
-      <div class="section-heading compact">
-        <div>
-          <h3>消费类别</h3>
-        </div>
-      </div>
-
-      <div class="category-manage-list">
-        <div v-for="category in settings.categories" :key="category.id" class="category-manage-item">
-          <div class="category-name">
-            <span>{{ category.icon }}</span>
-            <input v-model="category.name" type="text" />
-          </div>
-          <div class="category-manage-actions">
-            <input v-model="category.icon" type="text" maxlength="2" class="emoji-input" />
-            <button
-              type="button"
-              class="text-button danger"
-              :disabled="category.id === 'rent' || category.id === 'others'"
-              @click="removeCategory(category.id)"
-            >
-              删除
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div class="field-row">
-        <label class="field-group">
-          <span class="field-label">新分类名称</span>
-          <input v-model="newCategory.name" type="text" placeholder="例如：宠物、旅行" />
-        </label>
-
-        <label class="field-group tiny-field">
-          <span class="field-label">图标</span>
-          <input v-model="newCategory.icon" type="text" maxlength="2" />
-        </label>
-      </div>
-
-      <div class="form-actions">
-        <button type="button" class="secondary-button" @click="addCategory">新增分类</button>
       </div>
     </section>
 

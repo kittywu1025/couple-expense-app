@@ -526,6 +526,13 @@ select:disabled {
   color: var(--orange);
 }
 
+.settings-hint {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
 .chip-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -1044,6 +1051,12 @@ select:disabled {
   border: 1px solid rgba(15, 23, 42, 0.05);
 }
 
+.sync-card-button {
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+}
+
 .category-name {
   display: flex;
   align-items: center;
@@ -1056,6 +1069,14 @@ select:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.category-manage-item input[type='text'] {
+  min-width: 0;
+}
+
+.income-amount {
+  color: #0f9f6e;
 }
 
 .split-settings-grid {

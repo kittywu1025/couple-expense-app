@@ -15,7 +15,7 @@ const emit = defineEmits<{
 
 const { settings, categoryMap } = useSettings()
 const { currentBook } = useBooks()
-const { filteredExpenses, monthlySummary, selectedYearMonth } = useExpenses()
+const { expenseRecords, monthlySummary, selectedYearMonth } = useExpenses()
 
 const monthLabel = computed(() => {
   const [year, month] = selectedYearMonth.value.split('-')
@@ -28,7 +28,7 @@ const shiftMonth = (offset: number) => {
   selectedYearMonth.value = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`
 }
 
-const recentExpenses = computed(() => filteredExpenses.value.slice(0, 8))
+const recentExpenses = computed(() => expenseRecords.value.slice(0, 8))
 const formatGroupDate = (value: string) =>
   new Date(`${value}T00:00:00`).toLocaleDateString('zh-CN', {
     month: 'numeric',

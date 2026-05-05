@@ -9,7 +9,7 @@ const emit = defineEmits<{
   (e: 'edit', expenseId: string): void
 }>()
 
-const { filteredExpenses, selectedYearMonth } = useExpenses()
+const { expenseRecords, selectedYearMonth } = useExpenses()
 const { categoryMap, settings } = useSettings()
 
 const monthLabel = computed(() => {
@@ -27,7 +27,7 @@ const firstWeekday = computed(() => new Date(parsedMonth.value.year, parsedMonth
 
 const dailyTotals = computed(() => {
   const totals: Record<string, number> = {}
-  filteredExpenses.value.forEach((expense) => {
+  expenseRecords.value.forEach((expense) => {
     const date = getEffectiveExpenseDate(expense, selectedYearMonth.value)
     totals[date] = (totals[date] || 0) + expense.amount
   })
@@ -76,7 +76,7 @@ const calendarCells = computed(() => {
 
 const selectedDayExpenses = computed(() => {
   if (!selectedDate.value) return []
-  return filteredExpenses.value.filter(
+  return expenseRecords.value.filter(
     (expense) => getEffectiveExpenseDate(expense, selectedYearMonth.value) === selectedDate.value
   )
 })

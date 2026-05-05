@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
-import type { Expense, Payer, SplitPreset, SplitRule, SupportedCurrency } from '../types'
+import type { Expense, Payer, RecordType, SplitPreset, SplitRule, SupportedCurrency } from '../types'
 import { useSettings } from '../composables/useSettings'
 import { toast } from '../composables/useToast'
 import { SUPPORTED_CURRENCIES, formatCurrency } from '../utils/currency'
+import { getDefaultCategoryId, isPersonalExpenseCategory } from '../utils/categories'
 
 const props = withDefaults(
   defineProps<{
@@ -25,6 +26,19 @@ const { settings } = useSettings()
 const splitMode = ref<'equal' | 'personal' | 'treat' | 'custom'>('equal')
 const amountInputRef = ref<HTMLInputElement | null>(null)
 const exchangeRateInputRef = ref<HTMLInputElement | null>(null)
+const recordTypeOptions = [
+  { value: 'expense' as const, label: '支出' },
+  { value: 'income' as const, label: '收入' },
+]
+
+function getFirstActiveCategory(recordType: RecordType) {
+  return (
+    settings.value.categories.find((item) => item.recordType === recordType && item.active) ||
+    settings.value.categories.find((item) => item.recordType === recordType) || {
+      id: getDefaultCategoryId(recordType),
+    }
+  ).id
+}
 
 function getSplitByPreset(preset: SplitPreset, payer: Payer, category: string): SplitRule {
   if (preset === 'payer-only') {
@@ -41,6 +55,7 @@ function getSplitByPreset(preset: SplitPreset, payer: Payer, category: string): 
 function createDefaultExpense(): Expense {
   return {
     id: '',
+    recordType: 'expense',
     title: '',
     amount: 0,
     originalAmount: 0,
@@ -49,7 +64,7 @@ function createDefaultExpense(): Expense {
     exchangeRateUsed: 1,
     exchangeRateDate: new Date().toISOString().slice(0, 10),
     date: new Date().toISOString().slice(0, 10),
-    category: settings.value.categories.find((item) => item.id !== 'rent')?.id || 'food',
+    category: getFirstActiveCategory('expense'),
     payer: 'me',
     split: { ...settings.value.defaultSplits.standard },
     splitPreset: 'equal',
@@ -61,6 +76,12 @@ function createDefaultExpense(): Expense {
 const form = reactive<Expense>(createDefaultExpense())
 const currencyOptions = SUPPORTED_CURRENCIES
 const isCrossCurrency = computed(() => form.originalCurrency !== form.baseCurrency)
+const isExpenseMode = computed(() => form.recordType === 'expense')
+const categoryOptions = computed(() =>
+  settings.value.categories.filter(
+    (item) => item.recordType === form.recordType && (item.active || item.id === form.category)
+  )
+)
 const convertedAmountPreview = computed(() =>
   formatCurrency(form.amount || 0, form.baseCurrency, { maximumFractionDigits: form.baseCurrency === 'JPY' ? 0 : 2 })
 )
@@ -80,8 +101,6 @@ const payers = computed(() => [
   { value: 'partner' as Payer, label: settings.value.partnerName },
 ])
 
-const categoryOptions = computed(() => settings.value.categories)
-
 const splitOptions = computed(() => [
   {
     value: 'equal' as const,
@@ -89,10 +108,12 @@ const splitOptions = computed(() => [
     description:
       form.category === 'rent'
         ? `房租默认 ${settings.value.defaultSplits.rent.me}/${settings.value.defaultSplits.rent.partner}`
-        : '默认一起承担',
+        : isPersonalExpenseCategory(form.category)
+          ? '当前分类默认个人承担'
+          : '默认一起承担',
   },
   { value: 'personal' as const, label: '个人消费', description: '付款人承担 100%' },
-  { value: 'treat' as const, label: '我请客', description: '由付款人全部承担' },
+  { value: 'treat' as const, label: '请客', description: '由付款人全部承担' },
   { value: 'custom' as const, label: '自定义比例', description: '按 10% 调整' },
 ])
 const splitStepOptions = Array.from({ length: 11 }, (_, index) => index * 10)
@@ -100,6 +121,11 @@ const splitStepOptions = Array.from({ length: 11 }, (_, index) => index * 10)
 const splitSummary = computed(() => `${settings.value.meName}承担 ${form.split.me}% · ${settings.value.partnerName}承担 ${form.split.partner}%`)
 
 function syncSplitMode() {
+  if (form.recordType === 'income') {
+    splitMode.value = 'personal'
+    return
+  }
+
   if (form.splitPreset === 'custom') {
     splitMode.value = 'custom'
     return
@@ -111,6 +137,32 @@ function syncSplitMode() {
   }
 
   splitMode.value = 'equal'
+}
+
+function syncRecordTypeState() {
+  if (form.recordType === 'income') {
+    form.payer = 'me'
+    form.splitPreset = 'payer-only'
+    form.split = { me: 100, partner: 0 }
+    if (!categoryOptions.value.some((item) => item.id === form.category)) {
+      form.category = getFirstActiveCategory('income')
+    }
+    return
+  }
+
+  if (!categoryOptions.value.some((item) => item.id === form.category)) {
+    form.category = getFirstActiveCategory('expense')
+  }
+  if (form.splitPreset !== 'custom') {
+    if (isPersonalExpenseCategory(form.category)) {
+      form.splitPreset = 'payer-only'
+    } else if (form.category === 'rent') {
+      form.splitPreset = 'rent'
+    } else {
+      form.splitPreset = 'equal'
+    }
+    form.split = getSplitByPreset(form.category === 'rent' ? 'rent' : form.splitPreset, form.payer, form.category)
+  }
 }
 
 function syncCurrencyFields() {
@@ -144,6 +196,7 @@ function updateOriginalCurrency(currency: SupportedCurrency) {
 function syncFromExpense(value?: Expense | null) {
   const nextExpense = value ? { ...value } : createDefaultExpense()
   if (!value) {
+    nextExpense.recordType = 'expense'
     nextExpense.baseCurrency = settings.value.defaultCurrency || 'JPY'
     nextExpense.originalCurrency = settings.value.defaultCurrency || 'JPY'
     nextExpense.exchangeRateUsed = 1
@@ -153,11 +206,27 @@ function syncFromExpense(value?: Expense | null) {
   if (!value) {
     form.recurrence = 'none'
   }
+  syncRecordTypeState()
   syncCurrencyFields()
   syncSplitMode()
 }
 
+function updateRecordType(recordType: RecordType) {
+  form.recordType = recordType
+  form.category = getFirstActiveCategory(recordType)
+  if (recordType === 'income') {
+    form.payer = 'me'
+    form.splitPreset = 'payer-only'
+    form.split = { me: 100, partner: 0 }
+  } else {
+    form.splitPreset = isPersonalExpenseCategory(form.category) ? 'payer-only' : form.category === 'rent' ? 'rent' : 'equal'
+    form.split = getSplitByPreset(form.splitPreset, form.payer, form.category)
+  }
+  syncSplitMode()
+}
+
 function applySplitMode(mode: 'equal' | 'personal' | 'treat' | 'custom') {
+  if (form.recordType === 'income') return
   const previousMode = splitMode.value
   splitMode.value = mode
   if (mode === 'custom') {
@@ -180,12 +249,18 @@ function applySplitMode(mode: 'equal' | 'personal' | 'treat' | 'custom') {
 
 function updateCategory(category: string) {
   form.category = category
+  if (form.recordType === 'income') return
   if (form.splitPreset !== 'custom') {
-    applySplitMode(splitMode.value === 'custom' ? 'custom' : splitMode.value)
+    if (isPersonalExpenseCategory(category)) {
+      applySplitMode('personal')
+      return
+    }
+    applySplitMode('equal')
   }
 }
 
 function updatePayer(payer: Payer) {
+  if (form.recordType === 'income') return
   form.payer = payer
   if (splitMode.value === 'personal' || splitMode.value === 'treat' || form.splitPreset === 'payer-only') {
     form.split = getSplitByPreset('payer-only', payer, form.category)
@@ -227,6 +302,15 @@ watch(
   }
 )
 
+watch(
+  () => [form.recordType, settings.value.categories],
+  () => {
+    syncRecordTypeState()
+    syncSplitMode()
+  },
+  { deep: true }
+)
+
 function submit() {
   if (validationMessage.value) {
     toast.warning(validationMessage.value)
@@ -265,9 +349,21 @@ function submit() {
     <section class="section-card">
       <div class="section-heading">
         <div>
-          <h2>{{ props.expense ? '编辑记录' : '添加消费' }}</h2>
+          <h2>{{ props.expense ? '编辑记录' : '添加记录' }}</h2>
         </div>
         <button type="button" class="secondary-button" @click="emit('cancel')">取消</button>
+      </div>
+
+      <div class="segment-row">
+        <button
+          v-for="option in recordTypeOptions"
+          :key="option.value"
+          type="button"
+          :class="['segment-button', { active: form.recordType === option.value }]"
+          @click="updateRecordType(option.value)"
+        >
+          {{ option.label }}
+        </button>
       </div>
 
       <label class="field-group amount-field">
@@ -334,7 +430,11 @@ function submit() {
 
       <label class="field-group">
         <span class="field-label">说明（可选）</span>
-        <input v-model="form.title" type="text" placeholder="例如：晚餐、超市采购、5 月房租" />
+        <input
+          v-model="form.title"
+          type="text"
+          :placeholder="isExpenseMode ? '例如：晚餐、超市采购、5 月房租' : '例如：5 月兼职、妈妈转生活费'"
+        />
       </label>
     </section>
 
@@ -362,11 +462,11 @@ function submit() {
     <section class="section-card">
       <div class="section-heading compact">
         <div>
-          <h3>付款人</h3>
+          <h3>{{ isExpenseMode ? '付款人' : '收入归属' }}</h3>
         </div>
       </div>
 
-      <div class="segment-row">
+      <div v-if="isExpenseMode" class="segment-row">
         <button
           v-for="payer in payers"
           :key="payer.value"
@@ -377,9 +477,13 @@ function submit() {
           {{ payer.label }}
         </button>
       </div>
+      <div v-else class="sync-card">
+        <span>本笔收入会记到当前登录用户名下</span>
+        <strong>{{ settings.meName }}</strong>
+      </div>
     </section>
 
-    <section class="section-card">
+    <section v-if="isExpenseMode" class="section-card">
       <div class="section-heading compact">
         <div>
           <h3>分摊方式</h3>

@@ -6,6 +6,7 @@ import AuthPage from './pages/AuthPage.vue'
 import AddExpensePage from './pages/AddExpensePage.vue'
 import BookSetupPage from './pages/BookSetupPage.vue'
 import CalendarPage from './pages/CalendarPage.vue'
+import CategoryManagementPage from './pages/CategoryManagementPage.vue'
 import ExpenseDetailModal from './components/ExpenseDetailModal.vue'
 import HomePage from './pages/HomePage.vue'
 import RecordsPage from './pages/RecordsPage.vue'
@@ -30,7 +31,7 @@ const tabs = [
 ]
 
 const activeTab = ref('home')
-const visibleTab = computed(() => (activeTab.value === 'calendar' ? 'home' : activeTab.value))
+const visibleTab = computed(() => (['calendar', 'add'].includes(activeTab.value) ? 'home' : activeTab.value === 'categories' ? 'settings' : activeTab.value))
 const editingExpenseId = ref<string | null>(null)
 const detailExpenseId = ref<string | null>(null)
 const pendingDetailExpenseId = ref<string | null>(null)
@@ -265,7 +266,8 @@ watch(
           @open="openExpenseDetail($event, 'records')"
         />
         <StatsPage v-else-if="activeTab === 'stats'" />
-        <SettingsPage v-else-if="activeTab === 'settings'" />
+        <SettingsPage v-else-if="activeTab === 'settings'" @open-categories="handleTabChange('categories')" />
+        <CategoryManagementPage v-else-if="activeTab === 'categories'" @back="handleTabChange('settings')" />
       </main>
 
       <TabBar

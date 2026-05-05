@@ -3,6 +3,7 @@ export type Performer = 'me' | 'partner'
 export type Recurrence = 'none' | 'monthly'
 export type SplitPreset = 'equal' | 'rent' | 'custom' | 'payer-only'
 export type SupportedCurrency = 'JPY' | 'CNY'
+export type RecordType = 'expense' | 'income'
 
 export interface SplitRule {
   me: number
@@ -13,10 +14,14 @@ export interface ExpenseCategory {
   id: string
   name: string
   icon: string
+  recordType: RecordType
+  active: boolean
+  isDefault?: boolean
 }
 
 export interface Expense {
   id: string
+  recordType: RecordType
   title: string
   amount: number
   originalAmount: number

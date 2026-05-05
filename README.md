@@ -7,8 +7,10 @@
 - 📱 移动端优先界面，首页简化为总支出与最近记录两块核心内容，适配 iPhone 安全区
 - 🧭 底部 `TabBar` 精简为 `首页 / 记录 / 统计 / 设置` 四个主入口，新增消费由右下角悬浮按钮统一承担
 - 🧾 账本页面：新增、编辑、删除开销，按月统计消费
+- 💸 收支分离：添加记录默认是支出，也支持记录当前登录用户自己的收入；收入不会抵扣首页总支出
 - 💱 货币支持：当前仅支持 `JPY` 与 `CNY`；单笔消费可选择原始货币，并按手动填写汇率换算保存
 - 🔍 搜索功能：支持按标题、备注、类别或支付方搜索账目
+- 🗂️ 分类管理：设置页保留独立入口，支出分类和收入分类分开管理，支持新增、改名与停用
 - 🧾 固定账单支持：可以单独设置每月固定扣费（如话费、水电、宽带）
 - 🤝 共享结算：自动计算共同支出结算差额，显示“我欠对方 / 对方欠我”
 - 📅 日历页面：按天展示当月消费，支持日均与高消费日对比
@@ -25,6 +27,7 @@
 - `src/pages/RecordsPage.vue` - 消费记录筛选与列表页面
 - `src/pages/StatsPage.vue` - 统计页面
 - `src/pages/SettingsPage.vue` - 账本与个人设置页面
+- `src/pages/CategoryManagementPage.vue` - 分类管理页面
 - `src/pages/AuthPage.vue` - Supabase 邮箱登录页面
 - `src/pages/BookSetupPage.vue` - 创建 / 加入账本页面
 - `src/components/TabBar.vue` - 底部导航栏组件
@@ -81,6 +84,44 @@
     - 默认货币是 `CNY`、单笔是 `JPY` 时，输入 `1 JPY = 多少 CNY`
   - 保存时会把金额换算成默认货币金额，同时保留原始金额和原始货币
 - 页面金额展示统一改成 `货币代码 + 数字`，例如 `JPY 1,078`、`CNY 50`、`CNY 50 ≈ JPY 1,050`，避免 `JPY` 和 `CNY` 都显示成 `¥` 时混淆。
+
+## 分类与收入
+
+- 默认支出分类现为：
+  - `外食`
+  - `超市/食材`
+  - `交通`
+  - `房租`
+  - `水费`
+  - `电费`
+  - `煤气费`
+  - `网费`
+  - `日用品`
+  - `学费`
+  - `学习/书籍`
+  - `医疗/药品`
+  - `约会`
+  - `娱乐/社交`
+  - `服饰/美容`
+  - `杂费`
+- 默认收入分类现为：
+  - `兼职`
+  - `红包`
+  - `家人打款`
+- `餐饮` 已统一兼容到 `外食`；旧记录如果仍是 `food / 餐饮` 会自动按 `外食` 显示。
+- 旧的 `水电煤网` 不再出现在默认可选分类里；旧记录如果仍使用 `utilities / 水电煤网`，页面会继续按旧分类显示，不会报错。
+- 默认分摊规则：
+  - `房租`：读取设置页房租比例，默认 `我 60% / 另一半 40%`
+  - `水费 / 电费 / 煤气费 / 网费 / 超市/食材 / 日用品 / 外食 / 约会 / 娱乐/社交`：默认 `50 / 50`
+  - `交通 / 学费 / 学习/书籍 / 医疗/药品 / 服饰/美容 / 杂费`：默认个人消费
+- 添加页默认类型是 `支出`。
+- 收入模式下：
+  - 分类切到收入分类
+  - 不显示付款人和分摊方式
+  - 默认归属当前登录用户
+  - 记录页用 `+ 金额` 和收入标签区分
+  - 统计页会单独展示收入总额
+- 设置页现在只保留 `分类管理` 入口；新增、改名、停用都在独立的分类管理页中完成。
 
 ## 全站提示
 
@@ -145,6 +186,12 @@
     - 详情中删除记录，页面和 Supabase 同步删除
     - 统计页 / 收支日历页 / 设置页正常打开
     - 退出登录正常
+  - 本轮新增的本地真实流程验证：
+    - 添加页默认打开是 `支出`
+    - 切到 `房租` 时，默认分摊显示 `我承担 60% · 另一半承担 40%`
+    - 切到 `收入` 后，`付款人 / 分摊方式` 控件会消失，只保留收入分类和“收入归属”
+    - 记录页会把收入显示成 `+ JPY 88` 这类正向金额
+    - 设置页可进入 `分类管理`，并成功新增一条支出分类和一条收入分类
 - 本次修复的自测中发现问题：
   - 添加消费“保存并返回”不应等待云端同步完成，现已改为本地先保存并返回，云端同步后台进行。
   - 跨币种切换时不应沿用 `1` 作为默认汇率，现已改为必须重新输入汇率。
@@ -152,6 +199,10 @@
   - 消费表单的“消费说明 / 备注”已合并为单个可选字段。
 - 当前已知限制：
   - 当前 Supabase 实例尚未执行最新 `expenses` 字段升级 SQL；在执行 SQL 前，页面仍可能提示“云端保存失败，但这笔记录已经保存在当前设备。”
+  - 本轮新增收入/支出类型后，如果 Supabase 仍未补 `record_type` 列，页面会继续提示：
+    - `code = PGRST204`
+    - `message = Could not find the 'record_type' column of 'expenses' in the schema cache`
+    - 当前表现是：本地可保存并在当前浏览器刷新后继续可见，但不会成功同步到云端
   - 当前 in-app browser 环境下，`复制邀请码` 仍可能因剪贴板权限限制失败；真实浏览器环境建议继续实机验证。
   - 第二个独立测试账号注册后需要邮箱确认，因此本轮无法在未确认邮箱的前提下完成 B 账号登录和双向消费同步验证。
 
@@ -182,6 +233,7 @@
   - 当前前端已兼容同时写入 `created_by` 和 `user_id`
   - 真实回归测试已通过：新增 / 读取 / 删除都能命中 Supabase
 - 已在 [supabase/couple_books.sql](/Users/wu/Desktop/couple-expense-app/supabase/couple_books.sql:1) 与 [supabase/migrations/20260505_fix_expenses_currency_and_pairing.sql](/Users/wu/Desktop/couple-expense-app/supabase/migrations/20260505_fix_expenses_currency_and_pairing.sql:1) 中补齐：
+  - `record_type`
   - `original_amount`
   - `original_currency`
   - `base_currency`
@@ -195,6 +247,7 @@
   - `updated_at`
 - 另外新增了更直接的修复脚本：
   - [supabase/migrations/20260505_fix_expenses_sync_columns.sql](/Users/wu/Desktop/couple-expense-app/supabase/migrations/20260505_fix_expenses_sync_columns.sql:1)
+  - [supabase/migrations/20260506_add_expense_record_type.sql](/Users/wu/Desktop/couple-expense-app/supabase/migrations/20260506_add_expense_record_type.sql:1)
 - 已补充 `join_book_by_invite()` 的未登录保护，避免未认证时出现数据库 `user_id is null` 约束错误。
 - 如果线上或本地云端同步继续报 `PGRST204`，请到 Supabase SQL Editor 执行：
   - [supabase/migrations/20260505_fix_expenses_sync_columns.sql](/Users/wu/Desktop/couple-expense-app/supabase/migrations/20260505_fix_expenses_sync_columns.sql:1)

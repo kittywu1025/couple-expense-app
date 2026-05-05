@@ -24,6 +24,7 @@ alter table public.expenses
   add column if not exists created_by uuid references auth.users(id) on delete set null,
   add column if not exists created_at timestamptz default now(),
   add column if not exists updated_at timestamptz default now(),
+  add column if not exists record_type text default 'expense',
   add column if not exists original_amount numeric,
   add column if not exists original_currency text,
   add column if not exists base_currency text,
@@ -34,6 +35,7 @@ alter table public.expenses
 
 update public.expenses
 set
+  record_type = coalesce(nullif(record_type, ''), 'expense'),
   original_amount = coalesce(original_amount, amount),
   original_currency = coalesce(nullif(original_currency, ''), coalesce(nullif(base_currency, ''), 'JPY')),
   base_currency = coalesce(nullif(base_currency, ''), 'JPY'),
@@ -42,7 +44,9 @@ set
   split = coalesce(split, jsonb_build_object('me', 50, 'partner', 50)),
   split_preset = coalesce(nullif(split_preset, ''), 'equal')
 where
-  original_amount is null
+  record_type is null
+  or record_type = ''
+  or original_amount is null
   or original_currency is null
   or base_currency is null
   or exchange_rate_used is null

@@ -44,6 +44,7 @@ const mapExpenseRecord = (expense: Expense) => ({
   note: expense.note || '',
   shared: expense.shared,
   book_id: expense.bookId,
+  user_id: expense.createdBy,
   created_by: expense.createdBy,
   created_at: expense.createdAt,
   updated_at: expense.updatedAt,

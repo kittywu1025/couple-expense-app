@@ -164,10 +164,10 @@
   - 本地也失败：才提示 `保存失败，请稍后重试。`
 - 同一次保存不会再重复弹出“同步提醒”和“保存失败”两条冲突 toast。
 - 当前云端实测结果：
-  - 新增：失败，原因是 `split` 列不存在
-  - 修改：失败，原因是 `split` 列不存在
-  - 删除：当前前端链路已改成云端优先；只要 `expenses` 表字段完整并满足现有 RLS，删除会先删云端再删本地
-  - 读取：`fetchExpenses(book_id)` 可以正常调用，但当前账本里没有成功写入的远端记录
+  - 旧错误 1：`split` 列不存在
+  - 旧错误 2：在补齐 `split` 后，发现当前线上表仍保留旧的 `user_id not null` 约束
+  - 当前前端已兼容同时写入 `created_by` 和 `user_id`
+  - 真实回归测试已通过：新增 / 读取 / 删除都能命中 Supabase
 - 已在 [supabase/couple_books.sql](/Users/wu/Desktop/couple-expense-app/supabase/couple_books.sql:1) 与 [supabase/migrations/20260505_fix_expenses_currency_and_pairing.sql](/Users/wu/Desktop/couple-expense-app/supabase/migrations/20260505_fix_expenses_currency_and_pairing.sql:1) 中补齐：
   - `original_amount`
   - `original_currency`

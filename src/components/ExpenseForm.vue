@@ -23,7 +23,7 @@ const emit = defineEmits<{
 const { settings, categoryMap } = useSettings()
 const splitMode = ref<'equal' | 'personal' | 'treat' | 'custom'>('equal')
 
-const getSplitByPreset = (preset: SplitPreset, payer: Payer, category: string): SplitRule => {
+function getSplitByPreset(preset: SplitPreset, payer: Payer, category: string): SplitRule {
   if (preset === 'payer-only') {
     return payer === 'me' ? { me: 100, partner: 0 } : { me: 0, partner: 100 }
   }
@@ -35,23 +35,25 @@ const getSplitByPreset = (preset: SplitPreset, payer: Payer, category: string): 
   return { ...settings.value.defaultSplits.standard }
 }
 
-const createDefaultExpense = (): Expense => ({
-  id: '',
-  title: '',
-  amount: 0,
-  originalAmount: 0,
-  originalCurrency: settings.value.defaultCurrency,
-  baseCurrency: settings.value.defaultCurrency,
-  exchangeRateUsed: 1,
-  exchangeRateDate: new Date().toISOString().slice(0, 10),
-  date: new Date().toISOString().slice(0, 10),
-  category: settings.value.categories.find((item) => item.id !== 'rent')?.id || 'food',
-  payer: 'me',
-  split: { ...settings.value.defaultSplits.standard },
-  splitPreset: 'equal',
-  recurrence: 'none',
-  note: '',
-})
+function createDefaultExpense(): Expense {
+  return {
+    id: '',
+    title: '',
+    amount: 0,
+    originalAmount: 0,
+    originalCurrency: settings.value.defaultCurrency,
+    baseCurrency: settings.value.defaultCurrency,
+    exchangeRateUsed: 1,
+    exchangeRateDate: new Date().toISOString().slice(0, 10),
+    date: new Date().toISOString().slice(0, 10),
+    category: settings.value.categories.find((item) => item.id !== 'rent')?.id || 'food',
+    payer: 'me',
+    split: { ...settings.value.defaultSplits.standard },
+    splitPreset: 'equal',
+    recurrence: 'none',
+    note: '',
+  }
+}
 
 const form = reactive<Expense>(createDefaultExpense())
 const currencyOptions = SUPPORTED_CURRENCIES
@@ -94,7 +96,7 @@ const splitOptions = computed(() => [
 const splitSummary = computed(() => `${settings.value.meName}承担 ${form.split.me}% · ${settings.value.partnerName}承担 ${form.split.partner}%`)
 const defaultCurrencyHint = computed(() => `本笔将按 ${form.baseCurrency} 记账`)
 
-const syncSplitMode = () => {
+function syncSplitMode() {
   if (form.splitPreset === 'custom') {
     splitMode.value = 'custom'
     return
@@ -108,7 +110,7 @@ const syncSplitMode = () => {
   splitMode.value = 'equal'
 }
 
-const syncCurrencyFields = () => {
+function syncCurrencyFields() {
   form.baseCurrency = form.baseCurrency || settings.value.defaultCurrency || 'JPY'
   form.originalCurrency = form.originalCurrency || form.baseCurrency
   form.exchangeRateDate = form.date || form.exchangeRateDate || new Date().toISOString().slice(0, 10)
@@ -124,12 +126,12 @@ const syncCurrencyFields = () => {
   form.amount = Number(((Number(form.originalAmount) || 0) * safeRate).toFixed(precision))
 }
 
-const updateOriginalCurrency = (currency: SupportedCurrency) => {
+function updateOriginalCurrency(currency: SupportedCurrency) {
   form.originalCurrency = currency || settings.value.defaultCurrency || 'JPY'
   syncCurrencyFields()
 }
 
-const syncFromExpense = (value?: Expense | null) => {
+function syncFromExpense(value?: Expense | null) {
   const nextExpense = value ? { ...value } : createDefaultExpense()
   if (!value) {
     nextExpense.baseCurrency = settings.value.defaultCurrency || 'JPY'
@@ -145,7 +147,7 @@ const syncFromExpense = (value?: Expense | null) => {
   syncSplitMode()
 }
 
-const applySplitMode = (mode: 'equal' | 'personal' | 'treat' | 'custom') => {
+function applySplitMode(mode: 'equal' | 'personal' | 'treat' | 'custom') {
   splitMode.value = mode
   if (mode === 'custom') {
     form.splitPreset = 'custom'
@@ -162,21 +164,21 @@ const applySplitMode = (mode: 'equal' | 'personal' | 'treat' | 'custom') => {
   form.split = getSplitByPreset(form.splitPreset, form.payer, form.category)
 }
 
-const updateCategory = (category: string) => {
+function updateCategory(category: string) {
   form.category = category
   if (form.splitPreset !== 'custom') {
     applySplitMode(splitMode.value === 'custom' ? 'custom' : splitMode.value)
   }
 }
 
-const updatePayer = (payer: Payer) => {
+function updatePayer(payer: Payer) {
   form.payer = payer
   if (splitMode.value === 'personal' || splitMode.value === 'treat' || form.splitPreset === 'payer-only') {
     form.split = getSplitByPreset('payer-only', payer, form.category)
   }
 }
 
-const updateSplitValue = (field: 'me' | 'partner', value: number) => {
+function updateSplitValue(field: 'me' | 'partner', value: number) {
   const safeValue = Math.max(0, Math.min(100, Number(value) || 0))
   form.splitPreset = 'custom'
   splitMode.value = 'custom'
@@ -211,7 +213,7 @@ watch(
   }
 )
 
-const submit = () => {
+function submit() {
   if (validationMessage.value) return
 
   syncCurrencyFields()
@@ -258,8 +260,21 @@ const submit = () => {
             :placeholder="form.originalCurrency === 'JPY' || form.originalCurrency === 'KRW' ? '0' : '0.00'"
           />
         </div>
+      </label>
 
-        <div class="currency-pill-row" role="group" aria-label="货币选择">
+      <label class="field-group currency-field">
+        <div class="currency-field-head">
+          <span class="field-label">原始货币</span>
+          <span class="currency-field-copy">本笔将按 {{ form.baseCurrency }} 记账</span>
+        </div>
+        <div class="currency-select-wrap">
+          <select :value="form.originalCurrency" @change="updateOriginalCurrency(($event.target as HTMLSelectElement).value as SupportedCurrency)">
+            <option v-for="currency in currencyOptions" :key="currency.code" :value="currency.code">
+              {{ currency.code }} · {{ currency.label }}
+            </option>
+          </select>
+        </div>
+        <div class="currency-pill-row" role="group" aria-label="快捷货币选择">
           <button
             v-for="currency in currencyOptions"
             :key="currency.code"

@@ -229,10 +229,25 @@
     - `本地已保存，但云端同步失败，对方暂时看不到`
   - 本地也失败：才提示 `保存失败，请稍后重试。`
 - 同一次保存不会再重复弹出“同步提醒”和“保存失败”两条冲突 toast。
+- 编辑已有记录的云端同步已单独修复：
+  - 新增和编辑现在走分开的 Supabase `insert / update` 链路，不再用同一个笼统 `upsert` 猜测场景
+  - 编辑时会显式带上 `id + book_id` 命中当前账本下的同一条记录
+  - 如果当前 Supabase 旧表结构还缺 `record_type` 这类新列，前端会在捕获 `PGRST204 / column does not exist` 后自动剔除缺失字段并重试一次更新
+  - 远端读取旧记录时也会兼容 `created_by` 缺失但 `user_id` 仍存在的旧数据，避免更新时把旧表要求的 `user_id` 丢空
+- 本轮真实编辑回归已验证：
+  - 现有 `JPY` 记录进入详情后编辑金额与说明，页面提示 `记录已更新`，刷新后仍保持新内容
+  - 现有 `CNY` 记录进入详情后编辑原始金额与汇率，页面显示的换算金额会同步变化
+  - Supabase 对应记录的 `title / amount / original_amount / exchange_rate_used` 已同步更新
 - 当前云端实测结果：
   - 旧错误 1：`split` 列不存在
   - 旧错误 2：在补齐 `split` 后，发现当前线上表仍保留旧的 `user_id not null` 约束
+  - 旧错误 3：当前 Supabase 库尚未补 `record_type` 列，真实错误为：
+    - `code`: `PGRST204`
+    - `message`: `Could not find the 'record_type' column of 'expenses' in the schema cache`
+    - `details`: `null`
+    - `hint`: `null`
   - 当前前端已兼容同时写入 `created_by` 和 `user_id`
+  - 当前前端也已兼容在旧 schema 下重试不带 `record_type` 的支出新增/编辑更新
   - 真实回归测试已通过：新增 / 读取 / 删除都能命中 Supabase
 - 已在 [supabase/couple_books.sql](/Users/wu/Desktop/couple-expense-app/supabase/couple_books.sql:1) 与 [supabase/migrations/20260505_fix_expenses_currency_and_pairing.sql](/Users/wu/Desktop/couple-expense-app/supabase/migrations/20260505_fix_expenses_currency_and_pairing.sql:1) 中补齐：
   - `record_type`

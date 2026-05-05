@@ -4,7 +4,12 @@ import { loadJSON, saveJSON } from '../utils/storage'
 import { authUser } from './useSupabaseAuth'
 import { useBooks } from './useBooks'
 import { useSettings } from './useSettings'
-import { deleteExpenseRemote, fetchExpenses, upsertExpense } from './useSupabaseExpenses'
+import {
+  deleteExpenseRemote,
+  fetchExpenses,
+  insertExpenseRemote,
+  updateExpenseRemote,
+} from './useSupabaseExpenses'
 import { clearSyncWarning, setSyncWarning } from './useRuntimeStatus'
 import { normalizeCurrency } from '../utils/currency'
 import {
@@ -300,10 +305,11 @@ const monthlySummary = computed(() => ({
   incomeTotal: incomeTotal.value,
 }))
 
-const syncRemoteExpense = async (expense: Expense) => {
+const syncRemoteExpense = async (expense: Expense, stage: 'insert' | 'update') => {
   if (!authUser.value?.id || !currentBookId.value || isLocalBookMode.value) return
 
-  const { error } = await upsertExpense(expense)
+  const { error } =
+    stage === 'insert' ? await insertExpenseRemote(expense) : await updateExpenseRemote(expense)
   if (error) {
     throw error
   }
@@ -331,6 +337,7 @@ const buildSaveDebugPayload = (expense: Expense) => ({
   shared: expense.shared,
   book_id: expense.bookId,
   created_by: expense.createdBy,
+  user_id: authUser.value?.id ?? expense.createdBy ?? null,
   created_at: expense.createdAt,
   updated_at: expense.updatedAt,
 })
@@ -380,7 +387,7 @@ const addExpense = async (expense: Expense): Promise<ExpenseMutationResult> => {
 
   if (authUser.value?.id && currentBookId.value && !isLocalBookMode.value) {
     try {
-      await syncRemoteExpense(normalized)
+      await syncRemoteExpense(normalized, 'insert')
       expenses.value = sortExpenses([normalized, ...expenses.value])
       return { status: 'synced', expense: normalized, stage: 'insert' }
     } catch (error) {
@@ -404,7 +411,7 @@ const updateExpense = async (expense: Expense): Promise<ExpenseMutationResult> =
 
   if (authUser.value?.id && currentBookId.value && !isLocalBookMode.value) {
     try {
-      await syncRemoteExpense(normalized)
+      await syncRemoteExpense(normalized, 'update')
       expenses.value = sortExpenses(
         expenses.value.map((item) => (item.id === normalized.id ? normalized : item))
       )

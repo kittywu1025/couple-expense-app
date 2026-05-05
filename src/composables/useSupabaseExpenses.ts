@@ -3,6 +3,8 @@ import type { Expense } from '../types'
 import { supabase } from '../lib/supabase'
 import { normalizeCategoryId } from '../utils/categories'
 
+type ExpenseRecord = ReturnType<typeof mapExpenseRecord>
+
 const mapExpenseRow = (row: Record<string, unknown>): Expense => ({
   id: String(row.id),
   recordType: row.record_type === 'income' ? 'income' : 'expense',
@@ -23,7 +25,7 @@ const mapExpenseRow = (row: Record<string, unknown>): Expense => ({
   shared: typeof row.shared === 'boolean' ? row.shared : undefined,
   syncStatus: 'synced',
   bookId: row.book_id ? String(row.book_id) : undefined,
-  createdBy: row.created_by ? String(row.created_by) : undefined,
+  createdBy: row.created_by ? String(row.created_by) : row.user_id ? String(row.user_id) : undefined,
   createdAt: row.created_at ? String(row.created_at) : undefined,
   updatedAt: row.updated_at ? String(row.updated_at) : undefined,
 })
@@ -53,6 +55,62 @@ const mapExpenseRecord = (expense: Expense) => ({
   updated_at: expense.updatedAt,
 })
 
+const MISSING_COLUMN_RE = /Could not find the '([^']+)' column/i
+
+const omitColumn = (record: ExpenseRecord, column: string): ExpenseRecord => {
+  const next = { ...record }
+  delete next[column as keyof ExpenseRecord]
+  return next
+}
+
+const getMissingColumn = (error: unknown) => {
+  const message = (error as { message?: string })?.message
+  if (!message) {
+    return null
+  }
+
+  const matched = message.match(MISSING_COLUMN_RE)
+  return matched?.[1] || null
+}
+
+const saveExpenseRecord = async (
+  stage: 'insert' | 'update',
+  record: ExpenseRecord,
+  expense: Expense
+): Promise<{ data: unknown; error: unknown }> => {
+  if (!supabase) {
+    return { data: null, error: null }
+  }
+
+  let payload = { ...record }
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const response =
+      stage === 'insert'
+        ? await supabase.from('expenses').insert(payload).select().single()
+        : await supabase
+            .from('expenses')
+            .update(payload)
+            .eq('id', expense.id)
+            .eq('book_id', expense.bookId || '')
+            .select()
+            .single()
+
+    if (!response.error) {
+      return response
+    }
+
+    const missingColumn = getMissingColumn(response.error)
+    if (!missingColumn || !(missingColumn in payload)) {
+      return response
+    }
+
+    payload = omitColumn(payload, missingColumn)
+  }
+
+  return { data: null, error: new Error('Expense save retry exhausted.') }
+}
+
 export async function fetchExpenses(bookId: string) {
   if (!supabase) {
     return { data: null, error: null }
@@ -70,14 +128,22 @@ export async function fetchExpenses(bookId: string) {
   }
 }
 
-export async function upsertExpense(expense: Expense) {
+export async function insertExpenseRemote(expense: Expense) {
   if (!supabase) {
     return { data: null, error: null }
   }
 
   const record = mapExpenseRecord(expense)
+  return saveExpenseRecord('insert', record, expense)
+}
 
-  return supabase.from('expenses').upsert(record)
+export async function updateExpenseRemote(expense: Expense) {
+  if (!supabase) {
+    return { data: null, error: null }
+  }
+
+  const record = mapExpenseRecord(expense)
+  return saveExpenseRecord('update', record, expense)
 }
 
 export async function deleteExpenseRemote(expenseId: string, bookId: string) {

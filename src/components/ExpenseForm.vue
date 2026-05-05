@@ -3,7 +3,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import type { Expense, Payer, RecordType, SplitPreset, SplitRule, SupportedCurrency } from '../types'
 import { useSettings } from '../composables/useSettings'
 import { toast } from '../composables/useToast'
-import { SUPPORTED_CURRENCIES, formatCurrency } from '../utils/currency'
+import { formatCurrency } from '../utils/currency'
 import { getDefaultCategoryId, isPersonalExpenseCategory } from '../utils/categories'
 
 const props = withDefaults(
@@ -26,6 +26,7 @@ const { settings } = useSettings()
 const splitMode = ref<'equal' | 'personal' | 'treat' | 'custom'>('equal')
 const amountInputRef = ref<HTMLInputElement | null>(null)
 const exchangeRateInputRef = ref<HTMLInputElement | null>(null)
+const customSplitInputRef = ref<HTMLInputElement | null>(null)
 const recordTypeOptions = [
   { value: 'expense' as const, label: '支出' },
   { value: 'income' as const, label: '收入' },
@@ -74,7 +75,6 @@ function createDefaultExpense(): Expense {
 }
 
 const form = reactive<Expense>(createDefaultExpense())
-const currencyOptions = SUPPORTED_CURRENCIES
 const isCrossCurrency = computed(() => form.originalCurrency !== form.baseCurrency)
 const isExpenseMode = computed(() => form.recordType === 'expense')
 const categoryOptions = computed(() =>
@@ -105,20 +105,11 @@ const splitOptions = computed(() => [
   {
     value: 'equal' as const,
     label: '平摊',
-    description:
-      form.category === 'rent'
-        ? `房租默认 ${settings.value.defaultSplits.rent.me}/${settings.value.defaultSplits.rent.partner}`
-        : isPersonalExpenseCategory(form.category)
-          ? '当前分类默认个人承担'
-          : '默认一起承担',
   },
-  { value: 'personal' as const, label: '个人消费', description: '付款人承担 100%' },
-  { value: 'treat' as const, label: '请客', description: '由付款人全部承担' },
-  { value: 'custom' as const, label: '自定义比例', description: '按 10% 调整' },
+  { value: 'personal' as const, label: '个人消费' },
+  { value: 'treat' as const, label: '我请客' },
+  { value: 'custom' as const, label: '自定义比例' },
 ])
-const splitStepOptions = Array.from({ length: 11 }, (_, index) => index * 10)
-
-const splitSummary = computed(() => `${settings.value.meName}承担 ${form.split.me}% · ${settings.value.partnerName}承担 ${form.split.partner}%`)
 
 function syncSplitMode() {
   if (form.recordType === 'income') {
@@ -267,12 +258,23 @@ function updatePayer(payer: Payer) {
   }
 }
 
-function updateSplitValue(field: 'me' | 'partner', value: number) {
-  const safeValue = Math.round(Math.max(0, Math.min(100, Number(value) || 0)) / 10) * 10
+function updateCustomSplitValue(value: number) {
+  const rawValue = Number(value)
+  if (!Number.isFinite(rawValue)) {
+    toast.warning('请输入 0 到 100 之间的比例。')
+    customSplitInputRef.value?.focus()
+    return
+  }
+  if (rawValue < 0 || rawValue > 100) {
+    toast.warning('我的承担比例需要在 0 到 100 之间。')
+    customSplitInputRef.value?.focus()
+    return
+  }
+  const safeValue = Math.round(rawValue * 100) / 100
   form.splitPreset = 'custom'
   splitMode.value = 'custom'
-  form.split[field] = safeValue
-  form.split[field === 'me' ? 'partner' : 'me'] = Number((100 - safeValue).toFixed(2))
+  form.split.me = safeValue
+  form.split.partner = Number((100 - safeValue).toFixed(2))
 }
 
 watch(
@@ -369,6 +371,13 @@ function submit() {
       <label class="field-group amount-field">
         <span class="field-label">金额</span>
         <div class="amount-input-wrap">
+          <button
+            type="button"
+            class="currency-inline-pill"
+            @click="updateOriginalCurrency(form.originalCurrency === 'JPY' ? 'CNY' : 'JPY')"
+          >
+            {{ form.originalCurrency }}
+          </button>
           <input
             ref="amountInputRef"
             v-model.number="form.originalAmount"
@@ -378,21 +387,6 @@ function submit() {
             inputmode="decimal"
             :placeholder="form.originalCurrency === 'JPY' ? '0' : '0.00'"
           />
-        </div>
-      </label>
-
-      <label class="field-group currency-field">
-        <span class="field-label">货币</span>
-        <div class="currency-pill-row" role="group" aria-label="快捷货币选择">
-          <button
-            v-for="currency in currencyOptions"
-            :key="currency.code"
-            type="button"
-            :class="['currency-pill', { active: form.originalCurrency === currency.code }]"
-            @click="updateOriginalCurrency(currency.code)"
-          >
-            {{ currency.code }}
-          </button>
         </div>
       </label>
 
@@ -499,40 +493,27 @@ function submit() {
           @click="applySplitMode(option.value)"
         >
           <strong>{{ option.label }}</strong>
-          <span>{{ option.description }}</span>
         </button>
       </div>
 
-      <div class="split-slider-card">
-        <div class="split-summary-row">
-          <strong>{{ splitSummary }}</strong>
-          <span class="info-pill soft">
-            {{ splitMode === 'treat' ? '请客语义' : splitMode === 'personal' ? '个人承担' : '当前比例' }}
-          </span>
-        </div>
-
-        <div v-if="splitMode === 'custom'" class="slider-block">
-          <div class="split-slider-labels">
-            <span>{{ settings.meName }} {{ form.split.me }}%</span>
-            <span>{{ settings.partnerName }} {{ form.split.partner }}%</span>
+      <div v-if="splitMode === 'custom'" class="custom-split-inline">
+        <label class="field-group compact-inline-field">
+          <span class="field-label">我的承担比例</span>
+          <div class="custom-split-input-row">
+            <input
+              ref="customSplitInputRef"
+              :value="form.split.me"
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              inputmode="decimal"
+              @input="updateCustomSplitValue(Number(($event.target as HTMLInputElement).value))"
+            />
+            <span>%</span>
           </div>
-          <div class="split-step-grid" role="group" aria-label="按 10% 调整自定义比例">
-            <button
-              v-for="value in splitStepOptions"
-              :key="value"
-              type="button"
-              :class="['split-step-button', { active: form.split.me === value }]"
-              @click="updateSplitValue('me', value)"
-            >
-              {{ value }}
-            </button>
-          </div>
-        </div>
-
-        <div v-else class="split-hint">
-          <span v-if="form.category === 'rent' && splitMode === 'equal'">房租会自动套用设置页里的默认比例。</span>
-          <span v-else>需要单独调整时，切换到“自定义比例”即可。</span>
-        </div>
+        </label>
+        <p class="custom-split-result">{{ settings.partnerName }}承担：{{ form.split.partner }}%</p>
       </div>
 
     </section>

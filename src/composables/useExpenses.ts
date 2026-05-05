@@ -300,15 +300,27 @@ const updateExpense = (expense: Expense) => {
   void syncRemoteExpense(normalized)
 }
 
-const deleteExpense = (expenseId: string) => {
-  expenses.value = expenses.value.filter((item) => item.id !== expenseId)
-  if (authUser.value?.id && currentBookId.value && !isLocalBookMode.value) {
-    deleteExpenseRemote(expenseId, currentBookId.value).then(({ error }) => {
-      if (error) {
-        console.error('删除远程开销失败：', error.message)
-      }
-    })
+const deleteExpense = async (expenseId: string) => {
+  const target = expenses.value.find((item) => item.id === expenseId)
+  if (!target) {
+    return { error: null }
   }
+
+  if (authUser.value?.id && currentBookId.value && !isLocalBookMode.value) {
+    const { error } = await deleteExpenseRemote(expenseId, currentBookId.value)
+    if (error) {
+      console.error('删除远程开销失败：', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      })
+      return { error }
+    }
+  }
+
+  expenses.value = expenses.value.filter((item) => item.id !== expenseId)
+  return { error: null }
 }
 
 export function useExpenses() {

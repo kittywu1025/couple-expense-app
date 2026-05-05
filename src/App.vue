@@ -71,7 +71,7 @@ const handleTabChange = (tab: string) => {
 }
 
 const handleDeleteSuccess = () => {
-  toast.success('记录已删除。')
+  toast.success('已删除这笔记录。')
 }
 
 const pullMessage = computed(() => {

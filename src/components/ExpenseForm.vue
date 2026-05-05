@@ -97,7 +97,6 @@ const splitOptions = computed(() => [
 ])
 
 const splitSummary = computed(() => `${settings.value.meName}承担 ${form.split.me}% · ${settings.value.partnerName}承担 ${form.split.partner}%`)
-const defaultCurrencyHint = computed(() => `本笔将按 ${form.baseCurrency} 记账`)
 
 function syncSplitMode() {
   if (form.splitPreset === 'custom') {
@@ -270,7 +269,6 @@ function submit() {
         <span class="field-label">金额</span>
         <div class="amount-header-row">
           <strong class="amount-currency-badge">{{ form.originalCurrency || settings.defaultCurrency || 'JPY' }}</strong>
-          <span class="amount-header-hint">{{ defaultCurrencyHint }}</span>
         </div>
         <div class="amount-input-wrap">
           <input
@@ -286,10 +284,7 @@ function submit() {
       </label>
 
       <label class="field-group currency-field">
-        <div class="currency-field-head">
-          <span class="field-label">原始货币</span>
-          <span class="currency-field-copy">本笔将按 {{ form.baseCurrency }} 记账</span>
-        </div>
+        <span class="field-label">货币</span>
         <div class="currency-select-wrap">
           <select :value="form.originalCurrency" @change="updateOriginalCurrency(($event.target as HTMLSelectElement).value as SupportedCurrency)">
             <option v-for="currency in currencyOptions" :key="currency.code" :value="currency.code">
@@ -340,14 +335,6 @@ function submit() {
         </div>
         <p class="exchange-hint">{{ exchangeRateHint }}</p>
         <p class="exchange-result">按当前汇率将计入 {{ convertedAmountPreview }}</p>
-      </div>
-
-      <div v-else class="exchange-panel exchange-panel-plain">
-        <div class="exchange-panel-head">
-          <strong>默认货币</strong>
-          <span class="info-pill soft">{{ form.baseCurrency }}</span>
-        </div>
-        <p class="exchange-result">当前默认货币：{{ form.baseCurrency }}</p>
       </div>
 
       <label class="field-group">

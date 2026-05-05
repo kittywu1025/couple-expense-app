@@ -7,12 +7,10 @@ import { getExpenseAmountLabel } from '../utils/currency'
 const props = defineProps<{
   expenses: Expense[]
   effectiveDate?: (expense: Expense) => string
-  showDelete?: boolean
 }>()
 
 const emit = defineEmits<{
-  (e: 'edit', expense: Expense): void
-  (e: 'delete', expenseId: string): void
+  (e: 'open', expense: Expense): void
 }>()
 
 const { settings, categoryMap } = useSettings()
@@ -37,7 +35,13 @@ const formatExpenseAmount = (expense: Expense) => getExpenseAmountLabel(expense)
       当前筛选条件下还没有记录。
     </div>
 
-    <article v-for="item in props.expenses" :key="item.id" class="expense-item-card">
+    <button
+      v-for="item in props.expenses"
+      :key="item.id"
+      type="button"
+      class="expense-item-card expense-item-card-button"
+      @click="emit('open', item)"
+    >
       <div class="expense-item-top">
         <div class="expense-item-main">
           <div class="expense-item-title-row">
@@ -66,18 +70,6 @@ const formatExpenseAmount = (expense: Expense) => getExpenseAmountLabel(expense)
       </div>
 
       <p v-if="item.note" class="expense-note">{{ item.note }}</p>
-
-      <div class="expense-item-actions">
-        <button type="button" class="text-button" @click="emit('edit', item)">编辑</button>
-        <button
-          v-if="props.showDelete !== false"
-          type="button"
-          class="text-button danger"
-          @click="emit('delete', item.id)"
-        >
-          删除
-        </button>
-      </div>
-    </article>
+    </button>
   </section>
 </template>

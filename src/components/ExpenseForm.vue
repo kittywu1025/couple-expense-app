@@ -93,8 +93,9 @@ const splitOptions = computed(() => [
   },
   { value: 'personal' as const, label: '个人消费', description: '付款人承担 100%' },
   { value: 'treat' as const, label: '我请客', description: '由付款人全部承担' },
-  { value: 'custom' as const, label: '自定义比例', description: '拖动滑条调整' },
+  { value: 'custom' as const, label: '自定义比例', description: '按 10% 调整' },
 ])
+const splitStepOptions = Array.from({ length: 11 }, (_, index) => index * 10)
 
 const splitSummary = computed(() => `${settings.value.meName}承担 ${form.split.me}% · ${settings.value.partnerName}承担 ${form.split.partner}%`)
 
@@ -157,9 +158,13 @@ function syncFromExpense(value?: Expense | null) {
 }
 
 function applySplitMode(mode: 'equal' | 'personal' | 'treat' | 'custom') {
+  const previousMode = splitMode.value
   splitMode.value = mode
   if (mode === 'custom') {
     form.splitPreset = 'custom'
+    if (previousMode !== 'custom') {
+      form.split = { me: 40, partner: 60 }
+    }
     return
   }
 
@@ -188,7 +193,7 @@ function updatePayer(payer: Payer) {
 }
 
 function updateSplitValue(field: 'me' | 'partner', value: number) {
-  const safeValue = Math.max(0, Math.min(100, Number(value) || 0))
+  const safeValue = Math.round(Math.max(0, Math.min(100, Number(value) || 0)) / 10) * 10
   form.splitPreset = 'custom'
   splitMode.value = 'custom'
   form.split[field] = safeValue
@@ -267,9 +272,6 @@ function submit() {
 
       <label class="field-group amount-field">
         <span class="field-label">金额</span>
-        <div class="amount-header-row">
-          <strong class="amount-currency-badge">{{ form.originalCurrency || settings.defaultCurrency || 'JPY' }}</strong>
-        </div>
         <div class="amount-input-wrap">
           <input
             ref="amountInputRef"
@@ -285,13 +287,6 @@ function submit() {
 
       <label class="field-group currency-field">
         <span class="field-label">货币</span>
-        <div class="currency-select-wrap">
-          <select :value="form.originalCurrency" @change="updateOriginalCurrency(($event.target as HTMLSelectElement).value as SupportedCurrency)">
-            <option v-for="currency in currencyOptions" :key="currency.code" :value="currency.code">
-              {{ currency.code }} · {{ currency.label }}
-            </option>
-          </select>
-        </div>
         <div class="currency-pill-row" role="group" aria-label="快捷货币选择">
           <button
             v-for="currency in currencyOptions"
@@ -417,15 +412,17 @@ function submit() {
             <span>{{ settings.meName }} {{ form.split.me }}%</span>
             <span>{{ settings.partnerName }} {{ form.split.partner }}%</span>
           </div>
-          <input
-            class="split-slider"
-            :value="form.split.me"
-            type="range"
-            min="0"
-            max="100"
-            step="1"
-            @input="updateSplitValue('me', Number(($event.target as HTMLInputElement).value))"
-          />
+          <div class="split-step-grid" role="group" aria-label="按 10% 调整自定义比例">
+            <button
+              v-for="value in splitStepOptions"
+              :key="value"
+              type="button"
+              :class="['split-step-button', { active: form.split.me === value }]"
+              @click="updateSplitValue('me', value)"
+            >
+              {{ value }}
+            </button>
+          </div>
         </div>
 
         <div v-else class="split-hint">
@@ -434,31 +431,6 @@ function submit() {
         </div>
       </div>
 
-      <div v-if="splitMode === 'custom'" class="field-row split-input-row">
-        <label class="field-group">
-          <span class="field-label">{{ settings.meName }}承担 %</span>
-          <input
-            :value="form.split.me"
-            type="number"
-            min="0"
-            max="100"
-            step="1"
-            @input="updateSplitValue('me', Number(($event.target as HTMLInputElement).value))"
-          />
-        </label>
-
-        <label class="field-group">
-          <span class="field-label">{{ settings.partnerName }}承担 %</span>
-          <input
-            :value="form.split.partner"
-            type="number"
-            min="0"
-            max="100"
-            step="1"
-            @input="updateSplitValue('partner', Number(($event.target as HTMLInputElement).value))"
-          />
-        </label>
-      </div>
     </section>
 
     <section class="section-card">

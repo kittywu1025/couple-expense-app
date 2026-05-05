@@ -6,6 +6,7 @@ import AuthPage from './pages/AuthPage.vue'
 import AddExpensePage from './pages/AddExpensePage.vue'
 import BookSetupPage from './pages/BookSetupPage.vue'
 import CalendarPage from './pages/CalendarPage.vue'
+import ExpenseDetailModal from './components/ExpenseDetailModal.vue'
 import HomePage from './pages/HomePage.vue'
 import RecordsPage from './pages/RecordsPage.vue'
 import SettingsPage from './pages/SettingsPage.vue'
@@ -18,7 +19,7 @@ import { toast } from './composables/useToast'
 
 const { authUser, authLoading, isSupabaseEnabled } = useSupabaseAuth()
 const { needsBookSetup } = useBooks()
-const { refreshExpenses } = useExpenses()
+const { expenses, refreshExpenses } = useExpenses()
 const { updateAvailable, updateMessage, isApplyingUpdate } = usePwaUpdate()
 
 const tabs = [
@@ -31,6 +32,9 @@ const tabs = [
 const activeTab = ref('home')
 const visibleTab = computed(() => (activeTab.value === 'calendar' ? 'home' : activeTab.value))
 const editingExpenseId = ref<string | null>(null)
+const detailExpenseId = ref<string | null>(null)
+const pendingDetailExpenseId = ref<string | null>(null)
+const detailOriginTab = ref<'home' | 'records'>('home')
 const afterSaveTab = ref<'home' | 'records'>('home')
 const pullState = ref<'idle' | 'pulling' | 'ready' | 'refreshing' | 'done'>('idle')
 const pullDistance = ref(0)
@@ -42,15 +46,36 @@ if (typeof window !== 'undefined' && window.sessionStorage.getItem('pwa-updated'
   toast.success('已更新到最新版本。')
 }
 
+const selectedExpense = computed(() =>
+  detailExpenseId.value ? expenses.value.find((item) => item.id === detailExpenseId.value) || null : null
+)
+
 const openNewExpense = (returnTab: 'home' | 'records' = 'home') => {
   editingExpenseId.value = null
+  detailExpenseId.value = null
+  pendingDetailExpenseId.value = null
   afterSaveTab.value = returnTab
   activeTab.value = 'add'
 }
 
-const openEditExpense = (expenseId: string, returnTab: 'home' | 'records' = 'records') => {
+const openExpenseDetail = (expenseId: string, origin: 'home' | 'records' = 'home') => {
+  detailExpenseId.value = expenseId
+  detailOriginTab.value = origin
+}
+
+const closeExpenseDetail = () => {
+  detailExpenseId.value = null
+}
+
+const openEditExpense = (
+  expenseId: string,
+  returnTab: 'home' | 'records' = 'records',
+  returnToDetail = false
+) => {
   editingExpenseId.value = expenseId
+  detailExpenseId.value = null
   afterSaveTab.value = returnTab
+  pendingDetailExpenseId.value = returnToDetail ? expenseId : null
   activeTab.value = 'add'
 }
 
@@ -58,19 +83,30 @@ const handleSaved = (message: string) => {
   toast.success(message)
   editingExpenseId.value = null
   activeTab.value = afterSaveTab.value
+  if (pendingDetailExpenseId.value) {
+    detailExpenseId.value = pendingDetailExpenseId.value
+  }
+  pendingDetailExpenseId.value = null
 }
 
 const handleCancelForm = () => {
   editingExpenseId.value = null
   activeTab.value = afterSaveTab.value
+  if (pendingDetailExpenseId.value) {
+    detailExpenseId.value = pendingDetailExpenseId.value
+  }
+  pendingDetailExpenseId.value = null
 }
 
 const handleTabChange = (tab: string) => {
   editingExpenseId.value = null
+  detailExpenseId.value = null
+  pendingDetailExpenseId.value = null
   activeTab.value = tab
 }
 
 const handleDeleteSuccess = () => {
+  detailExpenseId.value = null
   toast.success('已删除这笔记录。')
 }
 
@@ -207,14 +243,14 @@ watch(
         <HomePage
           v-else-if="activeTab === 'home'"
           @add="openNewExpense('home')"
-          @edit="openEditExpense($event, 'home')"
+          @open="openExpenseDetail($event, 'home')"
           @open-calendar="handleTabChange('calendar')"
           @open-settings="handleTabChange('settings')"
         />
         <CalendarPage
           v-else-if="activeTab === 'calendar'"
           @back="handleTabChange('home')"
-          @edit="openEditExpense($event, 'home')"
+          @edit="openExpenseDetail($event, 'home')"
         />
         <AddExpensePage
           v-else-if="activeTab === 'add'"
@@ -224,8 +260,7 @@ watch(
         />
         <RecordsPage
           v-else-if="activeTab === 'records'"
-          @edit="openEditExpense($event, 'records')"
-          @deleted="handleDeleteSuccess"
+          @open="openExpenseDetail($event, 'records')"
         />
         <StatsPage v-else-if="activeTab === 'stats'" />
         <SettingsPage v-else-if="activeTab === 'settings'" />
@@ -239,6 +274,14 @@ watch(
       />
     </template>
   </div>
+
+  <ExpenseDetailModal
+    v-if="selectedExpense"
+    :expense="selectedExpense"
+    @close="closeExpenseDetail"
+    @edit="openEditExpense($event, detailOriginTab, true)"
+    @deleted="handleDeleteSuccess"
+  />
 
   <ToastViewport />
 </template>

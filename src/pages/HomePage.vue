@@ -8,7 +8,7 @@ import { formatCurrency, getExpenseAmountLabel } from '../utils/currency'
 
 const emit = defineEmits<{
   (e: 'add'): void
-  (e: 'edit', expenseId: string): void
+  (e: 'open', expenseId: string): void
   (e: 'open-calendar'): void
   (e: 'open-settings'): void
 }>()
@@ -132,7 +132,7 @@ const formatExpenseAmount = (expense: Expense) => getExpenseAmountLabel(expense)
             :key="item.id"
             type="button"
             class="home-ledger-item"
-            @click="emit('edit', item.id)"
+            @click="emit('open', item.id)"
           >
             <span class="home-ledger-icon">
               {{ categoryMap[item.category]?.icon || '🧾' }}

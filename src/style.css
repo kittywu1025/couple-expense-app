@@ -457,74 +457,11 @@ textarea {
   border: 1px solid rgba(15, 23, 42, 0.06);
 }
 
-.currency-field-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.amount-header-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.amount-currency-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 56px;
-  padding: 6px 10px;
-  border-radius: var(--radius-pill);
-  background: rgba(76, 141, 255, 0.12);
-  color: var(--blue);
-  font-size: 0.84rem;
-  letter-spacing: 0.02em;
-}
-
-.amount-header-hint {
-  color: var(--text-soft);
-  font-size: 0.8rem;
-}
-
-.currency-field-copy {
-  color: var(--text-soft);
-  font-size: 0.8rem;
-}
-
 .currency-label {
   min-width: 42px;
   font-size: 1rem;
   color: var(--text-soft);
   font-weight: 700;
-}
-
-.currency-select-wrap {
-  position: relative;
-}
-
-.currency-select-wrap::after {
-  content: '▾';
-  position: absolute;
-  right: 14px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-faint);
-  pointer-events: none;
-  font-size: 0.84rem;
-}
-
-.currency-select-wrap select {
-  appearance: none;
-  min-height: 40px;
-  padding-right: 36px;
-  border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.96);
-  font-weight: 600;
 }
 
 .currency-pill-row {
@@ -692,6 +629,28 @@ select:disabled {
   gap: 8px;
 }
 
+.split-step-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.split-step-button {
+  min-height: 36px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--text-soft);
+  font-weight: 700;
+  font-size: 0.76rem;
+}
+
+.split-step-button.active {
+  border-color: rgba(76, 141, 255, 0.18);
+  background: rgba(76, 141, 255, 0.12);
+  color: var(--blue);
+}
+
 .split-slider-labels {
   display: flex;
   justify-content: space-between;
@@ -783,6 +742,11 @@ select:disabled {
   display: grid;
   gap: 7px;
   box-shadow: var(--shadow-sm);
+}
+
+.expense-item-card-button {
+  width: 100%;
+  text-align: left;
 }
 
 .expense-item-main {
@@ -1385,14 +1349,6 @@ select:disabled {
     font-size: 1.9rem;
   }
 
-  .amount-header-row {
-    align-items: flex-start;
-  }
-
-  .currency-field-head {
-    align-items: flex-start;
-  }
-
   .toast-viewport {
     width: calc(100% - 20px);
     top: calc(10px + env(safe-area-inset-top, 0px));
@@ -1456,7 +1412,17 @@ select:disabled {
     gap: 8px;
   }
 
+  .split-step-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
   .tab-bar {
     width: calc(100% - 18px);
+  }
+}
+
+@media (min-width: 390px) {
+  .chip-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }

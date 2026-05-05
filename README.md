@@ -90,9 +90,24 @@
 - 运行时错误会显示友好的中文 toast：`页面出现问题，请刷新后重试。`
 - 控制台仍保留原始错误日志，页面不会直接显示 `[object Object]` 或英文原始报错。
 
+## 账单详情与编辑
+
+- 首页最近记录与记录页列表现在都改成：点击账单先进入详情，而不是直接进入编辑。
+- 详情弹窗会展示：
+  - 金额
+  - 原始货币与换算后金额
+  - 分类
+  - 付款人
+  - 分摊方式
+  - 日期
+  - 备注
+  - 创建时间（如果有）
+- 编辑入口放在详情弹窗里，用户需要先查看，再点 `编辑` 进入修改表单。
+- 删除入口也放在详情弹窗里，删除前会弹出自定义确认弹窗。
+
 ## 删除记录
 
-- 记录页现在支持直接删除账单，每条记录底部都有 `删除` 入口。
+- 删除入口现在集中到账单详情弹窗里。
 - 删除前会弹出自定义确认 modal：
   - `确定删除这笔记录吗？`
   - `删除后无法恢复。`
@@ -131,9 +146,14 @@
 
 - 已定位真实写入失败原因：Supabase `expenses` 表缺少前端已使用的字段，真实错误为：
   - `code`: `PGRST204`
-  - `message`: `Could not find the 'base_currency' column of 'expenses' in the schema cache`
+  - `message`: `Could not find the 'split' column of 'expenses' in the schema cache`
   - `details`: `null`
   - `hint`: `null`
+- 当前云端实测结果：
+  - 新增：失败，原因是 `split` 列不存在
+  - 修改：失败，原因是 `split` 列不存在
+  - 删除：当前前端链路已改成云端优先；只要 `expenses` 表字段完整并满足现有 RLS，删除会先删云端再删本地
+  - 读取：`fetchExpenses(book_id)` 可以正常调用，但当前账本里没有成功写入的远端记录
 - 已在 [supabase/couple_books.sql](/Users/wu/Desktop/couple-expense-app/supabase/couple_books.sql:1) 与 [supabase/migrations/20260505_fix_expenses_currency_and_pairing.sql](/Users/wu/Desktop/couple-expense-app/supabase/migrations/20260505_fix_expenses_currency_and_pairing.sql:1) 中补齐：
   - `original_amount`
   - `original_currency`
@@ -146,15 +166,22 @@
   - `created_by`
   - `created_at`
   - `updated_at`
+- 另外新增了更直接的修复脚本：
+  - [supabase/migrations/20260505_fix_expenses_sync_columns.sql](/Users/wu/Desktop/couple-expense-app/supabase/migrations/20260505_fix_expenses_sync_columns.sql:1)
 - 已补充 `join_book_by_invite()` 的未登录保护，避免未认证时出现数据库 `user_id is null` 约束错误。
 - 如果线上或本地云端同步继续报 `PGRST204`，请到 Supabase SQL Editor 执行：
-  - [supabase/migrations/20260505_fix_expenses_currency_and_pairing.sql](/Users/wu/Desktop/couple-expense-app/supabase/migrations/20260505_fix_expenses_currency_and_pairing.sql:1)
+  - [supabase/migrations/20260505_fix_expenses_sync_columns.sql](/Users/wu/Desktop/couple-expense-app/supabase/migrations/20260505_fix_expenses_sync_columns.sql:1)
 - 旧数据会按 `JPY` 回填：
   - `original_amount = amount`
   - `original_currency = 'JPY'`
   - `base_currency = 'JPY'`
   - `exchange_rate_used = 1`
   - `exchange_rate_date = date` 或 `created_at::date`
+- 当前前端同步策略已经改成云端优先：
+  - 已登录且有 Supabase 配置时，新增 / 修改 / 删除都先写云端
+  - 云端成功后才更新本地状态
+  - 云端失败会 toast 明确提示，对方不会误以为已经同步
+  - 首页和记录页刷新时以云端结果为准，不再让本地旧缓存覆盖云端数据
 - 执行后建议等待几秒，再回到应用重新保存一笔消费，确保 PostgREST schema cache 已刷新。
 
 ## 配对测试结果

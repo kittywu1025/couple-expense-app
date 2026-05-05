@@ -104,28 +104,6 @@ const sortExpenses = (items: Expense[]) =>
     return right.createdAt?.localeCompare(left.createdAt || '') ?? 0
   })
 
-const mergeExpenseLists = (remoteItems: Expense[], localItems: Expense[]) => {
-  const merged = new Map<string, Expense>()
-
-  localItems.forEach((expense) => {
-    merged.set(expense.id, expense)
-  })
-
-  remoteItems.forEach((expense) => {
-    const existing = merged.get(expense.id)
-    if (!existing) {
-      merged.set(expense.id, expense)
-      return
-    }
-
-    const existingUpdatedAt = existing.updatedAt || existing.createdAt || ''
-    const remoteUpdatedAt = expense.updatedAt || expense.createdAt || ''
-    merged.set(expense.id, remoteUpdatedAt >= existingUpdatedAt ? expense : existing)
-  })
-
-  return sortExpenses(Array.from(merged.values()))
-}
-
 const loadRemoteExpenses = async () => {
   if (!authUser.value?.id || !currentBookId.value) return
   try {
@@ -134,9 +112,7 @@ const loadRemoteExpenses = async () => {
       throw error
     }
     if (data) {
-      const localCached = loadJSON<Expense[]>(STORAGE_KEY, []).map((expense) => normalizeExpense(expense))
-      const remoteNormalized = data.map((expense) => normalizeExpense(expense))
-      expenses.value = mergeExpenseLists(remoteNormalized, localCached)
+      expenses.value = sortExpenses(data.map((expense) => normalizeExpense(expense)))
       saveJSON(STORAGE_KEY, expenses.value)
     }
     clearSyncWarning()
@@ -274,30 +250,47 @@ const syncRemoteExpense = async (expense: Expense) => {
       details: error.details,
       hint: error.hint,
     })
-    setSyncWarning('云端保存失败，但这笔记录已经保存在当前设备。')
+    setSyncWarning('云端保存失败，对方暂时看不到这笔记录。')
+    throw error
   }
+
+  clearSyncWarning()
 }
 
-const addExpense = (expense: Expense) => {
+const addExpense = async (expense: Expense) => {
   const normalized = normalizeExpense({
     ...expense,
     bookId: currentBookId.value || expense.bookId,
     createdBy: authUser.value?.id || expense.createdBy,
   })
+
+  if (authUser.value?.id && currentBookId.value && !isLocalBookMode.value) {
+    await syncRemoteExpense(normalized)
+    expenses.value = sortExpenses([normalized, ...expenses.value])
+    return
+  }
+
   expenses.value = sortExpenses([normalized, ...expenses.value])
-  void syncRemoteExpense(normalized)
 }
 
-const updateExpense = (expense: Expense) => {
+const updateExpense = async (expense: Expense) => {
   const normalized = normalizeExpense({
     ...expense,
     bookId: currentBookId.value || expense.bookId,
     createdBy: expense.createdBy || authUser.value?.id,
   })
+
+  if (authUser.value?.id && currentBookId.value && !isLocalBookMode.value) {
+    await syncRemoteExpense(normalized)
+    expenses.value = sortExpenses(
+      expenses.value.map((item) => (item.id === normalized.id ? normalized : item))
+    )
+    return
+  }
+
   expenses.value = sortExpenses(
     expenses.value.map((item) => (item.id === normalized.id ? normalized : item))
   )
-  void syncRemoteExpense(normalized)
 }
 
 const deleteExpense = async (expenseId: string) => {
@@ -320,6 +313,7 @@ const deleteExpense = async (expenseId: string) => {
   }
 
   expenses.value = expenses.value.filter((item) => item.id !== expenseId)
+  clearSyncWarning()
   return { error: null }
 }
 

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import type { Expense, Payer, SplitPreset, SplitRule, SupportedCurrency } from '../types'
 import { useSettings } from '../composables/useSettings'
+import { toast } from '../composables/useToast'
 import { SUPPORTED_CURRENCIES, formatCurrency } from '../utils/currency'
 
 const props = withDefaults(
@@ -20,10 +21,12 @@ const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
 
-const { settings, categoryMap } = useSettings()
+const { settings } = useSettings()
 const splitMode = ref<'equal' | 'personal' | 'treat' | 'custom'>('equal')
+const amountInputRef = ref<HTMLInputElement | null>(null)
+const exchangeRateInputRef = ref<HTMLInputElement | null>(null)
 
-const getSplitByPreset = (preset: SplitPreset, payer: Payer, category: string): SplitRule => {
+function getSplitByPreset(preset: SplitPreset, payer: Payer, category: string): SplitRule {
   if (preset === 'payer-only') {
     return payer === 'me' ? { me: 100, partner: 0 } : { me: 0, partner: 100 }
   }
@@ -35,36 +38,38 @@ const getSplitByPreset = (preset: SplitPreset, payer: Payer, category: string): 
   return { ...settings.value.defaultSplits.standard }
 }
 
-const createDefaultExpense = (): Expense => ({
-  id: '',
-  title: '',
-  amount: 0,
-  originalAmount: 0,
-  originalCurrency: settings.value.defaultCurrency,
-  baseCurrency: settings.value.defaultCurrency,
-  exchangeRateUsed: 1,
-  exchangeRateDate: new Date().toISOString().slice(0, 10),
-  date: new Date().toISOString().slice(0, 10),
-  category: settings.value.categories.find((item) => item.id !== 'rent')?.id || 'food',
-  payer: 'me',
-  split: { ...settings.value.defaultSplits.standard },
-  splitPreset: 'equal',
-  recurrence: 'none',
-  note: '',
-})
+function createDefaultExpense(): Expense {
+  return {
+    id: '',
+    title: '',
+    amount: 0,
+    originalAmount: 0,
+    originalCurrency: settings.value.defaultCurrency,
+    baseCurrency: settings.value.defaultCurrency,
+    exchangeRateUsed: 1,
+    exchangeRateDate: new Date().toISOString().slice(0, 10),
+    date: new Date().toISOString().slice(0, 10),
+    category: settings.value.categories.find((item) => item.id !== 'rent')?.id || 'food',
+    payer: 'me',
+    split: { ...settings.value.defaultSplits.standard },
+    splitPreset: 'equal',
+    recurrence: 'none',
+    note: '',
+  }
+}
 
 const form = reactive<Expense>(createDefaultExpense())
 const currencyOptions = SUPPORTED_CURRENCIES
 const isCrossCurrency = computed(() => form.originalCurrency !== form.baseCurrency)
 const convertedAmountPreview = computed(() =>
-  formatCurrency(form.amount || 0, form.baseCurrency, { maximumFractionDigits: form.baseCurrency === 'JPY' || form.baseCurrency === 'KRW' ? 0 : 2 })
+  formatCurrency(form.amount || 0, form.baseCurrency, { maximumFractionDigits: form.baseCurrency === 'JPY' ? 0 : 2 })
 )
+const exchangeRateHint = computed(() => `请输入 1 ${form.originalCurrency} = 多少 ${form.baseCurrency}`)
 const validationMessage = computed(() => {
-  if (!form.title.trim()) return '请填写这笔消费的说明，例如“晚餐”或“5 月房租”。'
   if (!(form.originalAmount > 0)) return '请输入大于 0 的金额。'
   if (!form.date) return '请选择消费日期。'
   if (!form.category) return '请选择消费类别。'
-  if (isCrossCurrency.value && !(form.exchangeRateUsed > 0)) return '汇率获取失败，请手动填写汇率。'
+  if (isCrossCurrency.value && !(form.exchangeRateUsed > 0)) return exchangeRateHint.value
   if (form.split.me < 0 || form.split.partner < 0) return '分摊比例不能为负数。'
   if (Math.abs(form.split.me + form.split.partner - 100) > 0.01) return '分摊比例总和必须等于 100%。'
   return ''
@@ -88,13 +93,13 @@ const splitOptions = computed(() => [
   },
   { value: 'personal' as const, label: '个人消费', description: '付款人承担 100%' },
   { value: 'treat' as const, label: '我请客', description: '由付款人全部承担' },
-  { value: 'custom' as const, label: '自定义比例', description: '拖动滑条调整' },
+  { value: 'custom' as const, label: '自定义比例', description: '按 10% 调整' },
 ])
+const splitStepOptions = Array.from({ length: 11 }, (_, index) => index * 10)
 
 const splitSummary = computed(() => `${settings.value.meName}承担 ${form.split.me}% · ${settings.value.partnerName}承担 ${form.split.partner}%`)
-const defaultCurrencyHint = computed(() => `本笔将按 ${form.baseCurrency} 记账`)
 
-const syncSplitMode = () => {
+function syncSplitMode() {
   if (form.splitPreset === 'custom') {
     splitMode.value = 'custom'
     return
@@ -108,11 +113,11 @@ const syncSplitMode = () => {
   splitMode.value = 'equal'
 }
 
-const syncCurrencyFields = () => {
+function syncCurrencyFields() {
   form.baseCurrency = form.baseCurrency || settings.value.defaultCurrency || 'JPY'
   form.originalCurrency = form.originalCurrency || form.baseCurrency
   form.exchangeRateDate = form.date || form.exchangeRateDate || new Date().toISOString().slice(0, 10)
-  const precision = form.baseCurrency === 'JPY' || form.baseCurrency === 'KRW' ? 0 : 2
+  const precision = form.baseCurrency === 'JPY' ? 0 : 2
 
   if (form.originalCurrency === form.baseCurrency) {
     form.exchangeRateUsed = 1
@@ -124,12 +129,19 @@ const syncCurrencyFields = () => {
   form.amount = Number(((Number(form.originalAmount) || 0) * safeRate).toFixed(precision))
 }
 
-const updateOriginalCurrency = (currency: SupportedCurrency) => {
+function updateOriginalCurrency(currency: SupportedCurrency) {
+  const previousCurrency = form.originalCurrency
   form.originalCurrency = currency || settings.value.defaultCurrency || 'JPY'
+  if (
+    form.originalCurrency !== form.baseCurrency &&
+    (previousCurrency === form.baseCurrency || form.exchangeRateUsed === 1)
+  ) {
+    form.exchangeRateUsed = 0
+  }
   syncCurrencyFields()
 }
 
-const syncFromExpense = (value?: Expense | null) => {
+function syncFromExpense(value?: Expense | null) {
   const nextExpense = value ? { ...value } : createDefaultExpense()
   if (!value) {
     nextExpense.baseCurrency = settings.value.defaultCurrency || 'JPY'
@@ -145,10 +157,14 @@ const syncFromExpense = (value?: Expense | null) => {
   syncSplitMode()
 }
 
-const applySplitMode = (mode: 'equal' | 'personal' | 'treat' | 'custom') => {
+function applySplitMode(mode: 'equal' | 'personal' | 'treat' | 'custom') {
+  const previousMode = splitMode.value
   splitMode.value = mode
   if (mode === 'custom') {
     form.splitPreset = 'custom'
+    if (previousMode !== 'custom') {
+      form.split = { me: 40, partner: 60 }
+    }
     return
   }
 
@@ -162,22 +178,22 @@ const applySplitMode = (mode: 'equal' | 'personal' | 'treat' | 'custom') => {
   form.split = getSplitByPreset(form.splitPreset, form.payer, form.category)
 }
 
-const updateCategory = (category: string) => {
+function updateCategory(category: string) {
   form.category = category
   if (form.splitPreset !== 'custom') {
     applySplitMode(splitMode.value === 'custom' ? 'custom' : splitMode.value)
   }
 }
 
-const updatePayer = (payer: Payer) => {
+function updatePayer(payer: Payer) {
   form.payer = payer
   if (splitMode.value === 'personal' || splitMode.value === 'treat' || form.splitPreset === 'payer-only') {
     form.split = getSplitByPreset('payer-only', payer, form.category)
   }
 }
 
-const updateSplitValue = (field: 'me' | 'partner', value: number) => {
-  const safeValue = Math.max(0, Math.min(100, Number(value) || 0))
+function updateSplitValue(field: 'me' | 'partner', value: number) {
+  const safeValue = Math.round(Math.max(0, Math.min(100, Number(value) || 0)) / 10) * 10
   form.splitPreset = 'custom'
   splitMode.value = 'custom'
   form.split[field] = safeValue
@@ -211,15 +227,28 @@ watch(
   }
 )
 
-const submit = () => {
-  if (validationMessage.value) return
+function submit() {
+  if (validationMessage.value) {
+    toast.warning(validationMessage.value)
+    void nextTick(() => {
+      if (!(form.originalAmount > 0)) {
+        amountInputRef.value?.focus()
+        return
+      }
+
+      if (isCrossCurrency.value && !(form.exchangeRateUsed > 0)) {
+        exchangeRateInputRef.value?.focus()
+      }
+    })
+    return
+  }
 
   syncCurrencyFields()
 
   emit('save', {
     ...form,
     title: form.title.trim(),
-    note: form.note?.trim() || '',
+    note: '',
     amount: Number(form.amount),
     originalAmount: Number(form.originalAmount),
     exchangeRateUsed: Number(form.exchangeRateUsed),
@@ -236,7 +265,6 @@ const submit = () => {
     <section class="section-card">
       <div class="section-heading">
         <div>
-          <p class="section-kicker">记一笔消费</p>
           <h2>{{ props.expense ? '编辑记录' : '添加消费' }}</h2>
         </div>
         <button type="button" class="secondary-button" @click="emit('cancel')">取消</button>
@@ -244,22 +272,22 @@ const submit = () => {
 
       <label class="field-group amount-field">
         <span class="field-label">金额</span>
-        <div class="amount-header-row">
-          <strong class="amount-currency-badge">{{ form.originalCurrency || settings.defaultCurrency || 'JPY' }}</strong>
-          <span class="amount-header-hint">{{ defaultCurrencyHint }}</span>
-        </div>
         <div class="amount-input-wrap">
           <input
+            ref="amountInputRef"
             v-model.number="form.originalAmount"
             type="number"
             min="0"
             step="0.01"
             inputmode="decimal"
-            :placeholder="form.originalCurrency === 'JPY' || form.originalCurrency === 'KRW' ? '0' : '0.00'"
+            :placeholder="form.originalCurrency === 'JPY' ? '0' : '0.00'"
           />
         </div>
+      </label>
 
-        <div class="currency-pill-row" role="group" aria-label="货币选择">
+      <label class="field-group currency-field">
+        <span class="field-label">货币</span>
+        <div class="currency-pill-row" role="group" aria-label="快捷货币选择">
           <button
             v-for="currency in currencyOptions"
             :key="currency.code"
@@ -272,18 +300,10 @@ const submit = () => {
         </div>
       </label>
 
-      <div class="field-row">
-        <label class="field-group">
-          <span class="field-label">日期</span>
-          <input v-model="form.date" type="date" />
-        </label>
-
-        <div class="field-group expense-mode-card">
-          <span class="field-label">记账类型</span>
-          <strong>普通单次消费</strong>
-          <small>每月固定消费后续会放到单独入口管理。</small>
-        </div>
-      </div>
+      <label class="field-group">
+        <span class="field-label">日期</span>
+        <input v-model="form.date" type="date" />
+      </label>
 
       <div v-if="isCrossCurrency" class="exchange-panel">
         <div class="exchange-panel-head">
@@ -294,12 +314,13 @@ const submit = () => {
           <label class="field-group">
             <span class="field-label">汇率</span>
             <input
+              ref="exchangeRateInputRef"
               v-model.number="form.exchangeRateUsed"
               type="number"
               min="0"
               step="0.0001"
               inputmode="decimal"
-              placeholder="例如：20.35"
+              :placeholder="form.baseCurrency === 'JPY' ? '例如：20.35' : '例如：0.049'"
             />
           </label>
           <label class="field-group">
@@ -307,34 +328,20 @@ const submit = () => {
             <input v-model="form.exchangeRateDate" type="date" />
           </label>
         </div>
-        <p class="exchange-hint">汇率获取失败，请手动填写汇率</p>
+        <p class="exchange-hint">{{ exchangeRateHint }}</p>
         <p class="exchange-result">按当前汇率将计入 {{ convertedAmountPreview }}</p>
       </div>
 
-      <div v-else class="exchange-panel exchange-panel-plain">
-        <div class="exchange-panel-head">
-          <strong>默认货币</strong>
-          <span class="info-pill soft">{{ form.baseCurrency }}</span>
-        </div>
-        <p class="exchange-result">当前默认货币：{{ form.baseCurrency }}</p>
-      </div>
-
       <label class="field-group">
-        <span class="field-label">消费说明</span>
+        <span class="field-label">说明（可选）</span>
         <input v-model="form.title" type="text" placeholder="例如：晚餐、超市采购、5 月房租" />
-      </label>
-
-      <label class="field-group">
-        <span class="field-label">记账基准货币</span>
-        <input :value="`${form.baseCurrency}（保存时的基准币种）`" type="text" disabled />
       </label>
     </section>
 
     <section class="section-card">
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">分类</p>
-          <h3>这笔钱花在哪</h3>
+          <h3>分类</h3>
         </div>
       </div>
 
@@ -355,8 +362,7 @@ const submit = () => {
     <section class="section-card">
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">付款人</p>
-          <h3>默认已选当前使用者，可手动切换</h3>
+          <h3>付款人</h3>
         </div>
       </div>
 
@@ -376,8 +382,7 @@ const submit = () => {
     <section class="section-card">
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">分摊方式</p>
-          <h3>{{ categoryMap[form.category]?.name || '当前分类' }} 默认规则可手动调整</h3>
+          <h3>分摊方式</h3>
         </div>
       </div>
 
@@ -407,15 +412,17 @@ const submit = () => {
             <span>{{ settings.meName }} {{ form.split.me }}%</span>
             <span>{{ settings.partnerName }} {{ form.split.partner }}%</span>
           </div>
-          <input
-            class="split-slider"
-            :value="form.split.me"
-            type="range"
-            min="0"
-            max="100"
-            step="1"
-            @input="updateSplitValue('me', Number(($event.target as HTMLInputElement).value))"
-          />
+          <div class="split-step-grid" role="group" aria-label="按 10% 调整自定义比例">
+            <button
+              v-for="value in splitStepOptions"
+              :key="value"
+              type="button"
+              :class="['split-step-button', { active: form.split.me === value }]"
+              @click="updateSplitValue('me', value)"
+            >
+              {{ value }}
+            </button>
+          </div>
         </div>
 
         <div v-else class="split-hint">
@@ -424,41 +431,9 @@ const submit = () => {
         </div>
       </div>
 
-      <div v-if="splitMode === 'custom'" class="field-row split-input-row">
-        <label class="field-group">
-          <span class="field-label">{{ settings.meName }}承担 %</span>
-          <input
-            :value="form.split.me"
-            type="number"
-            min="0"
-            max="100"
-            step="1"
-            @input="updateSplitValue('me', Number(($event.target as HTMLInputElement).value))"
-          />
-        </label>
-
-        <label class="field-group">
-          <span class="field-label">{{ settings.partnerName }}承担 %</span>
-          <input
-            :value="form.split.partner"
-            type="number"
-            min="0"
-            max="100"
-            step="1"
-            @input="updateSplitValue('partner', Number(($event.target as HTMLInputElement).value))"
-          />
-        </label>
-      </div>
     </section>
 
     <section class="section-card">
-      <label class="field-group">
-        <span class="field-label">备注（可选）</span>
-        <textarea v-model="form.note" rows="3" placeholder="晚餐、5月房租、超市购物" />
-      </label>
-
-      <p v-if="validationMessage" class="error-message">{{ validationMessage }}</p>
-
       <div class="form-actions">
         <button type="button" class="secondary-button" @click="emit('cancel')">取消</button>
         <button type="submit" class="primary-button">{{ props.submitLabel }}</button>

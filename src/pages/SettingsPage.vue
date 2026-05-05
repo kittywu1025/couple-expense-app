@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useExpenses } from '../composables/useExpenses'
 import { useSupabaseAuth } from '../composables/useSupabaseAuth'
 import { useBooks } from '../composables/useBooks'
 import { useSettings } from '../composables/useSettings'
+import { toast } from '../composables/useToast'
 import { SUPPORTED_CURRENCIES, formatCurrency } from '../utils/currency'
+import { toUserMessage } from '../utils/userMessage'
 
 const { settings, normalizeSplit } = useSettings()
 const { authUser, isSupabaseEnabled, signOut, updatePassword } = useSupabaseAuth()
@@ -15,24 +17,13 @@ const newCategory = reactive({
   name: '',
   icon: '🧾',
 })
-const settingsMessage = ref('')
 const passwordModalOpen = ref(false)
 const passwordLoading = ref(false)
-const passwordError = ref('')
 const passwordForm = reactive({
   nextPassword: '',
   confirmPassword: '',
 })
 const currencyOptions = SUPPORTED_CURRENCIES
-
-const setSettingsMessage = (message: string) => {
-  settingsMessage.value = message
-  window.setTimeout(() => {
-    if (settingsMessage.value === message) {
-      settingsMessage.value = ''
-    }
-  }, 2200)
-}
 
 const monthLabel = computed(() => {
   const [year, month] = selectedYearMonth.value.split('-')
@@ -51,14 +42,36 @@ const settlementText = computed(() => {
   return `${settings.value.meName} 需要补给 ${settings.value.partnerName}`
 })
 
+const fallbackCopyText = (value: string) => {
+  const input = document.createElement('textarea')
+  input.value = value
+  input.setAttribute('readonly', 'true')
+  input.style.position = 'fixed'
+  input.style.opacity = '0'
+  document.body.appendChild(input)
+  input.select()
+  input.setSelectionRange(0, value.length)
+  const copied = document.execCommand('copy')
+  document.body.removeChild(input)
+  return copied
+}
+
 const copyInviteCode = async () => {
   if (!currentBook.value?.inviteCode) return
   try {
-    await navigator.clipboard.writeText(currentBook.value.inviteCode)
-    setSettingsMessage('邀请码已复制。')
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(currentBook.value.inviteCode)
+    } else if (!fallbackCopyText(currentBook.value.inviteCode)) {
+      throw new Error('clipboard unavailable')
+    }
+    toast.success('邀请码已复制。')
   } catch (error) {
     console.error('复制邀请码失败：', error)
-    setSettingsMessage('复制失败，请稍后重试。')
+    if (fallbackCopyText(currentBook.value.inviteCode)) {
+      toast.success('邀请码已复制。')
+      return
+    }
+    toast.error('复制失败，请稍后重试。')
   }
 }
 
@@ -67,12 +80,15 @@ const saveProfile = () => {
   settings.value.partnerName = settings.value.partnerName.trim() || '另一半'
   settings.value.defaultSplits.standard = normalizeSplit(settings.value.defaultSplits.standard, { me: 50, partner: 50 })
   settings.value.defaultSplits.rent = normalizeSplit(settings.value.defaultSplits.rent, { me: 60, partner: 40 })
-  setSettingsMessage('设置已保存到当前设备。')
+  toast.success('设置已保存。')
 }
 
 const addCategory = () => {
   const name = newCategory.name.trim()
-  if (!name) return
+  if (!name) {
+    toast.warning('请填写新分类名称。')
+    return
+  }
 
   settings.value.categories.push({
     id: crypto.randomUUID(),
@@ -82,7 +98,7 @@ const addCategory = () => {
 
   newCategory.name = ''
   newCategory.icon = '🧾'
-  setSettingsMessage('新分类已添加。')
+  toast.success('新分类已添加。')
 }
 
 const removeCategory = (categoryId: string) => {
@@ -97,12 +113,16 @@ const updateSplit = (type: 'standard' | 'rent', field: 'me' | 'partner', value: 
 }
 
 const handleSignOut = async () => {
-  await signOut()
-  setSettingsMessage('已退出登录。')
+  const { error } = await signOut()
+  if (error) {
+    console.error('退出登录失败：', error)
+    toast.error('退出失败，请稍后重试。')
+    return
+  }
+  toast.success('退出成功。')
 }
 
 const openPasswordModal = () => {
-  passwordError.value = ''
   passwordForm.nextPassword = ''
   passwordForm.confirmPassword = ''
   passwordModalOpen.value = true
@@ -111,28 +131,26 @@ const openPasswordModal = () => {
 const closePasswordModal = () => {
   if (passwordLoading.value) return
   passwordModalOpen.value = false
-  passwordError.value = ''
   passwordForm.nextPassword = ''
   passwordForm.confirmPassword = ''
 }
 
 const handlePasswordSubmit = async () => {
-  passwordError.value = ''
   const nextPassword = passwordForm.nextPassword.trim()
   const confirmPassword = passwordForm.confirmPassword.trim()
 
   if (!nextPassword || !confirmPassword) {
-    passwordError.value = '请填写完整的新密码和确认密码。'
+    toast.warning('请填写完整的新密码和确认密码。')
     return
   }
 
   if (nextPassword.length < 6) {
-    passwordError.value = '密码至少需要 6 位。'
+    toast.warning('密码至少需要 6 位。')
     return
   }
 
   if (nextPassword !== confirmPassword) {
-    passwordError.value = '两次输入的密码不一致。'
+    toast.warning('两次输入的密码不一致。')
     return
   }
 
@@ -142,15 +160,24 @@ const handlePasswordSubmit = async () => {
 
   if (error) {
     console.error('设置/修改密码失败：', error)
-    passwordError.value = error.message || '密码设置失败，请稍后重试。'
+    toast.error(toUserMessage(error, '密码设置失败，请稍后重试。'))
     return
   }
 
   closePasswordModal()
-  setSettingsMessage('密码已设置成功，下次可以使用邮箱和密码登录。')
+  toast.success('密码修改成功。')
 }
 
 const formatAmount = (value: number) => formatCurrency(value, settings.value.defaultCurrency)
+
+onMounted(() => {
+  if (isLocalBookMode.value) {
+    toast.info('当前是本地模式，只能本机保存，不能情侣同步。', {
+      id: 'local-mode-info',
+      duration: 4500,
+    })
+  }
+})
 </script>
 
 <template>
@@ -158,8 +185,7 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
     <section class="section-card">
       <div class="section-heading">
         <div>
-          <p class="section-kicker">设置</p>
-          <h2>账本、分摊和常用设置</h2>
+          <h2>设置</h2>
         </div>
       </div>
 
@@ -182,7 +208,6 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
             {{ currency.code }} {{ currency.label }}
           </option>
         </select>
-        <small class="settings-hint">新记录默认按这个币种入账。若之后切换默认货币，旧记录不会自动重算历史汇率。</small>
       </label>
 
       <div class="settings-list">
@@ -225,15 +250,12 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
           </div>
         </div>
       </div>
-      <p v-if="isLocalBookMode" class="warning-message">当前是 localStorage 本地模式，只能本机保存，不能情侣同步。</p>
-      <p v-if="settingsMessage" class="status-message">{{ settingsMessage }}</p>
     </section>
 
     <section class="section-card">
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">月末结算</p>
-          <h3>需要时再看，不放在首页打扰你们</h3>
+          <h3>月末结算</h3>
         </div>
       </div>
 
@@ -252,8 +274,7 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
     <section class="section-card">
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">默认分摊</p>
-          <h3>普通消费和房租规则都放在这里统一管理</h3>
+          <h3>默认分摊</h3>
         </div>
       </div>
 
@@ -319,8 +340,7 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
     <section class="section-card">
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">固定消费</p>
-          <h3>每月固定消费入口</h3>
+          <h3>固定消费</h3>
         </div>
       </div>
 
@@ -328,7 +348,6 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
         <div class="sync-card">
           <span>当前固定消费</span>
           <strong>{{ recurringExpenses.length }} 笔</strong>
-          <small>现阶段先保留已有数据，后续可独立扩展专门页面。</small>
         </div>
       </div>
     </section>
@@ -336,8 +355,7 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
     <section class="section-card">
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">消费类别</p>
-          <h3>新增、删除和整理常用分类</h3>
+          <h3>消费类别</h3>
         </div>
       </div>
 
@@ -388,7 +406,6 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
       <section class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="password-modal-title">
         <div class="section-heading compact">
           <div>
-            <p class="section-kicker">账号安全</p>
             <h3 id="password-modal-title">设置/修改密码</h3>
           </div>
         </div>
@@ -415,8 +432,6 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
               placeholder="再次输入新密码"
             />
           </label>
-
-          <p v-if="passwordError" class="error-message">{{ passwordError }}</p>
         </div>
 
         <div class="settings-modal-actions">
@@ -435,7 +450,7 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
 <style scoped>
 .settings-inline-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
@@ -453,39 +468,39 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
 
 .settings-modal {
   width: min(100%, 420px);
-  border-radius: 26px;
+  border-radius: 18px;
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.82);
   box-shadow: 0 24px 48px rgba(15, 23, 42, 0.14);
-  padding: 20px;
+  padding: 16px;
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .settings-modal-body {
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
 .settings-modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .ui-version-tag {
   margin: 0;
-  padding: 0 4px calc(8px + env(safe-area-inset-bottom, 0px));
+  padding: 0 2px calc(4px + env(safe-area-inset-bottom, 0px));
   color: var(--text-faint);
-  font-size: 0.76rem;
+  font-size: 0.7rem;
   text-align: center;
 }
 
 .settings-hint {
   color: var(--text-soft);
-  font-size: 0.84rem;
-  line-height: 1.5;
+  font-size: 0.78rem;
+  line-height: 1.4;
 }
 
 @media (max-width: 640px) {

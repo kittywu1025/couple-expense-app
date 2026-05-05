@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import TabBar from './components/TabBar.vue'
+import ToastViewport from './components/ToastViewport.vue'
 import AuthPage from './pages/AuthPage.vue'
 import AddExpensePage from './pages/AddExpensePage.vue'
 import BookSetupPage from './pages/BookSetupPage.vue'
 import CalendarPage from './pages/CalendarPage.vue'
+import ExpenseDetailModal from './components/ExpenseDetailModal.vue'
 import HomePage from './pages/HomePage.vue'
 import RecordsPage from './pages/RecordsPage.vue'
 import SettingsPage from './pages/SettingsPage.vue'
@@ -13,12 +15,11 @@ import { applyPwaUpdate, checkForPwaUpdate, dismissPwaUpdate, usePwaUpdate } fro
 import { useBooks } from './composables/useBooks'
 import { useExpenses } from './composables/useExpenses'
 import { useSupabaseAuth } from './composables/useSupabaseAuth'
-import { useRuntimeStatus } from './composables/useRuntimeStatus'
+import { toast } from './composables/useToast'
 
 const { authUser, authLoading, isSupabaseEnabled } = useSupabaseAuth()
-const { appError, syncWarning, clearAppError } = useRuntimeStatus()
 const { needsBookSetup } = useBooks()
-const { refreshExpenses } = useExpenses()
+const { expenses, refreshExpenses } = useExpenses()
 const { updateAvailable, updateMessage, isApplyingUpdate } = usePwaUpdate()
 
 const tabs = [
@@ -31,57 +32,84 @@ const tabs = [
 const activeTab = ref('home')
 const visibleTab = computed(() => (activeTab.value === 'calendar' ? 'home' : activeTab.value))
 const editingExpenseId = ref<string | null>(null)
+const detailExpenseId = ref<string | null>(null)
+const pendingDetailExpenseId = ref<string | null>(null)
+const detailOriginTab = ref<'home' | 'records'>('home')
 const afterSaveTab = ref<'home' | 'records'>('home')
-const flashMessage = ref('')
-let flashTimer: ReturnType<typeof setTimeout> | null = null
 const pullState = ref<'idle' | 'pulling' | 'ready' | 'refreshing' | 'done'>('idle')
 const pullDistance = ref(0)
 const touchStartY = ref(0)
 const isTrackingPull = ref(false)
 
-const setFlashMessage = (message: string) => {
-  flashMessage.value = message
-  if (flashTimer) clearTimeout(flashTimer)
-  flashTimer = setTimeout(() => {
-    flashMessage.value = ''
-  }, 2400)
-}
-
 if (typeof window !== 'undefined' && window.sessionStorage.getItem('pwa-updated') === '1') {
   window.sessionStorage.removeItem('pwa-updated')
-  setFlashMessage('已更新')
+  toast.success('已更新到最新版本。')
 }
+
+const selectedExpense = computed(() =>
+  detailExpenseId.value ? expenses.value.find((item) => item.id === detailExpenseId.value) || null : null
+)
 
 const openNewExpense = (returnTab: 'home' | 'records' = 'home') => {
   editingExpenseId.value = null
+  detailExpenseId.value = null
+  pendingDetailExpenseId.value = null
   afterSaveTab.value = returnTab
   activeTab.value = 'add'
 }
 
-const openEditExpense = (expenseId: string, returnTab: 'home' | 'records' = 'records') => {
+const openExpenseDetail = (expenseId: string, origin: 'home' | 'records' = 'home') => {
+  detailExpenseId.value = expenseId
+  detailOriginTab.value = origin
+}
+
+const closeExpenseDetail = () => {
+  detailExpenseId.value = null
+}
+
+const openEditExpense = (
+  expenseId: string,
+  returnTab: 'home' | 'records' = 'records',
+  returnToDetail = false
+) => {
   editingExpenseId.value = expenseId
+  detailExpenseId.value = null
   afterSaveTab.value = returnTab
+  pendingDetailExpenseId.value = returnToDetail ? expenseId : null
   activeTab.value = 'add'
 }
 
 const handleSaved = (message: string) => {
-  setFlashMessage(message)
+  if (message) {
+    toast.success(message)
+  }
   editingExpenseId.value = null
   activeTab.value = afterSaveTab.value
+  if (pendingDetailExpenseId.value) {
+    detailExpenseId.value = pendingDetailExpenseId.value
+  }
+  pendingDetailExpenseId.value = null
 }
 
 const handleCancelForm = () => {
   editingExpenseId.value = null
   activeTab.value = afterSaveTab.value
+  if (pendingDetailExpenseId.value) {
+    detailExpenseId.value = pendingDetailExpenseId.value
+  }
+  pendingDetailExpenseId.value = null
 }
 
 const handleTabChange = (tab: string) => {
   editingExpenseId.value = null
+  detailExpenseId.value = null
+  pendingDetailExpenseId.value = null
   activeTab.value = tab
 }
 
 const handleDeleteSuccess = () => {
-  setFlashMessage('记录已删除。')
+  detailExpenseId.value = null
+  toast.success('已删除这笔记录。')
 }
 
 const pullMessage = computed(() => {
@@ -102,7 +130,7 @@ const resetPullState = () => {
 
 const finishPullState = (message: '已是最新' | '已更新') => {
   pullState.value = 'done'
-  setFlashMessage(message)
+  toast.info(message)
   window.setTimeout(() => {
     if (pullState.value === 'done') {
       pullState.value = 'idle'
@@ -154,6 +182,36 @@ const handleTouchEnd = async () => {
   resetPullState()
 }
 
+watch(
+  [updateAvailable, updateMessage, isApplyingUpdate],
+  ([visible, message, applying]) => {
+    if (!visible) {
+      toast.dismiss('pwa-update')
+      return
+    }
+
+    toast.info(message, {
+      id: 'pwa-update',
+      title: '发现新版本',
+      duration: 0,
+      actions: [
+        {
+          label: '稍后',
+          kind: 'text',
+          onClick: () => dismissPwaUpdate(),
+        },
+        {
+          label: applying ? '正在刷新' : '立即刷新',
+          kind: 'primary',
+          disabled: applying,
+          onClick: () => applyPwaUpdate(),
+        },
+      ],
+    })
+  },
+  { immediate: true }
+)
+
 </script>
 
 <template>
@@ -176,29 +234,6 @@ const handleTouchEnd = async () => {
         {{ pullMessage }}
       </div>
 
-      <div v-if="updateAvailable" class="update-toast" role="status" aria-live="polite">
-        <div>
-          <strong>发现新版本</strong>
-          <p>{{ updateMessage }}</p>
-        </div>
-        <div class="update-toast-actions">
-          <button class="text-button" type="button" @click="dismissPwaUpdate">稍后</button>
-          <button class="primary-button compact-button" type="button" @click="applyPwaUpdate">
-            {{ isApplyingUpdate ? '正在刷新' : '立即刷新' }}
-          </button>
-        </div>
-      </div>
-
-      <div v-if="flashMessage" class="flash-message">{{ flashMessage }}</div>
-      <div v-if="syncWarning && !needsBookSetup" class="warning-message">{{ syncWarning }}</div>
-      <div v-if="appError" class="error-message error-banner">
-        <div>
-          <strong>页面运行出现问题</strong>
-          <p>{{ appError }}</p>
-        </div>
-        <button class="secondary-button" type="button" @click="clearAppError">关闭提示</button>
-      </div>
-
       <main
         class="page-stack"
         @touchstart.passive="handleTouchStart"
@@ -210,14 +245,14 @@ const handleTouchEnd = async () => {
         <HomePage
           v-else-if="activeTab === 'home'"
           @add="openNewExpense('home')"
-          @edit="openEditExpense($event, 'home')"
+          @open="openExpenseDetail($event, 'home')"
           @open-calendar="handleTabChange('calendar')"
           @open-settings="handleTabChange('settings')"
         />
         <CalendarPage
           v-else-if="activeTab === 'calendar'"
           @back="handleTabChange('home')"
-          @edit="openEditExpense($event, 'home')"
+          @edit="openExpenseDetail($event, 'home')"
         />
         <AddExpensePage
           v-else-if="activeTab === 'add'"
@@ -227,8 +262,7 @@ const handleTouchEnd = async () => {
         />
         <RecordsPage
           v-else-if="activeTab === 'records'"
-          @edit="openEditExpense($event, 'records')"
-          @deleted="handleDeleteSuccess"
+          @open="openExpenseDetail($event, 'records')"
         />
         <StatsPage v-else-if="activeTab === 'stats'" />
         <SettingsPage v-else-if="activeTab === 'settings'" />
@@ -242,4 +276,14 @@ const handleTouchEnd = async () => {
       />
     </template>
   </div>
+
+  <ExpenseDetailModal
+    v-if="selectedExpense"
+    :expense="selectedExpense"
+    @close="closeExpenseDetail"
+    @edit="openEditExpense($event, detailOriginTab, true)"
+    @deleted="handleDeleteSuccess"
+  />
+
+  <ToastViewport />
 </template>

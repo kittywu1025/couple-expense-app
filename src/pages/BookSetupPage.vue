@@ -1,40 +1,36 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useBooks } from '../composables/useBooks'
+import { toast } from '../composables/useToast'
+import { toUserMessage } from '../utils/userMessage'
 
-const { createBook, joinBookByInvite, bookActionLoading, bookActionMessage, booksError } = useBooks()
+const { createBook, joinBookByInvite, bookActionLoading } = useBooks()
 
 const mode = ref<'create' | 'join'>('create')
 const createName = ref('我们的账本')
 const inviteCode = ref('')
-const errorMessage = ref('')
-const successMessage = computed(() => bookActionMessage.value)
-const emptyStateText = computed(() =>
-  booksError.value
-    ? '账本信息读取失败，请稍后重试。'
-    : '你还没有加入任何情侣账本，请创建或加入一份共同账本。'
-)
+const emptyStateText = computed(() => '先创建或加入共同账本。')
 
 const handleCreate = async () => {
-  errorMessage.value = ''
   const { data, error } = await createBook(createName.value)
   if (error) {
-    errorMessage.value = error.message || '创建账本失败'
+    toast.error(toUserMessage(error, '创建账本失败，请稍后重试。'))
     return
   }
   if (data?.inviteCode) {
     createName.value = data.name
   }
+  toast.success('账本已创建。')
 }
 
 const handleJoin = async () => {
-  errorMessage.value = ''
   const { error } = await joinBookByInvite(inviteCode.value)
   if (error) {
-    errorMessage.value = error.message || '加入账本失败'
+    toast.error(toUserMessage(error, '加入账本失败，请稍后重试。'))
     return
   }
   inviteCode.value = ''
+  toast.success('已加入情侣账本。')
 }
 </script>
 
@@ -43,8 +39,7 @@ const handleJoin = async () => {
     <section class="section-card">
       <div class="section-heading">
         <div>
-          <p class="section-kicker">情侣账本</p>
-          <h2>先创建或加入一份共同账本</h2>
+          <h2>情侣账本</h2>
           <p class="subtitle">{{ emptyStateText }}</p>
         </div>
       </div>
@@ -62,8 +57,7 @@ const handleJoin = async () => {
     <section class="section-card" v-if="mode === 'create'">
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">创建</p>
-          <h3>生成邀请码发给对象</h3>
+          <h3>创建账本</h3>
         </div>
       </div>
 
@@ -82,8 +76,7 @@ const handleJoin = async () => {
     <section class="section-card" v-else>
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">加入</p>
-          <h3>输入对象发来的邀请码</h3>
+          <h3>输入邀请码</h3>
         </div>
       </div>
 
@@ -98,8 +91,5 @@ const handleJoin = async () => {
         </button>
       </div>
     </section>
-
-    <p v-if="successMessage" class="status-message">{{ successMessage }}</p>
-    <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
   </section>
 </template>

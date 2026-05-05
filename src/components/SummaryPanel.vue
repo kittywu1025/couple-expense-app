@@ -16,12 +16,6 @@ const props = defineProps<{
 
 const { settings, categoryMap } = useSettings()
 
-const settlementText = computed(() => {
-  if (Math.abs(props.meNet) < 0.01) return '本月分摊比较均衡'
-  if (props.meNet > 0) return `${settings.value.partnerName} 参考补给 ${settings.value.meName}`
-  return `${settings.value.meName} 参考补给 ${settings.value.partnerName}`
-})
-
 const categoryEntries = computed(() =>
   Object.entries(props.categoryTotals).sort((left, right) => right[1] - left[1])
 )
@@ -34,8 +28,7 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
     <div class="summary-hero">
       <div>
         <p class="section-kicker">{{ props.selectedMonth }}</p>
-        <h2>本月总览</h2>
-        <p class="summary-hero-text">{{ settlementText }}</p>
+        <h2>总览</h2>
       </div>
       <div class="summary-total">
         <span>分摊参考</span>
@@ -69,8 +62,7 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
     <div class="category-board">
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">分类统计</p>
-          <h3>按类别查看本月支出</h3>
+          <h3>分类统计</h3>
         </div>
       </div>
 

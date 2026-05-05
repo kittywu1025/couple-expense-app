@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useSupabaseAuth } from '../composables/useSupabaseAuth'
+import { toast } from '../composables/useToast'
+import { toUserMessage } from '../utils/userMessage'
 
 type AuthMode = 'login' | 'register' | 'otp'
 
@@ -8,10 +10,7 @@ const mode = ref<AuthMode>('login')
 const email = ref('')
 const password = ref('')
 const confirmPassword = ref('')
-const status = ref('')
-const errorMessage = ref('')
 const submitting = ref(false)
-const sentLoginEmail = ref('')
 const showExistingAccountModal = ref(false)
 
 const { signInWithEmail, signInWithPassword, signUpWithPassword } = useSupabaseAuth()
@@ -19,19 +18,19 @@ const { signInWithEmail, signInWithPassword, signUpWithPassword } = useSupabaseA
 const modeCopy: Record<AuthMode, { title: string; subtitle: string; submitLabel: string; loadingLabel: string }> = {
   login: {
     title: '登录账号',
-    subtitle: '输入邮箱和密码，继续使用你们的共同账本。',
+    subtitle: '输入邮箱和密码继续使用账本。',
     submitLabel: '登录',
     loadingLabel: '登录中...',
   },
   register: {
     title: '注册账号',
-    subtitle: '创建邮箱密码账号，之后可以直接登录，不用每次收邮件。',
+    subtitle: '创建邮箱密码账号。',
     submitLabel: '注册账号',
     loadingLabel: '注册中...',
   },
   otp: {
     title: '邮箱验证登录',
-    subtitle: '输入邮箱后，我们会发送一封登录邮件。请前往邮箱点击邮件中的登录链接完成登录。',
+    subtitle: '输入邮箱后发送登录邮件。',
     submitLabel: '发送登录邮件',
     loadingLabel: '发送中...',
   },
@@ -42,9 +41,6 @@ const subtitle = computed(() => modeCopy[mode.value].subtitle)
 const submitLabel = computed(() => (submitting.value ? modeCopy[mode.value].loadingLabel : modeCopy[mode.value].submitLabel))
 
 const resetFeedback = () => {
-  status.value = ''
-  errorMessage.value = ''
-  sentLoginEmail.value = ''
   showExistingAccountModal.value = false
 }
 
@@ -56,11 +52,9 @@ const switchMode = (nextMode: AuthMode) => {
 const useExistingEmailForLogin = () => {
   showExistingAccountModal.value = false
   mode.value = 'login'
-  status.value = '这个邮箱已经注册过，请直接输入密码登录。'
-  errorMessage.value = ''
-  sentLoginEmail.value = ''
   password.value = ''
   confirmPassword.value = ''
+  toast.info('这个邮箱已经注册过，请直接输入密码登录。')
 }
 
 const dismissExistingAccountModal = () => {
@@ -68,9 +62,6 @@ const dismissExistingAccountModal = () => {
   email.value = ''
   password.value = ''
   confirmPassword.value = ''
-  status.value = ''
-  errorMessage.value = ''
-  sentLoginEmail.value = ''
 }
 
 const handleSubmit = async () => {
@@ -78,17 +69,17 @@ const handleSubmit = async () => {
 
   const trimmedEmail = email.value.trim()
   if (!trimmedEmail) {
-    errorMessage.value = '请输入邮箱地址。'
+    toast.warning('请输入邮箱地址。')
     return
   }
 
   if (mode.value !== 'otp' && password.value.length < 6) {
-    errorMessage.value = '密码至少需要 6 位。'
+    toast.warning('密码至少需要 6 位。')
     return
   }
 
   if (mode.value === 'register' && password.value !== confirmPassword.value) {
-    errorMessage.value = '两次输入的密码不一致。'
+    toast.warning('两次输入的密码不一致。')
     return
   }
 
@@ -99,8 +90,10 @@ const handleSubmit = async () => {
     submitting.value = false
 
     if (error) {
-      errorMessage.value = error.message || '邮箱或密码错误。'
+      toast.error(toUserMessage(error, '登录失败，请稍后重试。'))
+      return
     }
+    toast.success('登录成功。')
     return
   }
 
@@ -114,14 +107,14 @@ const handleSubmit = async () => {
     }
 
     if (error) {
-      errorMessage.value = error.message || '注册失败，请稍后重试。'
+      toast.error(toUserMessage(error, '注册失败，请稍后重试。'))
       return
     }
 
     if (data?.session) {
-      status.value = '注册成功，已自动登录。'
+      toast.success('注册成功，已自动登录。')
     } else {
-      status.value = '注册请求已提交。请前往邮箱点击确认链接后再返回登录。如果没有收到邮件，请检查垃圾邮件，或尝试使用邮箱验证登录。'
+      toast.info('验证邮件已发送，请前往邮箱点击确认链接后再返回登录。')
     }
     return
   }
@@ -130,10 +123,9 @@ const handleSubmit = async () => {
   submitting.value = false
 
   if (error) {
-    errorMessage.value = error.message || '登录邮件发送失败，请稍后重试。'
+    toast.error(toUserMessage(error, '登录邮件发送失败，请稍后重试。'))
   } else {
-    sentLoginEmail.value = trimmedEmail
-    status.value = '登录邮件已发送，请前往邮箱点击登录链接完成登录。这个页面不会出现验证码输入框。'
+    toast.info(`登录邮件已发送，请前往 ${trimmedEmail} 收件箱完成登录。`)
   }
 }
 </script>
@@ -213,16 +205,6 @@ const handleSubmit = async () => {
           </button>
         </form>
 
-        <div v-if="status" class="status-message auth-feedback">
-          <p>{{ status }}</p>
-          <template v-if="mode === 'otp' && sentLoginEmail">
-            <p>已发送到：{{ sentLoginEmail }}</p>
-            <p>请检查收件箱和垃圾邮件；你可能会在邮箱打开新的页面完成登录。</p>
-          </template>
-        </div>
-
-        <p v-if="errorMessage" class="error-message auth-feedback">{{ errorMessage }}</p>
-
         <div class="auth-footer-links">
           <button
             v-if="mode === 'login'"
@@ -243,7 +225,7 @@ const handleSubmit = async () => {
           </button>
 
           <button
-            v-if="mode === 'otp' && sentLoginEmail"
+            v-if="mode === 'otp'"
             type="button"
             class="text-button"
             @click="handleSubmit"
@@ -261,7 +243,7 @@ const handleSubmit = async () => {
     >
       <section class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="existing-account-title">
         <h3 id="existing-account-title">这个邮箱已经注册过</h3>
-        <p>你可以直接使用这个邮箱登录。如果之前是通过邮箱登录链接使用，也可以先返回登录页再选择邮箱登录链接。</p>
+        <p>请直接登录，或返回后改用邮箱登录链接。</p>
         <div class="auth-modal-actions">
           <button type="button" class="primary-button auth-modal-button" @click="useExistingEmailForLogin">
             直接去登录
@@ -279,22 +261,22 @@ const handleSubmit = async () => {
 .auth-page {
   max-width: 460px;
   margin: 0 auto;
-  padding: 28px 24px 24px;
+  padding: 18px 18px 16px;
 }
 
 .auth-content {
   display: grid;
-  gap: 18px;
+  gap: 12px;
 }
 
 .auth-hero {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .auth-copy h2 {
   margin: 0;
-  font-size: clamp(1.55rem, 4vw, 1.9rem);
+  font-size: clamp(1.35rem, 4vw, 1.65rem);
   line-height: 1.12;
   letter-spacing: -0.03em;
 }
@@ -302,26 +284,26 @@ const handleSubmit = async () => {
 .auth-badge {
   display: inline-flex;
   align-items: center;
-  padding: 5px 10px;
+  padding: 4px 8px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.66);
   border: 1px solid rgba(174, 145, 122, 0.14);
   color: var(--accent-strong);
-  font-size: 0.76rem;
+  font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
 
 .auth-copy .subtitle {
-  margin-top: 10px;
-  font-size: 0.96rem;
-  line-height: 1.65;
+  margin-top: 6px;
+  font-size: 0.84rem;
+  line-height: 1.45;
 }
 
 .auth-panel {
-  padding: 16px;
+  padding: 12px;
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .auth-mode-switch {
@@ -335,13 +317,13 @@ const handleSubmit = async () => {
 }
 
 .auth-mode-tab {
-  min-height: 42px;
+  min-height: 38px;
   border: none;
   border-radius: 12px;
   background: transparent;
   color: var(--muted);
   font-weight: 600;
-  font-size: 0.95rem;
+  font-size: 0.88rem;
 }
 
 .auth-mode-tab.active {
@@ -361,38 +343,29 @@ const handleSubmit = async () => {
 
 .auth-form-body {
   display: grid;
-  gap: 14px;
+  gap: 10px;
 }
 
 .auth-field {
-  gap: 9px;
+  gap: 6px;
 }
 
 .auth-field :deep(input) {
-  min-height: 50px;
-  border-radius: 16px;
-  padding: 13px 15px;
+  min-height: 42px;
+  border-radius: 14px;
+  padding: 10px 12px;
 }
 
 .auth-submit {
-  min-height: 50px;
-  margin-top: 6px;
-}
-
-.auth-feedback {
-  display: grid;
-  gap: 8px;
-}
-
-.auth-feedback p {
-  margin: 0;
+  min-height: 42px;
+  margin-top: 2px;
 }
 
 .auth-footer-links {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 14px;
-  padding-top: 4px;
+  gap: 4px 12px;
+  padding-top: 0;
 }
 
 .auth-modal-overlay {
@@ -408,45 +381,45 @@ const handleSubmit = async () => {
 
 .auth-modal {
   width: min(100%, 360px);
-  padding: 22px 18px 18px;
-  border-radius: 24px;
+  padding: 18px 16px 16px;
+  border-radius: 18px;
   border: 1px solid rgba(174, 145, 122, 0.14);
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 24px 60px rgba(36, 50, 68, 0.18);
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .auth-modal h3 {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: 1rem;
   line-height: 1.3;
 }
 
 .auth-modal p {
   margin: 0;
   color: var(--muted);
-  font-size: 0.94rem;
-  line-height: 1.65;
+  font-size: 0.84rem;
+  line-height: 1.45;
 }
 
 .auth-modal-actions {
   display: grid;
-  gap: 10px;
-  margin-top: 4px;
+  gap: 8px;
+  margin-top: 2px;
 }
 
 .auth-modal-button {
-  min-height: 48px;
+  min-height: 40px;
 }
 
 @media (max-width: 640px) {
   .auth-page {
-    padding: 22px 16px 18px;
+    padding: 14px 12px 12px;
   }
 
   .auth-panel {
-    padding: 16px;
+    padding: 12px;
   }
 
   .auth-footer-links {

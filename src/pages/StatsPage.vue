@@ -27,8 +27,7 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
     <section class="section-card">
       <div class="section-heading">
         <div>
-          <p class="section-kicker">统计</p>
-          <h2>按月份看整体支出</h2>
+          <h2>统计</h2>
         </div>
         <label class="field-group compact-field">
           <span class="field-label">月份</span>
@@ -51,8 +50,7 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
     <section class="section-card">
       <div class="section-heading">
         <div>
-          <p class="section-kicker">重点观察</p>
-          <h3>这个月花得最多的类别</h3>
+          <h3>最高支出分类</h3>
         </div>
       </div>
 

@@ -5,12 +5,11 @@ import { getEffectiveExpenseDate, useExpenses } from '../composables/useExpenses
 import { useSettings } from '../composables/useSettings'
 
 const emit = defineEmits<{
-  (e: 'edit', expenseId: string): void
-  (e: 'deleted'): void
+  (e: 'open', expenseId: string): void
 }>()
 
 const { settings, categoryMap } = useSettings()
-const { filteredExpenses, deleteExpense, selectedYearMonth } = useExpenses()
+const { filteredExpenses, selectedYearMonth } = useExpenses()
 
 const searchText = ref('')
 const payerFilter = ref<'all' | 'me' | 'partner'>('all')
@@ -39,11 +38,6 @@ const filteredList = computed(() => {
   })
 })
 
-const handleDelete = (id: string) => {
-  if (!window.confirm('确认删除这条记录吗？')) return
-  deleteExpense(id)
-  emit('deleted')
-}
 </script>
 
 <template>
@@ -51,8 +45,7 @@ const handleDelete = (id: string) => {
     <section class="section-card">
       <div class="section-heading">
         <div>
-          <p class="section-kicker">记录列表</p>
-          <h2>按月份查看每一笔消费</h2>
+          <h2>记录</h2>
         </div>
       </div>
 
@@ -87,7 +80,7 @@ const handleDelete = (id: string) => {
 
         <label class="field-group search-field">
           <span class="field-label">搜索</span>
-          <input v-model="searchText" type="search" placeholder="搜索标题、备注、类别" />
+          <input v-model="searchText" type="search" placeholder="搜索说明、类别" />
         </label>
       </div>
     </section>
@@ -96,15 +89,14 @@ const handleDelete = (id: string) => {
       <div class="section-heading">
         <div>
           <p class="section-kicker">共 {{ filteredList.length }} 笔</p>
-          <h3>筛选结果</h3>
+          <h3>结果</h3>
         </div>
       </div>
 
       <ExpenseList
         :expenses="filteredList"
         :effective-date="(expense) => getEffectiveExpenseDate(expense, selectedYearMonth)"
-        @edit="emit('edit', $event.id)"
-        @delete="handleDelete"
+        @open="emit('open', $event.id)"
       />
     </section>
   </section>

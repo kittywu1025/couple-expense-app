@@ -51,8 +51,7 @@ const handleDelete = (id: string) => {
     <section class="section-card">
       <div class="section-heading">
         <div>
-          <p class="section-kicker">记录列表</p>
-          <h2>按月份查看每一笔消费</h2>
+          <h2>记录</h2>
         </div>
       </div>
 
@@ -96,7 +95,7 @@ const handleDelete = (id: string) => {
       <div class="section-heading">
         <div>
           <p class="section-kicker">共 {{ filteredList.length }} 笔</p>
-          <h3>筛选结果</h3>
+          <h3>结果</h3>
         </div>
       </div>
 

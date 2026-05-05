@@ -18,19 +18,19 @@ const { signInWithEmail, signInWithPassword, signUpWithPassword } = useSupabaseA
 const modeCopy: Record<AuthMode, { title: string; subtitle: string; submitLabel: string; loadingLabel: string }> = {
   login: {
     title: '登录账号',
-    subtitle: '输入邮箱和密码，继续使用你们的共同账本。',
+    subtitle: '输入邮箱和密码继续使用账本。',
     submitLabel: '登录',
     loadingLabel: '登录中...',
   },
   register: {
     title: '注册账号',
-    subtitle: '创建邮箱密码账号，之后可以直接登录，不用每次收邮件。',
+    subtitle: '创建邮箱密码账号。',
     submitLabel: '注册账号',
     loadingLabel: '注册中...',
   },
   otp: {
     title: '邮箱验证登录',
-    subtitle: '输入邮箱后，我们会发送一封登录邮件。请前往邮箱点击邮件中的登录链接完成登录。',
+    subtitle: '输入邮箱后发送登录邮件。',
     submitLabel: '发送登录邮件',
     loadingLabel: '发送中...',
   },
@@ -243,7 +243,7 @@ const handleSubmit = async () => {
     >
       <section class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="existing-account-title">
         <h3 id="existing-account-title">这个邮箱已经注册过</h3>
-        <p>你可以直接使用这个邮箱登录。如果之前是通过邮箱登录链接使用，也可以先返回登录页再选择邮箱登录链接。</p>
+        <p>请直接登录，或返回后改用邮箱登录链接。</p>
         <div class="auth-modal-actions">
           <button type="button" class="primary-button auth-modal-button" @click="useExistingEmailForLogin">
             直接去登录
@@ -261,22 +261,22 @@ const handleSubmit = async () => {
 .auth-page {
   max-width: 460px;
   margin: 0 auto;
-  padding: 28px 24px 24px;
+  padding: 18px 18px 16px;
 }
 
 .auth-content {
   display: grid;
-  gap: 18px;
+  gap: 12px;
 }
 
 .auth-hero {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .auth-copy h2 {
   margin: 0;
-  font-size: clamp(1.55rem, 4vw, 1.9rem);
+  font-size: clamp(1.35rem, 4vw, 1.65rem);
   line-height: 1.12;
   letter-spacing: -0.03em;
 }
@@ -284,26 +284,26 @@ const handleSubmit = async () => {
 .auth-badge {
   display: inline-flex;
   align-items: center;
-  padding: 5px 10px;
+  padding: 4px 8px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.66);
   border: 1px solid rgba(174, 145, 122, 0.14);
   color: var(--accent-strong);
-  font-size: 0.76rem;
+  font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
 
 .auth-copy .subtitle {
-  margin-top: 10px;
-  font-size: 0.96rem;
-  line-height: 1.65;
+  margin-top: 6px;
+  font-size: 0.84rem;
+  line-height: 1.45;
 }
 
 .auth-panel {
-  padding: 16px;
+  padding: 12px;
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .auth-mode-switch {
@@ -317,13 +317,13 @@ const handleSubmit = async () => {
 }
 
 .auth-mode-tab {
-  min-height: 42px;
+  min-height: 38px;
   border: none;
   border-radius: 12px;
   background: transparent;
   color: var(--muted);
   font-weight: 600;
-  font-size: 0.95rem;
+  font-size: 0.88rem;
 }
 
 .auth-mode-tab.active {
@@ -343,29 +343,29 @@ const handleSubmit = async () => {
 
 .auth-form-body {
   display: grid;
-  gap: 14px;
+  gap: 10px;
 }
 
 .auth-field {
-  gap: 9px;
+  gap: 6px;
 }
 
 .auth-field :deep(input) {
-  min-height: 50px;
-  border-radius: 16px;
-  padding: 13px 15px;
+  min-height: 42px;
+  border-radius: 14px;
+  padding: 10px 12px;
 }
 
 .auth-submit {
-  min-height: 50px;
-  margin-top: 6px;
+  min-height: 42px;
+  margin-top: 2px;
 }
 
 .auth-footer-links {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 14px;
-  padding-top: 4px;
+  gap: 4px 12px;
+  padding-top: 0;
 }
 
 .auth-modal-overlay {
@@ -381,45 +381,45 @@ const handleSubmit = async () => {
 
 .auth-modal {
   width: min(100%, 360px);
-  padding: 22px 18px 18px;
-  border-radius: 24px;
+  padding: 18px 16px 16px;
+  border-radius: 18px;
   border: 1px solid rgba(174, 145, 122, 0.14);
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 24px 60px rgba(36, 50, 68, 0.18);
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .auth-modal h3 {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: 1rem;
   line-height: 1.3;
 }
 
 .auth-modal p {
   margin: 0;
   color: var(--muted);
-  font-size: 0.94rem;
-  line-height: 1.65;
+  font-size: 0.84rem;
+  line-height: 1.45;
 }
 
 .auth-modal-actions {
   display: grid;
-  gap: 10px;
-  margin-top: 4px;
+  gap: 8px;
+  margin-top: 2px;
 }
 
 .auth-modal-button {
-  min-height: 48px;
+  min-height: 40px;
 }
 
 @media (max-width: 640px) {
   .auth-page {
-    padding: 22px 16px 18px;
+    padding: 14px 12px 12px;
   }
 
   .auth-panel {
-    padding: 16px;
+    padding: 12px;
   }
 
   .auth-footer-links {

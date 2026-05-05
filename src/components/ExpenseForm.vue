@@ -21,7 +21,7 @@ const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
 
-const { settings, categoryMap } = useSettings()
+const { settings } = useSettings()
 const splitMode = ref<'equal' | 'personal' | 'treat' | 'custom'>('equal')
 const amountInputRef = ref<HTMLInputElement | null>(null)
 const exchangeRateInputRef = ref<HTMLInputElement | null>(null)
@@ -261,7 +261,6 @@ function submit() {
     <section class="section-card">
       <div class="section-heading">
         <div>
-          <p class="section-kicker">记一笔消费</p>
           <h2>{{ props.expense ? '编辑记录' : '添加消费' }}</h2>
         </div>
         <button type="button" class="secondary-button" @click="emit('cancel')">取消</button>
@@ -311,18 +310,10 @@ function submit() {
         </div>
       </label>
 
-      <div class="field-row">
-        <label class="field-group">
-          <span class="field-label">日期</span>
-          <input v-model="form.date" type="date" />
-        </label>
-
-        <div class="field-group expense-mode-card">
-          <span class="field-label">记账类型</span>
-          <strong>普通单次消费</strong>
-          <small>每月固定消费后续会放到单独入口管理。</small>
-        </div>
-      </div>
+      <label class="field-group">
+        <span class="field-label">日期</span>
+        <input v-model="form.date" type="date" />
+      </label>
 
       <div v-if="isCrossCurrency" class="exchange-panel">
         <div class="exchange-panel-head">
@@ -360,21 +351,15 @@ function submit() {
       </div>
 
       <label class="field-group">
-        <span class="field-label">消费说明（可选）</span>
+        <span class="field-label">说明（可选）</span>
         <input v-model="form.title" type="text" placeholder="例如：晚餐、超市采购、5 月房租" />
-      </label>
-
-      <label class="field-group">
-        <span class="field-label">记账基准货币</span>
-        <input :value="`${form.baseCurrency}（保存时的基准币种）`" type="text" disabled />
       </label>
     </section>
 
     <section class="section-card">
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">分类</p>
-          <h3>这笔钱花在哪</h3>
+          <h3>分类</h3>
         </div>
       </div>
 
@@ -395,8 +380,7 @@ function submit() {
     <section class="section-card">
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">付款人</p>
-          <h3>默认已选当前使用者，可手动切换</h3>
+          <h3>付款人</h3>
         </div>
       </div>
 
@@ -416,8 +400,7 @@ function submit() {
     <section class="section-card">
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">分摊方式</p>
-          <h3>{{ categoryMap[form.category]?.name || '当前分类' }} 默认规则可手动调整</h3>
+          <h3>分摊方式</h3>
         </div>
       </div>
 

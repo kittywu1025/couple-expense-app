@@ -111,7 +111,6 @@ const formatExpenseAmount = (expense: Expense) => getExpenseAmountLabel(expense)
     <section class="home-ledger-section">
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">最近记录</p>
           <h2>最近记录</h2>
         </div>
       </div>

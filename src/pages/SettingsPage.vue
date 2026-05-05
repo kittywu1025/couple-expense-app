@@ -185,8 +185,7 @@ onMounted(() => {
     <section class="section-card">
       <div class="section-heading">
         <div>
-          <p class="section-kicker">设置</p>
-          <h2>账本、分摊和常用设置</h2>
+          <h2>设置</h2>
         </div>
       </div>
 
@@ -209,7 +208,6 @@ onMounted(() => {
             {{ currency.code }} {{ currency.label }}
           </option>
         </select>
-        <small class="settings-hint">新记录默认按这个币种入账。若之后切换默认货币，旧记录不会自动重算历史汇率。</small>
       </label>
 
       <div class="settings-list">
@@ -257,8 +255,7 @@ onMounted(() => {
     <section class="section-card">
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">月末结算</p>
-          <h3>需要时再看，不放在首页打扰你们</h3>
+          <h3>月末结算</h3>
         </div>
       </div>
 
@@ -277,8 +274,7 @@ onMounted(() => {
     <section class="section-card">
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">默认分摊</p>
-          <h3>普通消费和房租规则都放在这里统一管理</h3>
+          <h3>默认分摊</h3>
         </div>
       </div>
 
@@ -344,8 +340,7 @@ onMounted(() => {
     <section class="section-card">
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">固定消费</p>
-          <h3>每月固定消费入口</h3>
+          <h3>固定消费</h3>
         </div>
       </div>
 
@@ -353,7 +348,6 @@ onMounted(() => {
         <div class="sync-card">
           <span>当前固定消费</span>
           <strong>{{ recurringExpenses.length }} 笔</strong>
-          <small>现阶段先保留已有数据，后续可独立扩展专门页面。</small>
         </div>
       </div>
     </section>
@@ -361,8 +355,7 @@ onMounted(() => {
     <section class="section-card">
       <div class="section-heading compact">
         <div>
-          <p class="section-kicker">消费类别</p>
-          <h3>新增、删除和整理常用分类</h3>
+          <h3>消费类别</h3>
         </div>
       </div>
 
@@ -413,7 +406,6 @@ onMounted(() => {
       <section class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="password-modal-title">
         <div class="section-heading compact">
           <div>
-            <p class="section-kicker">账号安全</p>
             <h3 id="password-modal-title">设置/修改密码</h3>
           </div>
         </div>
@@ -458,7 +450,7 @@ onMounted(() => {
 <style scoped>
 .settings-inline-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
@@ -476,39 +468,39 @@ onMounted(() => {
 
 .settings-modal {
   width: min(100%, 420px);
-  border-radius: 26px;
+  border-radius: 18px;
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.82);
   box-shadow: 0 24px 48px rgba(15, 23, 42, 0.14);
-  padding: 20px;
+  padding: 16px;
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .settings-modal-body {
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
 .settings-modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .ui-version-tag {
   margin: 0;
-  padding: 0 4px calc(8px + env(safe-area-inset-bottom, 0px));
+  padding: 0 2px calc(4px + env(safe-area-inset-bottom, 0px));
   color: var(--text-faint);
-  font-size: 0.76rem;
+  font-size: 0.7rem;
   text-align: center;
 }
 
 .settings-hint {
   color: var(--text-soft);
-  font-size: 0.84rem;
-  line-height: 1.5;
+  font-size: 0.78rem;
+  line-height: 1.4;
 }
 
 @media (max-width: 640px) {

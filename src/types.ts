@@ -4,6 +4,7 @@ export type Recurrence = 'none' | 'monthly'
 export type SplitPreset = 'equal' | 'rent' | 'custom' | 'payer-only'
 export type SupportedCurrency = 'JPY' | 'CNY'
 export type RecordType = 'expense' | 'income'
+export type FixedExpenseCycle = 'monthly'
 
 export interface SplitRule {
   me: number
@@ -86,4 +87,33 @@ export interface Chore {
 export interface CountdownSettings {
   startedDate: string
   birthday: string
+}
+
+export interface FixedExpense {
+  id: string
+  bookId?: string
+  createdBy?: string
+  name: string
+  amount: number
+  currency: SupportedCurrency
+  category: string
+  cycle: FixedExpenseCycle
+  dayOfMonth: number
+  startDate: string
+  endDate?: string | null
+  payer: Payer
+  splitPreset: SplitPreset
+  split: SplitRule
+  enabled: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface FixedExpenseRun {
+  id: string
+  fixedExpenseId: string
+  bookId?: string
+  generatedMonth: string
+  expenseId?: string | null
+  generatedAt?: string
 }

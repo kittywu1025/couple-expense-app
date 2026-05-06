@@ -8,6 +8,7 @@ import BookSetupPage from './pages/BookSetupPage.vue'
 import CalendarPage from './pages/CalendarPage.vue'
 import CategoryManagementPage from './pages/CategoryManagementPage.vue'
 import ExpenseDetailModal from './components/ExpenseDetailModal.vue'
+import FixedExpensesPage from './pages/FixedExpensesPage.vue'
 import HomePage from './pages/HomePage.vue'
 import RecordsPage from './pages/RecordsPage.vue'
 import SettingsPage from './pages/SettingsPage.vue'
@@ -15,12 +16,14 @@ import StatsPage from './pages/StatsPage.vue'
 import { applyPwaUpdate, checkForPwaUpdate, dismissPwaUpdate, usePwaUpdate } from './composables/usePwaUpdate'
 import { useBooks } from './composables/useBooks'
 import { useExpenses } from './composables/useExpenses'
+import { useFixedExpenses } from './composables/useFixedExpenses'
 import { useSupabaseAuth } from './composables/useSupabaseAuth'
 import { toast } from './composables/useToast'
 
 const { authUser, authLoading, isSupabaseEnabled } = useSupabaseAuth()
 const { needsBookSetup } = useBooks()
 const { expenses, refreshExpenses } = useExpenses()
+const { ensureFixedExpensesGenerated } = useFixedExpenses()
 const { updateAvailable, updateMessage, isApplyingUpdate } = usePwaUpdate()
 
 const tabs = [
@@ -31,7 +34,9 @@ const tabs = [
 ]
 
 const activeTab = ref('home')
-const visibleTab = computed(() => (['calendar', 'add'].includes(activeTab.value) ? 'home' : activeTab.value === 'categories' ? 'settings' : activeTab.value))
+const visibleTab = computed(() =>
+  ['calendar', 'add'].includes(activeTab.value) ? 'home' : ['categories', 'fixed-expenses'].includes(activeTab.value) ? 'settings' : activeTab.value
+)
 const editingExpenseId = ref<string | null>(null)
 const detailExpenseId = ref<string | null>(null)
 const pendingDetailExpenseId = ref<string | null>(null)
@@ -143,6 +148,7 @@ const handleRefresh = async () => {
   pullState.value = 'refreshing'
   pullDistance.value = 72
   await refreshExpenses()
+  await ensureFixedExpensesGenerated()
   await checkForPwaUpdate()
   finishPullState('已是最新')
 }
@@ -213,6 +219,17 @@ watch(
   { immediate: true }
 )
 
+watch(
+  [authUser, needsBookSetup, activeTab],
+  ([user, needsSetup, tab]) => {
+    if (!user || needsSetup) return
+    if (tab === 'home' || tab === 'settings' || tab === 'fixed-expenses') {
+      void ensureFixedExpensesGenerated()
+    }
+  },
+  { immediate: true }
+)
+
 </script>
 
 <template>
@@ -266,8 +283,13 @@ watch(
           @open="openExpenseDetail($event, 'records')"
         />
         <StatsPage v-else-if="activeTab === 'stats'" />
-        <SettingsPage v-else-if="activeTab === 'settings'" @open-categories="handleTabChange('categories')" />
+        <SettingsPage
+          v-else-if="activeTab === 'settings'"
+          @open-categories="handleTabChange('categories')"
+          @open-fixed-expenses="handleTabChange('fixed-expenses')"
+        />
         <CategoryManagementPage v-else-if="activeTab === 'categories'" @back="handleTabChange('settings')" />
+        <FixedExpensesPage v-else-if="activeTab === 'fixed-expenses'" @back="handleTabChange('settings')" />
       </main>
 
       <TabBar

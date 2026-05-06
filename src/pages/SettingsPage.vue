@@ -14,6 +14,7 @@ const { currentBook, currentBookRole, isLocalBookMode } = useBooks()
 const { monthlySummary, recurringExpenses, selectedYearMonth } = useExpenses()
 defineEmits<{
   (e: 'open-categories'): void
+  (e: 'open-fixed-expenses'): void
 }>()
 const passwordModalOpen = ref(false)
 const passwordLoading = ref(false)
@@ -235,6 +236,13 @@ onMounted(() => {
           <div class="settings-action-row">
             <strong>{{ expenseCategoryCount }} 个支出分类 · {{ incomeCategoryCount }} 个收入分类</strong>
             <small>新增、改名、停用</small>
+          </div>
+        </button>
+        <button type="button" class="sync-card sync-card-button" @click="$emit('open-fixed-expenses')">
+          <span>固定消费</span>
+          <div class="settings-action-row">
+            <strong>管理每月自动提醒或自动生成的固定账单</strong>
+            <small>每月一次</small>
           </div>
         </button>
       </div>

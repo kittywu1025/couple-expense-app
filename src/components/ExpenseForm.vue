@@ -6,6 +6,8 @@ import { toast } from '../composables/useToast'
 import { formatCurrency } from '../utils/currency'
 import { getDefaultCategoryId, isPersonalExpenseCategory } from '../utils/categories'
 
+type SaveIntent = 'continue' | 'exit'
+
 const props = withDefaults(
   defineProps<{
     expense?: Expense | null
@@ -18,7 +20,7 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  (e: 'save', expense: Expense): void
+  (e: 'save', expense: Expense, intent: SaveIntent): void
   (e: 'cancel'): void
 }>()
 
@@ -27,6 +29,7 @@ const splitMode = ref<'equal' | 'personal' | 'treat' | 'custom'>('equal')
 const amountInputRef = ref<HTMLInputElement | null>(null)
 const exchangeRateInputRef = ref<HTMLInputElement | null>(null)
 const customSplitInputRef = ref<HTMLInputElement | null>(null)
+const originalAmountInput = ref('')
 const recordTypeOptions = [
   { value: 'expense' as const, label: '支出' },
   { value: 'income' as const, label: '收入' },
@@ -87,7 +90,7 @@ const convertedAmountPreview = computed(() =>
 )
 const exchangeRateHint = computed(() => `请输入 1 ${form.originalCurrency} = 多少 ${form.baseCurrency}`)
 const validationMessage = computed(() => {
-  if (!(form.originalAmount > 0)) return '请输入大于 0 的金额。'
+  if (!(form.originalAmount > 0)) return '请输入有效金额'
   if (!form.date) return '请选择消费日期。'
   if (!form.category) return '请选择消费类别。'
   if (isCrossCurrency.value && !(form.exchangeRateUsed > 0)) return exchangeRateHint.value
@@ -172,6 +175,17 @@ function syncCurrencyFields() {
   form.amount = Number(((Number(form.originalAmount) || 0) * safeRate).toFixed(precision))
 }
 
+function syncAmountInputField() {
+  originalAmountInput.value = form.originalAmount > 0 ? String(form.originalAmount) : ''
+}
+
+function updateOriginalAmountInput(value: string) {
+  originalAmountInput.value = value
+  const trimmed = value.trim()
+  form.originalAmount = trimmed ? Number(trimmed.replace(/,/g, '')) || 0 : 0
+  syncCurrencyFields()
+}
+
 function updateOriginalCurrency(currency: SupportedCurrency) {
   const previousCurrency = form.originalCurrency
   form.originalCurrency = currency || settings.value.defaultCurrency || 'JPY'
@@ -200,6 +214,7 @@ function syncFromExpense(value?: Expense | null) {
   syncRecordTypeState()
   syncCurrencyFields()
   syncSplitMode()
+  syncAmountInputField()
 }
 
 function updateRecordType(recordType: RecordType) {
@@ -313,7 +328,7 @@ watch(
   { deep: true }
 )
 
-function submit() {
+function buildExpensePayload() {
   if (validationMessage.value) {
     toast.warning(validationMessage.value)
     void nextTick(() => {
@@ -331,7 +346,7 @@ function submit() {
 
   syncCurrencyFields()
 
-  emit('save', {
+  return {
     ...form,
     title: form.title.trim(),
     note: '',
@@ -342,12 +357,63 @@ function submit() {
       me: Number(form.split.me.toFixed(2)),
       partner: Number(form.split.partner.toFixed(2)),
     },
-  })
+  } satisfies Expense
 }
+
+function submit(intent: SaveIntent = 'exit') {
+  const payload = buildExpensePayload()
+  if (!payload) {
+    return
+  }
+
+  emit('save', payload, intent)
+}
+
+function resetForNextEntry() {
+  const preserved = {
+    recordType: form.recordType,
+    baseCurrency: form.baseCurrency,
+    originalCurrency: form.originalCurrency,
+    exchangeRateUsed: form.exchangeRateUsed,
+    exchangeRateDate: form.exchangeRateDate,
+    date: form.date,
+    category: form.category,
+    payer: form.payer,
+    splitPreset: form.splitPreset,
+    split: { ...form.split },
+  }
+
+  Object.assign(form, createDefaultExpense(), preserved, {
+    id: '',
+    title: '',
+    note: '',
+    amount: 0,
+    originalAmount: 0,
+    createdAt: undefined,
+    updatedAt: undefined,
+    bookId: undefined,
+    createdBy: undefined,
+  })
+
+  if (form.recordType === 'income') {
+    form.payer = 'me'
+    form.splitPreset = 'payer-only'
+    form.split = { me: 100, partner: 0 }
+  }
+
+  syncCurrencyFields()
+  syncSplitMode()
+  syncAmountInputField()
+  void nextTick(() => amountInputRef.value?.focus())
+}
+
+defineExpose({
+  resetForNextEntry,
+})
 </script>
 
 <template>
-  <form class="expense-form" @submit.prevent="submit">
+  <form class="expense-form" @submit.prevent="submit('exit')">
     <section class="section-card">
       <div class="section-heading">
         <div>
@@ -380,12 +446,13 @@ function submit() {
           </button>
           <input
             ref="amountInputRef"
-            v-model.number="form.originalAmount"
+            :value="originalAmountInput"
             type="number"
             min="0"
             step="0.01"
             inputmode="decimal"
-            :placeholder="form.originalCurrency === 'JPY' ? '0' : '0.00'"
+            :placeholder="form.originalCurrency === 'JPY' ? '0' : '输入金额'"
+            @input="updateOriginalAmountInput(($event.target as HTMLInputElement).value)"
           />
         </div>
       </label>
@@ -521,7 +588,17 @@ function submit() {
     <section class="section-card">
       <div class="form-actions">
         <button type="button" class="secondary-button" @click="emit('cancel')">取消</button>
-        <button type="submit" class="primary-button">{{ props.submitLabel }}</button>
+        <div class="save-actions">
+          <button
+            v-if="!props.expense"
+            type="button"
+            class="secondary-button"
+            @click="submit('continue')"
+          >
+            保存并继续
+          </button>
+          <button type="submit" class="primary-button">{{ props.submitLabel }}</button>
+        </div>
       </div>
     </section>
   </form>

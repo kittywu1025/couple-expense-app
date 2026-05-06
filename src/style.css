@@ -634,6 +634,51 @@ select:disabled {
   font-size: 0.82rem;
 }
 
+.quick-entry-card,
+.quick-entry-shell,
+.quick-entry-preview {
+  display: grid;
+  gap: 10px;
+}
+
+.quick-entry-textarea {
+  width: 100%;
+  min-height: 86px;
+  resize: vertical;
+}
+
+.quick-preview-item {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 11px;
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  border-radius: 14px;
+  background: rgba(249, 251, 253, 0.88);
+  color: var(--text);
+  text-align: left;
+}
+
+.quick-preview-item strong {
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.quick-preview-item span {
+  color: var(--text-soft);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.quick-entry-actions,
+.save-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .stats-top-filter {
   display: flex;
   gap: 6px;
@@ -692,7 +737,8 @@ select:disabled {
 
 .form-actions {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
 }

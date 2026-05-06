@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import type { Expense } from '../types'
 import { getEffectiveExpenseDate, useExpenses } from '../composables/useExpenses'
 import { useSettings } from '../composables/useSettings'
 import { formatCurrency } from '../utils/currency'
@@ -9,7 +10,7 @@ const emit = defineEmits<{
   (e: 'edit', expenseId: string): void
 }>()
 
-const { expenseRecords, selectedYearMonth } = useExpenses()
+const { filteredExpenses, selectedYearMonth } = useExpenses()
 const { categoryMap, settings } = useSettings()
 
 const monthLabel = computed(() => {
@@ -25,11 +26,24 @@ const parsedMonth = computed(() => {
 const monthDays = computed(() => new Date(parsedMonth.value.year, parsedMonth.value.month, 0).getDate())
 const firstWeekday = computed(() => new Date(parsedMonth.value.year, parsedMonth.value.month - 1, 1).getDay())
 
+type DailyTotal = {
+  expense: number
+  income: number
+}
+
+const createDailyTotal = (): DailyTotal => ({ expense: 0, income: 0 })
+
 const dailyTotals = computed(() => {
-  const totals: Record<string, number> = {}
-  expenseRecords.value.forEach((expense) => {
+  const totals: Record<string, DailyTotal> = {}
+  filteredExpenses.value.forEach((expense) => {
     const date = getEffectiveExpenseDate(expense, selectedYearMonth.value)
-    totals[date] = (totals[date] || 0) + expense.amount
+    const total = totals[date] || createDailyTotal()
+    if (expense.recordType === 'income') {
+      total.income += expense.amount
+    } else {
+      total.expense += expense.amount
+    }
+    totals[date] = total
   })
   return totals
 })
@@ -37,8 +51,13 @@ const dailyTotals = computed(() => {
 const weekdayLabels = ['日', '一', '二', '三', '四', '五', '六']
 const selectedDate = ref<string | null>(null)
 
-const monthTotal = computed(() => Object.values(dailyTotals.value).reduce((sum, value) => sum + value, 0))
-const maxDailyAmount = computed(() => Math.max(0, ...Object.values(dailyTotals.value)))
+const monthExpenseTotal = computed(() =>
+  Object.values(dailyTotals.value).reduce((sum, value) => sum + value.expense, 0)
+)
+const monthIncomeTotal = computed(() =>
+  Object.values(dailyTotals.value).reduce((sum, value) => sum + value.income, 0)
+)
+const maxDailyExpenseAmount = computed(() => Math.max(0, ...Object.values(dailyTotals.value).map((item) => item.expense)))
 
 const shiftMonth = (offset: number) => {
   const [year, month] = selectedYearMonth.value.split('-').map(Number)
@@ -48,9 +67,20 @@ const shiftMonth = (offset: number) => {
 }
 
 const formatAmount = (value: number) => formatCurrency(value, settings.value.defaultCurrency)
+const formatCompactAmount = (value: number) => {
+  if (value >= 10000) {
+    return `${Number((value / 10000).toFixed(value >= 100000 ? 0 : 1))}万`
+  }
+  if (value >= 1000) {
+    return `${Number((value / 1000).toFixed(value >= 10000 ? 0 : 1))}k`
+  }
+  return new Intl.NumberFormat('zh-CN', {
+    maximumFractionDigits: 0,
+  }).format(value)
+}
 
 const calendarCells = computed(() => {
-  const cells: Array<{ day: number; date: string; amount: number } | null> = []
+  const cells: Array<{ day: number; date: string; total: DailyTotal } | null> = []
   const totalCells = firstWeekday.value + monthDays.value
   for (let i = 0; i < totalCells; i += 1) {
     if (i < firstWeekday.value) {
@@ -61,7 +91,7 @@ const calendarCells = computed(() => {
       cells.push({
         day,
         date,
-        amount: dailyTotals.value[date] || 0,
+        total: dailyTotals.value[date] || createDailyTotal(),
       })
     }
   }
@@ -74,15 +104,23 @@ const calendarCells = computed(() => {
   return cells
 })
 
-const selectedDayExpenses = computed(() => {
+const selectedDayRecords = computed(() => {
   if (!selectedDate.value) return []
-  return expenseRecords.value.filter(
-    (expense) => getEffectiveExpenseDate(expense, selectedYearMonth.value) === selectedDate.value
+  return filteredExpenses.value.filter(
+    (record) => getEffectiveExpenseDate(record, selectedYearMonth.value) === selectedDate.value
   )
 })
 
-const selectedDayTotal = computed(() =>
-  selectedDayExpenses.value.reduce((sum, expense) => sum + expense.amount, 0)
+const selectedDayExpenseTotal = computed(() =>
+  selectedDayRecords.value
+    .filter((record) => record.recordType === 'expense')
+    .reduce((sum, record) => sum + record.amount, 0)
+)
+
+const selectedDayIncomeTotal = computed(() =>
+  selectedDayRecords.value
+    .filter((record) => record.recordType === 'income')
+    .reduce((sum, record) => sum + record.amount, 0)
 )
 
 const activeDateLabel = computed(() => {
@@ -94,19 +132,22 @@ const activeDateLabel = computed(() => {
   })
 })
 
-const cellTone = (amount: number) => {
-  if (amount <= 0 || maxDailyAmount.value <= 0) {
+const formatRecordAmount = (record: Expense) =>
+  record.recordType === 'income' ? `+ ${formatAmount(record.amount)}` : `- ${formatAmount(record.amount)}`
+
+const cellTone = (expenseAmount: number) => {
+  if (expenseAmount <= 0 || maxDailyExpenseAmount.value <= 0) {
     return {
       backgroundColor: 'rgba(255, 255, 255, 0.78)',
       borderColor: 'rgba(15, 23, 42, 0.05)',
     }
   }
 
-  const ratio = amount / maxDailyAmount.value
-  const alpha = 0.14 + ratio * 0.42
+  const ratio = expenseAmount / maxDailyExpenseAmount.value
+  const alpha = 0.08 + ratio * 0.26
   return {
-    backgroundColor: `rgba(76, 141, 255, ${alpha.toFixed(3)})`,
-    borderColor: `rgba(76, 141, 255, ${(0.12 + ratio * 0.18).toFixed(3)})`,
+    backgroundColor: `rgba(227, 93, 84, ${alpha.toFixed(3)})`,
+    borderColor: `rgba(227, 93, 84, ${(0.12 + ratio * 0.18).toFixed(3)})`,
   }
 }
 </script>
@@ -120,7 +161,10 @@ const cellTone = (amount: number) => {
           <p class="section-kicker">收支日历</p>
           <h2>{{ monthLabel }}</h2>
         </div>
-        <div class="calendar-total-pill">{{ formatAmount(monthTotal) }}</div>
+        <div class="calendar-total-pill">
+          <span class="calendar-total-expense">支出 {{ formatAmount(monthExpenseTotal) }}</span>
+          <span v-if="monthIncomeTotal" class="calendar-total-income">收入 {{ formatAmount(monthIncomeTotal) }}</span>
+        </div>
       </div>
 
       <div class="calendar-month-toolbar">
@@ -142,20 +186,27 @@ const cellTone = (amount: number) => {
             empty: !cell,
             selected: cell && cell.date === selectedDate,
           }"
-          :style="cell ? cellTone(cell.amount) : undefined"
+          :style="cell ? cellTone(cell.total.expense) : undefined"
           :disabled="!cell"
           @click="selectedDate = cell?.date || null"
         >
           <template v-if="cell">
             <span class="calendar-day">{{ cell.day }}</span>
-            <small>{{ cell.amount ? formatAmount(cell.amount) : '' }}</small>
+            <span class="calendar-cell-amounts">
+              <small v-if="cell.total.expense" class="calendar-expense-amount">
+                -{{ formatCompactAmount(cell.total.expense) }}
+              </small>
+              <small v-if="cell.total.income" class="calendar-income-amount">
+                +{{ formatCompactAmount(cell.total.income) }}
+              </small>
+            </span>
           </template>
         </button>
       </div>
 
-      <div v-if="monthTotal === 0" class="calendar-empty-state">
+      <div v-if="monthExpenseTotal === 0 && monthIncomeTotal === 0" class="calendar-empty-state">
         <strong>暂无数据</strong>
-        <p>这个月还没有消费记录。</p>
+        <p>这个月还没有收支记录。</p>
       </div>
 
       <div v-else-if="selectedDate" class="calendar-day-sheet">
@@ -164,27 +215,34 @@ const cellTone = (amount: number) => {
             <p class="section-kicker">当日流水</p>
             <h3>{{ activeDateLabel }}</h3>
           </div>
-          <strong>{{ formatAmount(selectedDayTotal) }}</strong>
+          <strong>
+            <span v-if="selectedDayExpenseTotal" class="calendar-total-expense">支出 {{ formatAmount(selectedDayExpenseTotal) }}</span>
+            <span v-if="selectedDayIncomeTotal" class="calendar-total-income">收入 {{ formatAmount(selectedDayIncomeTotal) }}</span>
+          </strong>
         </div>
 
-        <div v-if="!selectedDayExpenses.length" class="calendar-day-empty">
+        <div v-if="!selectedDayRecords.length" class="calendar-day-empty">
           <p>当天暂无记录。</p>
         </div>
 
         <button
-          v-for="expense in selectedDayExpenses"
-          :key="expense.id"
+          v-for="record in selectedDayRecords"
+          :key="record.id"
           type="button"
-          class="calendar-day-expense"
-          @click="emit('edit', expense.id)"
+          :class="['calendar-day-expense', { 'calendar-day-income': record.recordType === 'income' }]"
+          @click="emit('edit', record.id)"
         >
-          <span class="home-ledger-icon">{{ categoryMap[expense.category]?.icon || '🧾' }}</span>
+          <span class="home-ledger-icon">{{ categoryMap[record.category]?.icon || '🧾' }}</span>
           <span class="home-ledger-copy">
-            <strong>{{ expense.title }}</strong>
-            <span class="home-ledger-meta">{{ categoryMap[expense.category]?.name || expense.category }}</span>
-            <span v-if="expense.note" class="home-ledger-note">{{ expense.note }}</span>
+            <strong>{{ record.title }}</strong>
+            <span class="home-ledger-meta">
+              {{ record.recordType === 'income' ? '收入' : '支出' }} · {{ categoryMap[record.category]?.name || record.category }}
+            </span>
+            <span v-if="record.note" class="home-ledger-note">{{ record.note }}</span>
           </span>
-          <span class="home-ledger-amount">{{ formatAmount(expense.amount) }}</span>
+          <span :class="['home-ledger-amount', record.recordType === 'income' ? 'income-amount' : 'expense-out-amount']">
+            {{ formatRecordAmount(record) }}
+          </span>
         </button>
       </div>
     </section>

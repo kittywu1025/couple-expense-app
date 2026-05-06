@@ -77,6 +77,9 @@ export const getDefaultCategoryId = (recordType: RecordType) =>
 
 export const getDefaultCategories = () => [...DEFAULT_EXPENSE_CATEGORIES, ...DEFAULT_INCOME_CATEGORIES]
 
+export const isDefaultIncomeCategory = (categoryId: string) =>
+  DEFAULT_INCOME_CATEGORIES.some((category) => category.id === normalizeCategoryId(categoryId, 'income'))
+
 export const normalizeCategories = (categories?: ExpenseCategory[]) => {
   const merged = new Map<string, ExpenseCategory>()
 

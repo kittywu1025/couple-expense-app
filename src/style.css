@@ -951,14 +951,17 @@ select:disabled {
 }
 
 .calendar-total-pill {
-  min-width: 42px;
-  padding: 8px 10px;
+  min-width: 82px;
+  padding: 7px 9px;
   border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.82);
   color: var(--text-soft);
-  font-size: 0.76rem;
+  font-size: 0.7rem;
+  line-height: 1.25;
   text-align: center;
   box-shadow: var(--shadow-sm);
+  display: grid;
+  gap: 1px;
 }
 
 .calendar-month-toolbar {
@@ -980,24 +983,22 @@ select:disabled {
 }
 
 .calendar-cell {
-  min-height: 58px;
-  padding: 7px 5px 6px;
+  min-height: 50px;
+  padding: 5px 4px;
   border: 1px solid rgba(15, 23, 42, 0.05);
-  border-radius: 14px;
+  border-radius: 12px;
   display: grid;
   align-content: space-between;
-  gap: 4px;
+  gap: 2px;
   background: rgba(255, 255, 255, 0.78);
   color: var(--text);
   text-align: left;
 }
 
 .calendar-cell small {
-  color: inherit;
-  font-size: 0.62rem;
-  line-height: 1.2;
-  opacity: 0.84;
-  word-break: break-word;
+  font-size: 0.66rem;
+  line-height: 1.05;
+  white-space: nowrap;
 }
 
 .calendar-cell.selected {
@@ -1009,8 +1010,26 @@ select:disabled {
 }
 
 .calendar-day {
-  font-size: 0.84rem;
+  font-size: 0.78rem;
+  line-height: 1;
   font-weight: 700;
+}
+
+.calendar-cell-amounts {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.calendar-expense-amount,
+.expense-out-amount,
+.calendar-total-expense {
+  color: var(--danger);
+}
+
+.calendar-income-amount,
+.calendar-total-income {
+  color: var(--green);
 }
 
 .calendar-empty-state,
@@ -1033,8 +1052,11 @@ select:disabled {
 }
 
 .calendar-day-sheet-header strong {
-  font-size: 0.88rem;
-  letter-spacing: -0.03em;
+  display: grid;
+  gap: 1px;
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  line-height: 1.3;
 }
 
 .calendar-day-expense {
@@ -1049,6 +1071,10 @@ select:disabled {
   background: rgba(255, 255, 255, 0.9);
   box-shadow: var(--shadow-sm);
   text-align: left;
+}
+
+.calendar-day-income .home-ledger-icon {
+  background: linear-gradient(180deg, #e8f9f0 0%, #d9f4e6 100%);
 }
 
 .category-row,
@@ -1434,8 +1460,8 @@ select:disabled {
   }
 
   .calendar-cell {
-    min-height: 54px;
-    padding: 6px 4px 5px;
+    min-height: 48px;
+    padding: 5px 3px;
   }
 
   .calendar-day-expense {

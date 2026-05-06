@@ -1,34 +1,44 @@
 import { normalizeCurrency } from '../utils/currency'
 import type { Expense } from '../types'
 import { supabase } from '../lib/supabase'
-import { normalizeCategoryId } from '../utils/categories'
+import { isDefaultIncomeCategory, normalizeCategoryId } from '../utils/categories'
 
 type ExpenseRecord = ReturnType<typeof mapExpenseRecord>
 
-const mapExpenseRow = (row: Record<string, unknown>): Expense => ({
-  id: String(row.id),
-  recordType: row.record_type === 'income' ? 'income' : 'expense',
-  title: String(row.title ?? ''),
-  amount: Number(row.amount ?? 0),
-  originalAmount: Number(row.original_amount ?? row.amount ?? 0),
-  originalCurrency: normalizeCurrency(String(row.original_currency ?? row.base_currency ?? 'JPY')),
-  baseCurrency: normalizeCurrency(String(row.base_currency ?? 'JPY')),
-  exchangeRateUsed: Number(row.exchange_rate_used ?? 1),
-  exchangeRateDate: String(row.exchange_rate_date ?? row.date ?? new Date().toISOString().slice(0, 10)),
-  date: String(row.date ?? ''),
-  category: normalizeCategoryId(String(row.category ?? 'misc'), row.record_type === 'income' ? 'income' : 'expense'),
-  payer: (row.payer as Expense['payer']) || 'me',
-  split: (row.split as Expense['split']) || { me: 50, partner: 50 },
-  splitPreset: (row.split_preset as Expense['splitPreset']) || (row.splitPreset as Expense['splitPreset']) || 'equal',
-  recurrence: (row.recurrence as Expense['recurrence']) || 'none',
-  note: row.note ? String(row.note) : '',
-  shared: typeof row.shared === 'boolean' ? row.shared : undefined,
-  syncStatus: 'synced',
-  bookId: row.book_id ? String(row.book_id) : undefined,
-  createdBy: row.created_by ? String(row.created_by) : row.user_id ? String(row.user_id) : undefined,
-  createdAt: row.created_at ? String(row.created_at) : undefined,
-  updatedAt: row.updated_at ? String(row.updated_at) : undefined,
-})
+const getRowRecordType = (row: Record<string, unknown>): Expense['recordType'] => {
+  if (row.record_type === 'income') return 'income'
+  const category = normalizeCategoryId(String(row.category ?? ''), 'income')
+  return isDefaultIncomeCategory(category) ? 'income' : 'expense'
+}
+
+const mapExpenseRow = (row: Record<string, unknown>): Expense => {
+  const recordType = getRowRecordType(row)
+
+  return {
+    id: String(row.id),
+    recordType,
+    title: String(row.title ?? ''),
+    amount: Number(row.amount ?? 0),
+    originalAmount: Number(row.original_amount ?? row.amount ?? 0),
+    originalCurrency: normalizeCurrency(String(row.original_currency ?? row.base_currency ?? 'JPY')),
+    baseCurrency: normalizeCurrency(String(row.base_currency ?? 'JPY')),
+    exchangeRateUsed: Number(row.exchange_rate_used ?? 1),
+    exchangeRateDate: String(row.exchange_rate_date ?? row.date ?? new Date().toISOString().slice(0, 10)),
+    date: String(row.date ?? ''),
+    category: normalizeCategoryId(String(row.category ?? 'misc'), recordType),
+    payer: (row.payer as Expense['payer']) || 'me',
+    split: (row.split as Expense['split']) || { me: 50, partner: 50 },
+    splitPreset: (row.split_preset as Expense['splitPreset']) || (row.splitPreset as Expense['splitPreset']) || 'equal',
+    recurrence: (row.recurrence as Expense['recurrence']) || 'none',
+    note: row.note ? String(row.note) : '',
+    shared: typeof row.shared === 'boolean' ? row.shared : undefined,
+    syncStatus: 'synced',
+    bookId: row.book_id ? String(row.book_id) : undefined,
+    createdBy: row.created_by ? String(row.created_by) : row.user_id ? String(row.user_id) : undefined,
+    createdAt: row.created_at ? String(row.created_at) : undefined,
+    updatedAt: row.updated_at ? String(row.updated_at) : undefined,
+  }
+}
 
 const mapExpenseRecord = (expense: Expense) => ({
   id: expense.id || crypto.randomUUID(),

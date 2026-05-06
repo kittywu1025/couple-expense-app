@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import ExpenseList from '../components/ExpenseList.vue'
 import { getEffectiveExpenseDate, useExpenses } from '../composables/useExpenses'
 import { useSettings } from '../composables/useSettings'
+import type { RecordType } from '../types'
 
 const emit = defineEmits<{
   (e: 'open', expenseId: string): void
@@ -12,13 +13,21 @@ const { settings, categoryMap } = useSettings()
 const { filteredExpenses, selectedYearMonth } = useExpenses()
 
 const searchText = ref('')
+const recordTypeFilter = ref<'all' | RecordType>('all')
 const payerFilter = ref<'all' | 'me' | 'partner'>('all')
 const categoryFilter = ref('all')
+
+const categoryOptions = computed(() =>
+  settings.value.categories.filter(
+    (item) => item.active && (recordTypeFilter.value === 'all' || item.recordType === recordTypeFilter.value)
+  )
+)
 
 const filteredList = computed(() => {
   const keyword = searchText.value.trim().toLowerCase()
 
   return filteredExpenses.value.filter((item) => {
+    const matchesType = recordTypeFilter.value === 'all' || item.recordType === recordTypeFilter.value
     const matchesPayer = payerFilter.value === 'all' || item.payer === payerFilter.value
     const matchesCategory = categoryFilter.value === 'all' || item.category === categoryFilter.value
     const matchesKeyword =
@@ -34,7 +43,7 @@ const filteredList = computed(() => {
         .toLowerCase()
         .includes(keyword)
 
-    return matchesPayer && matchesCategory && matchesKeyword
+    return matchesType && matchesPayer && matchesCategory && matchesKeyword
   })
 })
 
@@ -56,6 +65,15 @@ const filteredList = computed(() => {
         </label>
 
         <label class="field-group">
+          <span class="field-label">类型</span>
+          <select v-model="recordTypeFilter">
+            <option value="all">全部</option>
+            <option value="expense">支出</option>
+            <option value="income">收入</option>
+          </select>
+        </label>
+
+        <label class="field-group">
           <span class="field-label">付款人</span>
           <select v-model="payerFilter">
             <option value="all">全部</option>
@@ -69,7 +87,7 @@ const filteredList = computed(() => {
           <select v-model="categoryFilter">
             <option value="all">全部</option>
             <option
-              v-for="category in settings.categories"
+              v-for="category in categoryOptions"
               :key="category.id"
               :value="category.id"
             >

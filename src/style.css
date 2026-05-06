@@ -429,10 +429,6 @@ textarea {
   gap: 6px;
 }
 
-.currency-field {
-  gap: 8px;
-}
-
 .compact-field {
   min-width: 140px;
 }
@@ -445,46 +441,31 @@ textarea {
   font-weight: 700;
   padding: 0;
   box-shadow: none;
+  width: 100%;
+  text-align: right;
 }
 
 .amount-input-wrap {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
   border-radius: 18px;
-  padding: 14px 14px 12px;
+  padding: 12px 14px;
   background: linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
   border: 1px solid rgba(15, 23, 42, 0.06);
 }
 
-.currency-label {
-  min-width: 42px;
-  font-size: 1rem;
-  color: var(--text-soft);
-  font-weight: 700;
-}
-
-.currency-pill-row {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.currency-pill {
-  border: 1px solid rgba(15, 23, 42, 0.07);
-  border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.96);
-  color: var(--text-soft);
-  min-height: 36px;
+.currency-inline-pill {
+  flex: 0 0 auto;
+  min-height: 34px;
+  min-width: 62px;
   padding: 6px 10px;
-  font-weight: 700;
-  min-width: 54px;
-}
-
-.currency-pill.active {
-  border-color: rgba(76, 141, 255, 0.16);
-  background: rgba(76, 141, 255, 0.12);
+  border-radius: 999px;
+  border: 1px solid rgba(76, 141, 255, 0.16);
+  background: rgba(76, 141, 255, 0.1);
   color: var(--blue);
+  font-weight: 700;
+  font-size: 0.88rem;
 }
 
 input:disabled,
@@ -496,8 +477,8 @@ select:disabled {
 
 .exchange-panel {
   display: grid;
-  gap: 8px;
-  padding: 11px 12px;
+  gap: 7px;
+  padding: 10px 12px;
   border-radius: var(--radius-card);
   background: linear-gradient(180deg, rgba(249, 252, 255, 0.96) 0%, rgba(241, 246, 252, 0.98) 100%);
   border: 1px solid rgba(15, 23, 42, 0.06);
@@ -524,6 +505,13 @@ select:disabled {
 
 .exchange-hint {
   color: var(--orange);
+}
+
+.settings-hint {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  line-height: 1.4;
 }
 
 .chip-grid {
@@ -594,24 +582,14 @@ select:disabled {
 
 .split-pill {
   border-radius: 14px;
-  padding: 9px 10px;
-  text-align: left;
+  padding: 10px 10px;
+  text-align: center;
   display: grid;
-  gap: 3px;
+  gap: 0;
 }
 
 .split-pill strong {
   font-size: 0.88rem;
-}
-
-.split-pill span {
-  color: var(--text-soft);
-  font-size: 0.74rem;
-}
-
-.split-slider-card {
-  display: grid;
-  gap: 8px;
 }
 
 .split-summary-row,
@@ -624,47 +602,81 @@ select:disabled {
   flex-wrap: wrap;
 }
 
-.slider-block {
+.custom-split-inline {
   display: grid;
-  gap: 8px;
-}
-
-.split-step-grid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 6px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(249, 251, 253, 0.86);
+  border: 1px solid rgba(15, 23, 42, 0.05);
 }
 
-.split-step-button {
-  min-height: 36px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.96);
-  color: var(--text-soft);
-  font-weight: 700;
-  font-size: 0.76rem;
+.compact-inline-field {
+  gap: 5px;
 }
 
-.split-step-button.active {
-  border-color: rgba(76, 141, 255, 0.18);
-  background: rgba(76, 141, 255, 0.12);
-  color: var(--blue);
-}
-
-.split-slider-labels {
+.custom-split-input-row {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
   gap: 8px;
-  color: var(--text-soft);
-  font-size: 0.8rem;
 }
 
-.split-slider {
-  padding: 0;
-  border: none;
-  background: transparent;
-  accent-color: var(--blue);
-  box-shadow: none;
+.custom-split-input-row input {
+  max-width: 92px;
+  min-height: 40px;
+}
+
+.custom-split-input-row span,
+.custom-split-result {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+
+.quick-entry-card,
+.quick-entry-shell,
+.quick-entry-preview {
+  display: grid;
+  gap: 10px;
+}
+
+.quick-entry-textarea {
+  width: 100%;
+  min-height: 86px;
+  resize: vertical;
+}
+
+.quick-preview-item {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 11px;
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  border-radius: 14px;
+  background: rgba(249, 251, 253, 0.88);
+  color: var(--text);
+  text-align: left;
+}
+
+.quick-preview-item strong {
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.quick-preview-item span {
+  color: var(--text-soft);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.quick-entry-actions,
+.save-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .stats-top-filter {
@@ -725,9 +737,14 @@ select:disabled {
 
 .form-actions {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.expense-form .section-card + .section-card {
+  margin-top: 14px;
 }
 
 .expense-list {
@@ -934,14 +951,17 @@ select:disabled {
 }
 
 .calendar-total-pill {
-  min-width: 42px;
-  padding: 8px 10px;
+  min-width: 82px;
+  padding: 7px 9px;
   border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.82);
   color: var(--text-soft);
-  font-size: 0.76rem;
+  font-size: 0.7rem;
+  line-height: 1.25;
   text-align: center;
   box-shadow: var(--shadow-sm);
+  display: grid;
+  gap: 1px;
 }
 
 .calendar-month-toolbar {
@@ -963,24 +983,22 @@ select:disabled {
 }
 
 .calendar-cell {
-  min-height: 58px;
-  padding: 7px 5px 6px;
+  min-height: 50px;
+  padding: 5px 4px;
   border: 1px solid rgba(15, 23, 42, 0.05);
-  border-radius: 14px;
+  border-radius: 12px;
   display: grid;
   align-content: space-between;
-  gap: 4px;
+  gap: 2px;
   background: rgba(255, 255, 255, 0.78);
   color: var(--text);
   text-align: left;
 }
 
 .calendar-cell small {
-  color: inherit;
-  font-size: 0.62rem;
-  line-height: 1.2;
-  opacity: 0.84;
-  word-break: break-word;
+  font-size: 0.66rem;
+  line-height: 1.05;
+  white-space: nowrap;
 }
 
 .calendar-cell.selected {
@@ -992,8 +1010,26 @@ select:disabled {
 }
 
 .calendar-day {
-  font-size: 0.84rem;
+  font-size: 0.78rem;
+  line-height: 1;
   font-weight: 700;
+}
+
+.calendar-cell-amounts {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.calendar-expense-amount,
+.expense-out-amount,
+.calendar-total-expense {
+  color: var(--danger);
+}
+
+.calendar-income-amount,
+.calendar-total-income {
+  color: var(--green);
 }
 
 .calendar-empty-state,
@@ -1016,8 +1052,11 @@ select:disabled {
 }
 
 .calendar-day-sheet-header strong {
-  font-size: 0.88rem;
-  letter-spacing: -0.03em;
+  display: grid;
+  gap: 1px;
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  line-height: 1.3;
 }
 
 .calendar-day-expense {
@@ -1034,6 +1073,10 @@ select:disabled {
   text-align: left;
 }
 
+.calendar-day-income .home-ledger-icon {
+  background: linear-gradient(180deg, #e8f9f0 0%, #d9f4e6 100%);
+}
+
 .category-row,
 .highlight-item,
 .category-manage-item,
@@ -1042,6 +1085,12 @@ select:disabled {
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid rgba(15, 23, 42, 0.05);
+}
+
+.sync-card-button {
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
 }
 
 .category-name {
@@ -1056,6 +1105,14 @@ select:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.category-manage-item input[type='text'] {
+  min-width: 0;
+}
+
+.income-amount {
+  color: #0f9f6e;
 }
 
 .split-settings-grid {
@@ -1403,8 +1460,8 @@ select:disabled {
   }
 
   .calendar-cell {
-    min-height: 54px;
-    padding: 6px 4px 5px;
+    min-height: 48px;
+    padding: 5px 3px;
   }
 
   .calendar-day-expense {

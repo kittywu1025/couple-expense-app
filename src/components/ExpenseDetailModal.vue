@@ -23,7 +23,9 @@ const confirmingDelete = ref(false)
 const deleting = ref(false)
 
 const payerLabel = computed(() => (props.expense.payer === 'me' ? settings.value.meName : settings.value.partnerName))
-const amountLabel = computed(() => getExpenseAmountLabel(props.expense))
+const amountLabel = computed(() =>
+  props.expense.recordType === 'income' ? `+ ${getExpenseAmountLabel(props.expense)}` : getExpenseAmountLabel(props.expense)
+)
 const convertedAmountLabel = computed(() => formatCurrency(props.expense.amount, props.expense.baseCurrency))
 const splitLabel = computed(() => `${settings.value.meName} ${props.expense.split.me}% · ${settings.value.partnerName} ${props.expense.split.partner}%`)
 const createdAtLabel = computed(() => {
@@ -62,15 +64,17 @@ const confirmDelete = async () => {
     <section class="expense-detail-card" role="dialog" aria-modal="true" aria-labelledby="expense-detail-title">
       <div class="expense-detail-head">
         <div>
-          <p class="section-kicker">账单详情</p>
-          <h2 id="expense-detail-title">{{ expense.title || '未命名消费' }}</h2>
+          <p class="section-kicker">{{ expense.recordType === 'income' ? '收入详情' : '账单详情' }}</p>
+          <h2 id="expense-detail-title">{{ expense.title || (expense.recordType === 'income' ? '未命名收入' : '未命名消费') }}</h2>
         </div>
         <button type="button" class="ghost-icon-button" aria-label="关闭详情" @click="emit('close')">×</button>
       </div>
 
       <div class="expense-detail-hero">
         <strong>{{ amountLabel }}</strong>
-        <span v-if="expense.originalCurrency !== expense.baseCurrency">记账金额 {{ convertedAmountLabel }}</span>
+        <span v-if="expense.originalCurrency !== expense.baseCurrency">
+          {{ expense.recordType === 'income' ? '记账收入' : '记账金额' }} {{ convertedAmountLabel }}
+        </span>
       </div>
 
       <div class="expense-detail-grid">
@@ -79,14 +83,14 @@ const confirmDelete = async () => {
           <strong>{{ categoryMap[expense.category]?.icon || '🧾' }} {{ categoryMap[expense.category]?.name || expense.category }}</strong>
         </div>
         <div class="expense-detail-item">
-          <span>付款人</span>
-          <strong>{{ payerLabel }}</strong>
+          <span>{{ expense.recordType === 'income' ? '归属' : '付款人' }}</span>
+          <strong>{{ expense.recordType === 'income' ? settings.meName : payerLabel }}</strong>
         </div>
         <div class="expense-detail-item">
           <span>日期</span>
           <strong>{{ expense.date }}</strong>
         </div>
-        <div class="expense-detail-item">
+        <div v-if="expense.recordType === 'expense'" class="expense-detail-item">
           <span>分摊方式</span>
           <strong>{{ splitLabel }}</strong>
         </div>

@@ -4,9 +4,19 @@ import { loadJSON, saveJSON } from '../utils/storage'
 import { authUser } from './useSupabaseAuth'
 import { useBooks } from './useBooks'
 import { useSettings } from './useSettings'
-import { deleteExpenseRemote, fetchExpenses, upsertExpense } from './useSupabaseExpenses'
+import {
+  deleteExpenseRemote,
+  fetchExpenses,
+  insertExpenseRemote,
+  updateExpenseRemote,
+} from './useSupabaseExpenses'
 import { clearSyncWarning, setSyncWarning } from './useRuntimeStatus'
 import { normalizeCurrency } from '../utils/currency'
+import {
+  isPersonalExpenseCategory,
+  isSharedExpenseCategory,
+  normalizeCategoryId,
+} from '../utils/categories'
 
 const STORAGE_KEY = 'couple-expense-app-expenses'
 const selectedYearMonth = ref(new Date().toISOString().slice(0, 7))
@@ -46,6 +56,20 @@ const defaultSplitForCategory = (category: string): { split: SplitRule; preset: 
     }
   }
 
+  if (isPersonalExpenseCategory(category)) {
+    return {
+      split: personalSplit('me'),
+      preset: 'payer-only',
+    }
+  }
+
+  if (isSharedExpenseCategory(category)) {
+    return {
+      split: normalizeSplit(settings.value.defaultSplits.standard, { me: 50, partner: 50 }),
+      preset: 'equal',
+    }
+  }
+
   return {
     split: normalizeSplit(settings.value.defaultSplits.standard, { me: 50, partner: 50 }),
     preset: 'equal',
@@ -53,11 +77,13 @@ const defaultSplitForCategory = (category: string): { split: SplitRule; preset: 
 }
 
 const normalizeExpense = (expense: Partial<Expense>): Expense => {
+  const recordType = expense.recordType === 'income' ? 'income' : 'expense'
   const payer = expense.payer === 'partner' ? 'partner' : 'me'
-  const baseRule = defaultSplitForCategory(expense.category || 'others')
+  const category = normalizeCategoryId(expense.category, recordType)
+  const baseRule = defaultSplitForCategory(category)
   const isLegacyShared = typeof expense.shared === 'boolean'
   const sharedEnabled = isLegacyShared ? expense.shared : undefined
-  const normalizedTitle = expense.title?.trim() || '未命名消费'
+  const normalizedTitle = expense.title?.trim() || (recordType === 'income' ? '未命名收入' : '未命名消费')
 
   let split = baseRule.split
   let splitPreset: SplitPreset = expense.splitPreset || baseRule.preset
@@ -75,8 +101,14 @@ const normalizeExpense = (expense: Partial<Expense>): Expense => {
     splitPreset = 'payer-only'
   }
 
+  if (recordType === 'income') {
+    split = { me: 100, partner: 0 }
+    splitPreset = 'payer-only'
+  }
+
   return {
     id: expense.id || crypto.randomUUID(),
+    recordType,
     title: normalizedTitle,
     amount: Math.max(0, Number(expense.amount) || 0),
     originalAmount: Math.max(0, Number(expense.originalAmount ?? expense.amount) || 0),
@@ -85,15 +117,15 @@ const normalizeExpense = (expense: Partial<Expense>): Expense => {
     exchangeRateUsed: Math.max(0, Number(expense.exchangeRateUsed) || 1),
     exchangeRateDate: expense.exchangeRateDate || expense.date || new Date().toISOString().slice(0, 10),
     date: expense.date || new Date().toISOString().slice(0, 10),
-    category: expense.category || 'others',
-    payer,
+    category,
+    payer: recordType === 'income' ? 'me' : payer,
     bookId: expense.bookId,
     createdBy: expense.createdBy,
     split,
     splitPreset,
     recurrence: expense.recurrence === 'monthly' ? 'monthly' : 'none',
     note: expense.note?.trim() || '',
-    shared: split.me !== 100 && split.partner !== 100,
+    shared: recordType === 'expense' && split.me !== 100 && split.partner !== 100,
     syncStatus: expense.syncStatus || 'synced',
     createdAt: expense.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -193,16 +225,19 @@ const filteredExpenses = computed(() =>
   )
 )
 
+const expenseRecords = computed(() => filteredExpenses.value.filter((item) => item.recordType === 'expense'))
+const incomeRecords = computed(() => filteredExpenses.value.filter((item) => item.recordType === 'income'))
+
 const recurringExpenses = computed(() =>
   sortExpenses(expenses.value.filter((item) => item.recurrence === 'monthly'))
 )
 
 const totalAmount = computed(() =>
-  filteredExpenses.value.reduce((sum, item) => sum + item.amount, 0)
+  expenseRecords.value.reduce((sum, item) => sum + item.amount, 0)
 )
 
 const paidTotals = computed(() =>
-  filteredExpenses.value.reduce(
+  expenseRecords.value.reduce(
     (result, item) => {
       result[item.payer] += item.amount
       return result
@@ -212,7 +247,7 @@ const paidTotals = computed(() =>
 )
 
 const owedTotals = computed(() =>
-  filteredExpenses.value.reduce(
+  expenseRecords.value.reduce(
     (result, item) => {
       result.me += (item.amount * item.split.me) / 100
       result.partner += (item.amount * item.split.partner) / 100
@@ -228,20 +263,31 @@ const settlement = computed(() => ({
 }))
 
 const categoryTotals = computed(() =>
-  filteredExpenses.value.reduce<Record<string, number>>((result, item) => {
+  expenseRecords.value.reduce<Record<string, number>>((result, item) => {
     result[item.category] = (result[item.category] || 0) + item.amount
     return result
   }, {})
 )
 
+const incomeCategoryTotals = computed(() =>
+  incomeRecords.value.reduce<Record<string, number>>((result, item) => {
+    result[item.category] = (result[item.category] || 0) + item.amount
+    return result
+  }, {})
+)
+
+const incomeTotal = computed(() =>
+  incomeRecords.value.reduce((sum, item) => sum + item.amount, 0)
+)
+
 const rentTotal = computed(() =>
-  filteredExpenses.value
+  expenseRecords.value
     .filter((item) => item.category === 'rent')
     .reduce((sum, item) => sum + item.amount, 0)
 )
 
 const sharedTotal = computed(() =>
-  filteredExpenses.value
+  expenseRecords.value
     .filter((item) => item.split.me > 0 && item.split.partner > 0)
     .reduce((sum, item) => sum + item.amount, 0)
 )
@@ -256,12 +302,14 @@ const monthlySummary = computed(() => ({
   partnerNet: settlement.value.partnerNet,
   sharedTotal: sharedTotal.value,
   rentTotal: rentTotal.value,
+  incomeTotal: incomeTotal.value,
 }))
 
-const syncRemoteExpense = async (expense: Expense) => {
+const syncRemoteExpense = async (expense: Expense, stage: 'insert' | 'update') => {
   if (!authUser.value?.id || !currentBookId.value || isLocalBookMode.value) return
 
-  const { error } = await upsertExpense(expense)
+  const { error } =
+    stage === 'insert' ? await insertExpenseRemote(expense) : await updateExpenseRemote(expense)
   if (error) {
     throw error
   }
@@ -271,6 +319,7 @@ const syncRemoteExpense = async (expense: Expense) => {
 
 const buildSaveDebugPayload = (expense: Expense) => ({
   id: expense.id,
+  record_type: expense.recordType,
   title: expense.title,
   amount: expense.amount,
   original_amount: expense.originalAmount,
@@ -288,6 +337,7 @@ const buildSaveDebugPayload = (expense: Expense) => ({
   shared: expense.shared,
   book_id: expense.bookId,
   created_by: expense.createdBy,
+  user_id: authUser.value?.id ?? expense.createdBy ?? null,
   created_at: expense.createdAt,
   updated_at: expense.updatedAt,
 })
@@ -337,7 +387,7 @@ const addExpense = async (expense: Expense): Promise<ExpenseMutationResult> => {
 
   if (authUser.value?.id && currentBookId.value && !isLocalBookMode.value) {
     try {
-      await syncRemoteExpense(normalized)
+      await syncRemoteExpense(normalized, 'insert')
       expenses.value = sortExpenses([normalized, ...expenses.value])
       return { status: 'synced', expense: normalized, stage: 'insert' }
     } catch (error) {
@@ -361,7 +411,7 @@ const updateExpense = async (expense: Expense): Promise<ExpenseMutationResult> =
 
   if (authUser.value?.id && currentBookId.value && !isLocalBookMode.value) {
     try {
-      await syncRemoteExpense(normalized)
+      await syncRemoteExpense(normalized, 'update')
       expenses.value = sortExpenses(
         expenses.value.map((item) => (item.id === normalized.id ? normalized : item))
       )
@@ -408,11 +458,15 @@ export function useExpenses() {
     expenses,
     selectedYearMonth,
     filteredExpenses,
+    expenseRecords,
+    incomeRecords,
     recurringExpenses,
     totalAmount,
     paidTotals,
     owedTotals,
     categoryTotals,
+    incomeCategoryTotals,
+    incomeTotal,
     monthlySummary,
     addExpense,
     updateExpense,

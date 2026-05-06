@@ -26,7 +26,8 @@ const payerLabels = computed(() => ({
   me: settings.value.meName,
   partner: settings.value.partnerName,
 }))
-const formatExpenseAmount = (expense: Expense) => getExpenseAmountLabel(expense)
+const formatExpenseAmount = (expense: Expense) =>
+  expense.recordType === 'income' ? `+ ${getExpenseAmountLabel(expense)}` : getExpenseAmountLabel(expense)
 </script>
 
 <template>
@@ -51,22 +52,28 @@ const formatExpenseAmount = (expense: Expense) => getExpenseAmountLabel(expense)
                 {{ categoryMap[item.category]?.icon || '🧾' }} {{ categoryMap[item.category]?.name || item.category }}
               </span>
             </div>
-            <span class="expense-amount">{{ formatExpenseAmount(item) }}</span>
+            <span :class="['expense-amount', { 'income-amount': item.recordType === 'income' }]">
+              {{ formatExpenseAmount(item) }}
+            </span>
           </div>
           <div class="expense-item-meta">
             <span>{{ formatDate(props.effectiveDate ? props.effectiveDate(item) : item.date) }}</span>
-            <span>{{ payerLabels[item.payer] }}付款</span>
+            <span>{{ item.recordType === 'income' ? `${payerLabels.me}收入` : `${payerLabels[item.payer]}付款` }}</span>
           </div>
         </div>
       </div>
 
       <div class="expense-item-tags">
-        <span class="info-pill soft">{{ item.recurrence === 'monthly' ? '每月固定' : '单次消费' }}</span>
+        <span class="info-pill soft">
+          {{ item.recordType === 'income' ? '收入' : item.recurrence === 'monthly' ? '每月固定' : '单次消费' }}
+        </span>
         <span v-if="item.originalCurrency !== item.baseCurrency" class="info-pill soft">
           按 {{ item.exchangeRateUsed }} 汇率计入 {{ item.baseCurrency }}
         </span>
-        <span class="info-pill">{{ settings.meName }} {{ item.split.me }}%</span>
-        <span class="info-pill">{{ settings.partnerName }} {{ item.split.partner }}%</span>
+        <template v-if="item.recordType === 'expense'">
+          <span class="info-pill">{{ settings.meName }} {{ item.split.me }}%</span>
+          <span class="info-pill">{{ settings.partnerName }} {{ item.split.partner }}%</span>
+        </template>
       </div>
 
       <p v-if="item.note" class="expense-note">{{ item.note }}</p>

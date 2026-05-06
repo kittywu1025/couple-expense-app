@@ -6,7 +6,7 @@ import { useSettings } from '../composables/useSettings'
 import { formatCurrency } from '../utils/currency'
 
 const { settings, categoryMap } = useSettings()
-const { categoryTotals, monthlySummary, selectedYearMonth } = useExpenses()
+const { categoryTotals, incomeCategoryTotals, incomeTotal, monthlySummary, selectedYearMonth } = useExpenses()
 
 const monthLabel = computed(() => {
   const [year, month] = selectedYearMonth.value.split('-')
@@ -15,6 +15,12 @@ const monthLabel = computed(() => {
 
 const topCategories = computed(() =>
   Object.entries(categoryTotals.value)
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 3)
+)
+
+const topIncomeCategories = computed(() =>
+  Object.entries(incomeCategoryTotals.value)
     .sort((left, right) => right[1] - left[1])
     .slice(0, 3)
 )
@@ -61,6 +67,29 @@ const formatAmount = (value: number) => formatCurrency(value, settings.value.def
             <p>{{ settings.meName }} / {{ settings.partnerName }} 当前月累计</p>
           </div>
           <span>{{ formatAmount(amount) }}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-card">
+      <div class="section-heading">
+        <div>
+          <h3>收入统计</h3>
+        </div>
+        <strong>{{ formatAmount(incomeTotal) }}</strong>
+      </div>
+
+      <div v-if="!topIncomeCategories.length" class="empty-state">
+        当前月份还没有收入记录。
+      </div>
+
+      <div v-else class="highlight-list">
+        <div v-for="[categoryId, amount] in topIncomeCategories" :key="categoryId" class="highlight-item">
+          <div>
+            <strong>{{ categoryMap[categoryId]?.icon || '🧾' }} {{ categoryMap[categoryId]?.name || categoryId }}</strong>
+            <p>{{ monthLabel }}收入累计</p>
+          </div>
+          <span class="income-amount">+ {{ formatAmount(amount) }}</span>
         </div>
       </div>
     </section>

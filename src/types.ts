@@ -1,119 +1,40 @@
-export type Payer = 'me' | 'partner'
-export type Performer = 'me' | 'partner'
-export type Recurrence = 'none' | 'monthly'
-export type SplitPreset = 'equal' | 'rent' | 'custom' | 'payer-only'
-export type SupportedCurrency = 'JPY' | 'CNY'
-export type RecordType = 'expense' | 'income'
-export type FixedExpenseCycle = 'monthly'
-
-export interface SplitRule {
-  me: number
-  partner: number
-}
-
-export interface ExpenseCategory {
-  id: string
-  name: string
-  icon: string
-  recordType: RecordType
-  active: boolean
-  isDefault?: boolean
-}
-
-export interface Expense {
-  id: string
-  recordType: RecordType
-  title: string
-  amount: number
-  originalAmount: number
-  originalCurrency: SupportedCurrency
-  baseCurrency: SupportedCurrency
-  exchangeRateUsed: number
-  exchangeRateDate: string
-  date: string
-  category: string
-  payer: Payer
-  bookId?: string
-  createdBy?: string
-  split: SplitRule
-  splitPreset: SplitPreset
-  recurrence: Recurrence
-  note?: string
-  shared?: boolean
-  syncStatus?: 'synced' | 'pending'
-  createdAt?: string
-  updatedAt?: string
-}
-
-export interface AppSettings {
-  meName: string
-  partnerName: string
-  defaultCurrency: SupportedCurrency
-  defaultSplits: {
-    standard: SplitRule
-    rent: SplitRule
-  }
-  categories: ExpenseCategory[]
-}
-
-export type BookRole = 'owner' | 'member'
+export type RecordKind = 'expense' | 'income'
+export type RecordType = 'personal' | 'shared'
 
 export interface Book {
   id: string
-  name: string
   inviteCode: string
-  createdBy?: string
-  createdAt?: string
+  settleDay: number
+  defaultRatio: number
+  createdBy: string
+  createdAt: string
 }
 
 export interface BookMember {
   id: string
   bookId: string
   userId: string
-  role: BookRole
-  joinedAt?: string
+  displayName: string
+  joinedAt: string
 }
 
-export interface Chore {
+export interface LedgerRecord {
   id: string
-  title: string
-  date: string
-  performer: Performer
-  points: number
-  done: boolean
-  note?: string
-}
-
-export interface CountdownSettings {
-  startedDate: string
-  birthday: string
-}
-
-export interface FixedExpense {
-  id: string
-  bookId?: string
-  createdBy?: string
-  name: string
+  bookId: string
   amount: number
-  currency: SupportedCurrency
+  kind: RecordKind
+  type: RecordType
+  payerUid: string
+  /** 付款人承担的份额 0-10 */
+  ratio: number
   category: string
-  cycle: FixedExpenseCycle
-  dayOfMonth: number
-  startDate: string
-  endDate?: string | null
-  payer: Payer
-  splitPreset: SplitPreset
-  split: SplitRule
-  enabled: boolean
-  createdAt?: string
-  updatedAt?: string
+  subCategory: string | null
+  note: string | null
+  date: string
+  createdBy: string
+  createdAt: string
 }
 
-export interface FixedExpenseRun {
-  id: string
-  fixedExpenseId: string
-  bookId?: string
-  generatedMonth: string
-  expenseId?: string | null
-  generatedAt?: string
-}
+export type NewRecord = Omit<LedgerRecord, 'id' | 'bookId' | 'createdBy' | 'createdAt'>
+
+export type TabKey = 'home' | 'stats' | 'me'

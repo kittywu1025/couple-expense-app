@@ -1,142 +1,71 @@
-import type { ExpenseCategory, RecordType } from '../types'
+import type { RecordKind } from '../types'
 
-const buildCategory = (
-  id: string,
-  name: string,
-  icon: string,
-  recordType: RecordType,
-  options?: Partial<ExpenseCategory>
-): ExpenseCategory => ({
-  id,
-  name,
-  icon,
-  recordType,
-  active: options?.active ?? true,
-  isDefault: options?.isDefault ?? true,
-})
+export interface Category {
+  key: string
+  name: string
+  icon: string
+  color: string
+  subs: { name: string; icon: string }[]
+}
 
-export const DEFAULT_EXPENSE_CATEGORIES: ExpenseCategory[] = [
-  buildCategory('dining-out', '外食', '🍚', 'expense'),
-  buildCategory('groceries', '超市/食材', '🛒', 'expense'),
-  buildCategory('transport', '交通', '🚆', 'expense'),
-  buildCategory('rent', '房租', '🏠', 'expense'),
-  buildCategory('water', '水费', '🚿', 'expense'),
-  buildCategory('electricity', '电费', '💡', 'expense'),
-  buildCategory('gas', '煤气费', '🔥', 'expense'),
-  buildCategory('internet', '网费', '📶', 'expense'),
-  buildCategory('daily-necessities', '日用品', '🧴', 'expense'),
-  buildCategory('tuition', '学费', '🎓', 'expense'),
-  buildCategory('study-books', '学习/书籍', '📚', 'expense'),
-  buildCategory('medical', '医疗/药品', '💊', 'expense'),
-  buildCategory('dating', '约会', '🌷', 'expense'),
-  buildCategory('social', '娱乐/社交', '🎬', 'expense'),
-  buildCategory('beauty', '服饰/美容', '👗', 'expense'),
-  buildCategory('misc', '杂费', '🧾', 'expense'),
+export const EXPENSE_CATEGORIES: Category[] = [
+  {
+    key: 'food', name: '饮食', icon: '🍜', color: '#FFB86B',
+    subs: [{ name: '外食', icon: '🍱' }, { name: '超市·便利店', icon: '🛒' }],
+  },
+  {
+    key: 'fixed', name: '固定开销', icon: '🏠', color: '#9D8CFF',
+    subs: [{ name: '房租', icon: '🔑' }, { name: '水电煤', icon: '💡' }, { name: '手机·网络', icon: '📶' }],
+  },
+  {
+    key: 'transport', name: '交通', icon: '🚃', color: '#5CC8FF',
+    subs: [
+      { name: '巴士·电车', icon: '🚌' }, { name: '打车', icon: '🚕' }, { name: '停车费', icon: '🅿️' },
+      { name: '油费', icon: '⛽' }, { name: 'ETC', icon: '🛣️' },
+    ],
+  },
+  {
+    key: 'fun', name: '娱乐', icon: '🎡', color: '#FF8FAB',
+    subs: [{ name: '出去玩·旅行', icon: '✈️' }],
+  },
+  {
+    key: 'shopping', name: '购物', icon: '🛍️', color: '#FF7A7A',
+    subs: [{ name: '网购', icon: '📦' }, { name: '实体购物', icon: '🏬' }],
+  },
+  {
+    key: 'study', name: '学习', icon: '📚', color: '#6CD4A4',
+    subs: [{ name: '学费', icon: '🎓' }, { name: '书本·文具', icon: '✏️' }],
+  },
+  {
+    key: 'insurance', name: '保险', icon: '🛡️', color: '#7A9CFF',
+    subs: [{ name: '医保', icon: '🏥' }, { name: '车险', icon: '🚗' }, { name: '其他保险', icon: '📄' }],
+  },
+  {
+    key: 'medical', name: '医疗', icon: '💊', color: '#4FD1C5',
+    subs: [{ name: '医院·诊所', icon: '🩺' }, { name: '药局', icon: '💊' }],
+  },
+  { key: 'other', name: '其他', icon: '✨', color: '#B0B3C0', subs: [] },
 ]
 
-export const DEFAULT_INCOME_CATEGORIES: ExpenseCategory[] = [
-  buildCategory('part-time', '兼职', '💼', 'income'),
-  buildCategory('gift-money', '红包', '🧧', 'income'),
-  buildCategory('family-support', '家人打款', '🏡', 'income'),
+export const INCOME_CATEGORIES: Category[] = [
+  { key: 'salary', name: '工资', icon: '💼', color: '#6CD4A4', subs: [] },
+  { key: 'parttime', name: '兼职', icon: '🧑‍💻', color: '#5CC8FF', subs: [] },
+  { key: 'bonus', name: '奖金', icon: '🎁', color: '#FFB86B', subs: [] },
+  { key: 'gift', name: '红包', icon: '🧧', color: '#FF7A7A', subs: [] },
+  { key: 'other-income', name: '其他', icon: '✨', color: '#B0B3C0', subs: [] },
 ]
 
-const LEGACY_CATEGORIES: ExpenseCategory[] = [
-  buildCategory('utilities-legacy', '水电煤网', '💡', 'expense', { active: false, isDefault: false }),
-]
+export const categoriesFor = (kind: RecordKind) =>
+  kind === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES
 
-const CANONICAL_DEFAULTS = [...DEFAULT_EXPENSE_CATEGORIES, ...DEFAULT_INCOME_CATEGORIES]
-const DEFAULT_CATEGORY_MAP = CANONICAL_DEFAULTS.reduce<Record<string, ExpenseCategory>>((result, category) => {
-  result[category.id] = category
-  return result
-}, {})
+const allCategories = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES]
 
-const LEGACY_ALIAS_MAP: Record<string, string> = {
-  food: 'dining-out',
-  餐饮: 'dining-out',
-  groceries: 'groceries',
-  买菜: 'groceries',
-  utilities: 'utilities-legacy',
-  '水电煤网': 'utilities-legacy',
-  daily: 'daily-necessities',
-  entertainment: 'social',
-  dating: 'dating',
-  others: 'misc',
+export const findCategory = (name: string) => allCategories.find((c) => c.name === name)
+
+export const recordIcon = (category: string, subCategory?: string | null) => {
+  const cat = findCategory(category)
+  if (!cat) return '✨'
+  return cat.subs.find((s) => s.name === subCategory)?.icon ?? cat.icon
 }
 
-export const normalizeCategoryId = (value?: string | null, fallbackType: RecordType = 'expense') => {
-  const raw = value?.trim()
-  if (!raw) {
-    return getDefaultCategoryId(fallbackType)
-  }
-
-  return LEGACY_ALIAS_MAP[raw] || raw
-}
-
-export const getDefaultCategoryId = (recordType: RecordType) =>
-  (recordType === 'income' ? DEFAULT_INCOME_CATEGORIES : DEFAULT_EXPENSE_CATEGORIES)[0].id
-
-export const getDefaultCategories = () => [...DEFAULT_EXPENSE_CATEGORIES, ...DEFAULT_INCOME_CATEGORIES]
-
-export const isDefaultIncomeCategory = (categoryId: string) =>
-  DEFAULT_INCOME_CATEGORIES.some((category) => category.id === normalizeCategoryId(categoryId, 'income'))
-
-export const normalizeCategories = (categories?: ExpenseCategory[]) => {
-  const merged = new Map<string, ExpenseCategory>()
-
-  ;(categories ?? getDefaultCategories()).forEach((category) => {
-    const normalizedId = normalizeCategoryId(category.id, category.recordType || 'expense')
-    const fallback = DEFAULT_CATEGORY_MAP[normalizedId]
-    const recordType = category.recordType || fallback?.recordType || 'expense'
-
-    merged.set(normalizedId, {
-      id: normalizedId,
-      name: category.name?.trim() || fallback?.name || '未命名分类',
-      icon: category.icon?.trim() || fallback?.icon || '🧾',
-      recordType,
-      active: normalizedId === 'utilities-legacy' ? false : category.active ?? true,
-      isDefault: category.isDefault ?? Boolean(fallback),
-    })
-  })
-
-  getDefaultCategories().forEach((category) => {
-    if (!merged.has(category.id)) {
-      merged.set(category.id, { ...category })
-    }
-  })
-
-  return Array.from(merged.values()).sort((left, right) => {
-    if (left.recordType !== right.recordType) {
-      return left.recordType === 'expense' ? -1 : 1
-    }
-
-    const leftIndex = CANONICAL_DEFAULTS.findIndex((item) => item.id === left.id)
-    const rightIndex = CANONICAL_DEFAULTS.findIndex((item) => item.id === right.id)
-
-    if (leftIndex >= 0 && rightIndex >= 0) return leftIndex - rightIndex
-    if (leftIndex >= 0) return -1
-    if (rightIndex >= 0) return 1
-    return left.name.localeCompare(right.name, 'zh-CN')
-  })
-}
-
-export const buildCategoryMap = (categories: ExpenseCategory[]) => {
-  const map = categories.reduce<Record<string, ExpenseCategory>>((result, category) => {
-    result[category.id] = category
-    return result
-  }, {})
-
-  LEGACY_CATEGORIES.forEach((category) => {
-    if (!map[category.id]) {
-      map[category.id] = category
-    }
-  })
-
-  return map
-}
-
-export const isSharedExpenseCategory = (categoryId: string) =>
-  ['rent', 'water', 'electricity', 'gas', 'internet', 'groceries', 'daily-necessities', 'dining-out', 'social', 'dating']
-    .includes(categoryId)
-
-export const isPersonalExpenseCategory = (categoryId: string) =>
-  ['transport', 'tuition', 'study-books', 'medical', 'beauty', 'misc'].includes(categoryId)
+export const recordColor = (category: string) => findCategory(category)?.color ?? '#B0B3C0'

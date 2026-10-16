@@ -4,8 +4,8 @@
   "description": "记录情侣日常开销，支持离线使用与安装体验。",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f7f8ff",
-  "theme_color": "#4f46e5",
+  "background_color": "#F5F5F7",
+  "theme_color": "#6C63FF",
   "icons": [
     {
       "src": "/favicon.svg",

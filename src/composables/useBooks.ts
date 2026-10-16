@@ -1,267 +1,191 @@
 import { computed, ref, watch } from 'vue'
-import { supabase, isSupabaseEnabled } from '../lib/supabase'
-import type { Book, BookRole } from '../types'
-import { authUser } from './useSupabaseAuth'
-import { clearSyncWarning, setSyncWarning } from './useRuntimeStatus'
-import { loadJSON, saveJSON } from '../utils/storage'
+import { supabase } from '../lib/supabase'
+import type { Book, BookMember } from '../types'
+import { authDisplayName, authUser } from './useSupabaseAuth'
+import { setSyncWarning } from './useRuntimeStatus'
 
-const LOCAL_BOOK_STORAGE_KEY = 'couple-expense-app-local-book'
-const ACTIVE_BOOK_STORAGE_KEY = 'couple-expense-app-active-book-id'
-
-const localFallbackBook: Book = loadJSON<Book>(LOCAL_BOOK_STORAGE_KEY, {
-  id: 'local-book',
-  name: '本地账本',
-  inviteCode: 'LOCAL01',
-  createdBy: 'local',
-  createdAt: new Date().toISOString(),
-})
-
-saveJSON(LOCAL_BOOK_STORAGE_KEY, localFallbackBook)
-
-const books = ref<Book[]>(isSupabaseEnabled ? [] : [localFallbackBook])
-const currentBookId = ref<string | null>(isSupabaseEnabled ? null : localFallbackBook.id)
-const currentBookRole = ref<BookRole | null>(isSupabaseEnabled ? null : 'owner')
-const booksLoading = ref(isSupabaseEnabled)
+const currentBook = ref<Book | null>(null)
+const members = ref<BookMember[]>([])
+const booksLoading = ref(false)
 const bookActionLoading = ref(false)
-const bookActionMessage = ref('')
-const booksError = ref('')
 
 const normalizeBook = (row: Record<string, unknown>): Book => ({
   id: String(row.id),
-  name: String(row.name ?? '情侣账本'),
-  inviteCode: String(row.invite_code ?? row.inviteCode ?? ''),
-  createdBy: row.created_by ? String(row.created_by) : undefined,
-  createdAt: row.created_at ? String(row.created_at) : undefined,
+  inviteCode: String(row.invite_code ?? ''),
+  settleDay: Number(row.settle_day ?? 1),
+  defaultRatio: Number(row.default_ratio ?? 5),
+  createdBy: String(row.created_by ?? ''),
+  createdAt: String(row.created_at ?? ''),
 })
 
-const formatSupabaseError = (error: unknown, fallback: string) => {
-  if (!error) return fallback
+const normalizeMember = (row: Record<string, unknown>): BookMember => ({
+  id: String(row.id),
+  bookId: String(row.book_id),
+  userId: String(row.user_id),
+  displayName: String(row.display_name || '未命名'),
+  joinedAt: String(row.joined_at ?? ''),
+})
 
-  if (error instanceof Error && error.message) {
-    const message = error.message.toLowerCase()
-    if (message.includes('relation') && message.includes('does not exist')) {
-      return '账本数据表还没有创建，请先在 Supabase 执行 SQL。'
-    }
-    if (message.includes('permission denied') || message.includes('row-level security')) {
-      return '当前账号没有权限操作账本，请检查 Supabase RLS 策略。'
-    }
-    if (message.includes('network') || message.includes('fetch')) {
-      return '网络连接失败，请稍后重试。'
-    }
-    return error.message
+export const formatSupabaseError = (error: unknown, fallback: string) => {
+  const raw =
+    error && typeof error === 'object'
+      ? ['message', 'details', 'hint']
+          .map((k) => (error as Record<string, unknown>)[k])
+          .filter((v) => typeof v === 'string' && v)
+          .join(' | ')
+      : typeof error === 'string'
+        ? error
+        : ''
+  const text = raw.toLowerCase()
+
+  if (!raw) return fallback
+  if (text.includes('relation') && text.includes('does not exist')) {
+    return '数据表还没有创建，请先在 Supabase 执行 SQL。'
   }
-
-  if (typeof error === 'object') {
-    const errorRecord = error as Record<string, unknown>
-    const message = typeof errorRecord.message === 'string' ? errorRecord.message : ''
-    const details = typeof errorRecord.details === 'string' ? errorRecord.details : ''
-    const hint = typeof errorRecord.hint === 'string' ? errorRecord.hint : ''
-    const code = typeof errorRecord.code === 'string' ? errorRecord.code : ''
-    const raw = [message, details, hint, code].filter(Boolean).join(' | ')
-    const rawText = raw.toLowerCase()
-
-    if (rawText.includes('relation') && rawText.includes('does not exist')) {
-      return '账本数据表还没有创建，请先在 Supabase 执行 SQL。'
-    }
-    if (rawText.includes('permission denied') || rawText.includes('row-level security')) {
-      return '当前账号没有权限操作账本，请检查 Supabase RLS 策略。'
-    }
-    if (rawText.includes('duplicate key')) {
-      return '你已经在这个账本中。'
-    }
-    if (rawText.includes('邀请码不存在')) {
-      return '邀请码不存在，请检查后重试。'
-    }
-    if (message) {
-      return [message, details, hint, code].filter(Boolean).join(' | ')
-    }
+  if (text.includes('permission denied') || text.includes('row-level security')) {
+    return '当前账号没有权限，请检查 Supabase RLS 策略。'
   }
-
-  if (typeof error === 'string' && error.trim()) {
-    return error
+  if (text.includes('network') || text.includes('fetch')) return '网络连接失败，请稍后重试。'
+  for (const known of ['邀请码不存在', '你已经在这个账本中', '这个账本已经满两人了', '邀请码生成失败']) {
+    if (raw.includes(known)) return known
   }
-
   return fallback
 }
 
-const saveActiveBook = (bookId: string | null) => {
-  currentBookId.value = bookId
-  if (bookId) {
-    saveJSON(ACTIVE_BOOK_STORAGE_KEY, bookId)
-  }
+const loadMembers = async (bookId: string) => {
+  if (!supabase) return
+  const { data, error } = await supabase
+    .from('book_members')
+    .select('id, book_id, user_id, display_name, joined_at')
+    .eq('book_id', bookId)
+    .order('joined_at', { ascending: true })
+  if (error) throw error
+  members.value = (data ?? []).map(normalizeMember)
 }
 
-const loadBooks = async () => {
-  if (!supabase || !authUser.value?.id) {
-    books.value = isSupabaseEnabled ? [] : [localFallbackBook]
-    currentBookRole.value = isSupabaseEnabled ? null : 'owner'
-    booksError.value = ''
-    booksLoading.value = false
-    if (!isSupabaseEnabled) {
-      saveActiveBook(localFallbackBook.id)
-    }
+const loadBook = async () => {
+  if (!supabase || !authUser.value) {
+    currentBook.value = null
+    members.value = []
     return
   }
 
   booksLoading.value = true
-  bookActionMessage.value = ''
-  booksError.value = ''
-
   try {
     const { data, error } = await supabase
       .from('book_members')
-      .select('role, book:books(id, name, invite_code, created_by, created_at)')
+      .select('book:books(id, invite_code, settle_day, default_ratio, created_by, created_at)')
       .eq('user_id', authUser.value.id)
       .order('joined_at', { ascending: true })
+      .limit(1)
+    if (error) throw error
 
-    if (error) {
-      throw error
+    const raw = data?.[0]?.book as Record<string, unknown> | Record<string, unknown>[] | null | undefined
+    const row = Array.isArray(raw) ? raw[0] : raw
+    currentBook.value = row ? normalizeBook(row) : null
+    if (currentBook.value) {
+      await loadMembers(currentBook.value.id)
+    } else {
+      members.value = []
     }
-
-    const nextBooks = (data ?? [])
-      .map((row) => {
-        const rawBook = row.book as Record<string, unknown> | Record<string, unknown>[] | null
-        const book = Array.isArray(rawBook) ? rawBook[0] : rawBook
-        if (!book) return null
-        return {
-          book: normalizeBook(book),
-          role: (row.role as BookRole) || 'member',
-        }
-      })
-      .filter(Boolean) as Array<{ book: Book; role: BookRole }>
-
-    books.value = nextBooks.map((item) => item.book)
-
-    const persistedActiveId = loadJSON<string | null>(ACTIVE_BOOK_STORAGE_KEY, null)
-    const fallbackId = nextBooks[0]?.book.id ?? null
-    const matchedActive = nextBooks.find((item) => item.book.id === persistedActiveId)?.book.id
-    saveActiveBook(matchedActive || fallbackId)
-    currentBookRole.value =
-      nextBooks.find((item) => item.book.id === currentBookId.value)?.role ?? null
-    clearSyncWarning()
   } catch (error) {
     console.error('加载账本失败：', error)
-    books.value = []
-    currentBookRole.value = null
-    saveActiveBook(null)
-    booksError.value = formatSupabaseError(error, '账本信息读取失败，请稍后重试。')
-    setSyncWarning(booksError.value)
+    currentBook.value = null
+    members.value = []
+    setSyncWarning(formatSupabaseError(error, '账本信息读取失败，请稍后重试。'))
   } finally {
     booksLoading.value = false
   }
 }
 
-const claimLegacyExpenses = async (bookId: string) => {
-  if (!supabase || !authUser.value?.id) return
-
-  await supabase
-    .from('expenses')
-    .update({ book_id: bookId })
-    .eq('user_id', authUser.value.id)
-    .is('book_id', null)
-}
-
-const createBook = async (name: string) => {
-  if (!supabase || !authUser.value?.id) return { error: new Error('当前不是云端模式。'), data: null }
-
+const runBookAction = async (fn: () => Promise<void>, fallback: string) => {
   bookActionLoading.value = true
-  bookActionMessage.value = ''
-  booksError.value = ''
-
   try {
-    const { data, error } = await supabase.rpc('create_book_with_owner', {
-      p_name: name.trim() || '我们的账本',
-    })
-
-    if (error) {
-      throw error
-    }
-
-    const createdBook = normalizeBook(
-      (Array.isArray(data) ? data[0] : data) as Record<string, unknown>
-    )
-
-    await claimLegacyExpenses(createdBook.id)
-    await loadBooks()
-    saveActiveBook(createdBook.id)
-    currentBookRole.value = 'owner'
-    booksError.value = ''
-    clearSyncWarning()
-    bookActionMessage.value = '账本已创建。'
-    return { data: createdBook, error: null }
+    await fn()
+    return { error: null }
   } catch (error) {
-    console.error('创建账本失败：', error)
-    return {
-      data: null,
-      error: new Error(formatSupabaseError(error, '创建账本失败，请稍后重试。')),
-    }
+    console.error(fallback, error)
+    return { error: new Error(formatSupabaseError(error, fallback)) }
   } finally {
     bookActionLoading.value = false
   }
 }
 
-const joinBookByInvite = async (inviteCode: string) => {
-  if (!supabase || !authUser.value?.id) return { error: new Error('当前不是云端模式。'), data: null }
+const createBook = () =>
+  runBookAction(async () => {
+    if (!supabase) throw new Error('当前未配置 Supabase。')
+    const { error } = await supabase.rpc('create_book', { p_display_name: authDisplayName.value })
+    if (error) throw error
+    await loadBook()
+  }, '创建账本失败，请稍后重试。')
 
-  bookActionLoading.value = true
-  bookActionMessage.value = ''
-  booksError.value = ''
-
-  try {
-    const { data, error } = await supabase.rpc('join_book_by_invite', {
+const joinBook = (inviteCode: string) =>
+  runBookAction(async () => {
+    if (!supabase) throw new Error('当前未配置 Supabase。')
+    const { error } = await supabase.rpc('join_book', {
       p_invite_code: inviteCode.trim().toUpperCase(),
+      p_display_name: authDisplayName.value,
     })
+    if (error) throw error
+    await loadBook()
+  }, '加入账本失败，请稍后重试。')
 
-    if (error) {
-      throw error
-    }
+const leaveBook = () =>
+  runBookAction(async () => {
+    if (!supabase || !currentBook.value) return
+    const { error } = await supabase.rpc('leave_book', { p_book_id: currentBook.value.id })
+    if (error) throw error
+    currentBook.value = null
+    members.value = []
+  }, '退出账本失败，请稍后重试。')
 
-    const joinedBook = normalizeBook((Array.isArray(data) ? data[0] : data) as Record<string, unknown>)
-    await loadBooks()
-    saveActiveBook(joinedBook.id)
-    currentBookRole.value = 'member'
-    booksError.value = ''
-    clearSyncWarning()
-    bookActionMessage.value = '已加入情侣账本。'
-    return { data: joinedBook, error: null }
-  } catch (error) {
-    console.error('加入账本失败：', error)
-    return {
-      data: null,
-      error: new Error(formatSupabaseError(error, '加入账本失败，请稍后重试。')),
-    }
-  } finally {
-    bookActionLoading.value = false
-  }
+const updateBookSettings = (patch: Partial<Pick<Book, 'settleDay' | 'defaultRatio'>>) =>
+  runBookAction(async () => {
+    if (!supabase || !currentBook.value) return
+    const payload: Record<string, number> = {}
+    if (patch.settleDay !== undefined) payload.settle_day = patch.settleDay
+    if (patch.defaultRatio !== undefined) payload.default_ratio = patch.defaultRatio
+    const { data, error } = await supabase
+      .from('books')
+      .update(payload)
+      .eq('id', currentBook.value.id)
+      .select()
+      .single()
+    if (error) throw error
+    currentBook.value = normalizeBook(data)
+  }, '保存设置失败，请稍后重试。')
+
+watch(() => authUser.value?.id, loadBook, { immediate: true })
+
+const me = computed(() => members.value.find((m) => m.userId === authUser.value?.id) ?? null)
+const partner = computed(() => members.value.find((m) => m.userId !== authUser.value?.id) ?? null)
+const myUid = computed(() => authUser.value?.id ?? '')
+const partnerUid = computed(() => partner.value?.userId ?? '')
+
+/** 给定一人 uid，返回另一人 uid */
+const otherUid = (uid: string) => (uid === myUid.value ? partnerUid.value : myUid.value)
+
+const nameOf = (uid: string) => {
+  if (uid === myUid.value) return me.value?.displayName ?? '我'
+  return members.value.find((m) => m.userId === uid)?.displayName ?? 'TA'
 }
-
-watch(
-  authUser,
-  () => {
-    loadBooks()
-  },
-  { immediate: true }
-)
-
-const currentBook = computed(() => books.value.find((book) => book.id === currentBookId.value) ?? null)
-const needsBookSetup = computed(() => isSupabaseEnabled && !!authUser.value && !booksLoading.value && !currentBook.value)
-const isLocalBookMode = computed(() => !isSupabaseEnabled)
 
 export function useBooks() {
   return {
-    books,
-    booksError,
     currentBook,
-    currentBookId,
-    currentBookRole,
+    members,
+    me,
+    partner,
+    myUid,
+    partnerUid,
+    otherUid,
+    nameOf,
     booksLoading,
     bookActionLoading,
-    bookActionMessage,
-    needsBookSetup,
-    isLocalBookMode,
-    loadBooks,
+    loadBook,
     createBook,
-    joinBookByInvite,
-    saveActiveBook,
+    joinBook,
+    leaveBook,
+    updateBookSettings,
   }
 }

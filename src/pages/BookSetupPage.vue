@@ -1,95 +1,136 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { useBooks } from '../composables/useBooks'
+import { authDisplayName, useSupabaseAuth } from '../composables/useSupabaseAuth'
 import { toast } from '../composables/useToast'
-import { toUserMessage } from '../utils/userMessage'
 
-const { createBook, joinBookByInvite, bookActionLoading } = useBooks()
+const { createBook, joinBook, bookActionLoading } = useBooks()
+const { signOut } = useSupabaseAuth()
+const code = ref('')
 
-const mode = ref<'create' | 'join'>('create')
-const createName = ref('我们的账本')
-const inviteCode = ref('')
-const emptyStateText = computed(() => '先创建或加入共同账本。')
-
-const handleCreate = async () => {
-  const { data, error } = await createBook(createName.value)
-  if (error) {
-    toast.error(toUserMessage(error, '创建账本失败，请稍后重试。'))
-    return
-  }
-  if (data?.inviteCode) {
-    createName.value = data.name
-  }
-  toast.success('账本已创建。')
+const onCreate = async () => {
+  const { error } = await createBook()
+  if (error) toast.error(error.message)
+  else toast.success('账本已创建，把邀请码发给 TA 吧')
 }
 
-const handleJoin = async () => {
-  const { error } = await joinBookByInvite(inviteCode.value)
-  if (error) {
-    toast.error(toUserMessage(error, '加入账本失败，请稍后重试。'))
+const onJoin = async () => {
+  if (code.value.trim().length !== 6) {
+    toast.warning('邀请码是 6 位')
     return
   }
-  inviteCode.value = ''
-  toast.success('已加入情侣账本。')
+  const { error } = await joinBook(code.value)
+  if (error) toast.error(error.message)
+  else toast.success('已加入账本')
 }
 </script>
 
 <template>
-  <section class="page-stack">
-    <section class="section-card">
-      <div class="section-heading">
-        <div>
-          <h2>情侣账本</h2>
-          <p class="subtitle">{{ emptyStateText }}</p>
-        </div>
-      </div>
+  <div class="setup">
+    <header>
+      <p class="hi">你好，{{ authDisplayName }}</p>
+      <h1>开始共同记账</h1>
+    </header>
 
-      <div class="segment-row">
-        <button type="button" :class="['segment-button', { active: mode === 'create' }]" @click="mode = 'create'">
-          创建情侣账本
-        </button>
-        <button type="button" :class="['segment-button', { active: mode === 'join' }]" @click="mode = 'join'">
-          加入已有账本
-        </button>
-      </div>
+    <section class="card">
+      <div class="emoji">📒</div>
+      <h2>创建新账本</h2>
+      <p>创建后会生成 6 位邀请码，发给 TA 即可加入</p>
+      <button class="primary" :disabled="bookActionLoading" @click="onCreate">创建账本</button>
     </section>
 
-    <section class="section-card" v-if="mode === 'create'">
-      <div class="section-heading compact">
-        <div>
-          <h3>创建账本</h3>
-        </div>
-      </div>
-
-      <label class="field-group">
-        <span class="field-label">账本名称</span>
-        <input v-model="createName" type="text" placeholder="例如：我们的账本" />
-      </label>
-
-      <div class="form-actions">
-        <button type="button" class="primary-button" :disabled="bookActionLoading" @click="handleCreate">
-          {{ bookActionLoading ? '创建中...' : '创建账本' }}
-        </button>
-      </div>
+    <section class="card">
+      <div class="emoji">🔗</div>
+      <h2>加入 TA 的账本</h2>
+      <input
+        v-model="code"
+        class="code"
+        maxlength="6"
+        placeholder="输入邀请码"
+        autocapitalize="characters"
+        @keyup.enter="onJoin"
+      />
+      <button class="outline" :disabled="bookActionLoading" @click="onJoin">加入</button>
     </section>
 
-    <section class="section-card" v-else>
-      <div class="section-heading compact">
-        <div>
-          <h3>输入邀请码</h3>
-        </div>
-      </div>
-
-      <label class="field-group">
-        <span class="field-label">邀请码</span>
-        <input v-model="inviteCode" type="text" placeholder="例如：A1B2C3" style="text-transform: uppercase;" />
-      </label>
-
-      <div class="form-actions">
-        <button type="button" class="primary-button" :disabled="bookActionLoading" @click="handleJoin">
-          {{ bookActionLoading ? '加入中...' : '加入账本' }}
-        </button>
-      </div>
-    </section>
-  </section>
+    <button class="logout" @click="signOut">退出登录</button>
+  </div>
 </template>
+
+<style scoped>
+.setup {
+  max-width: 440px;
+  margin: 0 auto;
+  min-height: 100vh;
+  padding: calc(48px + env(safe-area-inset-top, 0px)) 20px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.hi {
+  margin: 0;
+  color: var(--text-soft);
+}
+h1 {
+  margin: 4px 0 8px;
+  font-size: 26px;
+}
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.emoji {
+  font-size: 28px;
+}
+h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.card p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 14px;
+}
+.code {
+  height: 52px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 22px;
+  letter-spacing: 8px;
+  text-transform: uppercase;
+  outline: none;
+}
+.code:focus {
+  border-color: var(--primary);
+}
+.primary,
+.outline {
+  height: 48px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+.primary {
+  background: var(--primary);
+  color: #fff;
+}
+.outline {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+button:disabled {
+  opacity: 0.6;
+}
+.logout {
+  margin-top: auto;
+  color: var(--text-faint);
+  font-size: 14px;
+  padding: 12px;
+}
+</style>

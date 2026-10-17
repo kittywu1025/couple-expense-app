@@ -1,51 +1,25 @@
-import type { Expense, SupportedCurrency } from '../types'
+import type { CurrencyCode } from '../types'
 
-export const SUPPORTED_CURRENCIES: Array<{
-  code: SupportedCurrency
-  label: string
-  locale: string
-}> = [
-  { code: 'JPY', label: '日元', locale: 'ja-JP' },
-  { code: 'CNY', label: '人民币', locale: 'zh-CN' },
+export interface CurrencyInfo {
+  code: CurrencyCode
+  name: string
+  symbol: string
+  decimals: number
+}
+
+export const CURRENCIES: CurrencyInfo[] = [
+  { code: 'JPY', name: '日元', symbol: '¥', decimals: 0 },
+  { code: 'CNY', name: '人民币', symbol: 'CN¥', decimals: 2 },
+  { code: 'USD', name: '美元', symbol: '$', decimals: 2 },
+  { code: 'KRW', name: '韩元', symbol: '₩', decimals: 0 },
+  { code: 'TWD', name: '新台币', symbol: 'NT$', decimals: 0 },
+  { code: 'HKD', name: '港币', symbol: 'HK$', decimals: 2 },
 ]
 
-const currencyMetaMap = SUPPORTED_CURRENCIES.reduce<Record<SupportedCurrency, { label: string; locale: string }>>(
-  (result, item) => {
-    result[item.code] = { label: item.label, locale: item.locale }
-    return result
-  },
-  {
-    JPY: { label: '日元', locale: 'ja-JP' },
-    CNY: { label: '人民币', locale: 'zh-CN' },
-  }
-)
+export const DEFAULT_CURRENCY: CurrencyCode = 'JPY'
 
-export const normalizeCurrency = (value?: string | null): SupportedCurrency => {
-  const normalized = value?.toUpperCase() as SupportedCurrency | undefined
-  return currencyMetaMap[normalized || 'JPY'] ? normalized || 'JPY' : 'JPY'
-}
+export const currencyInfo = (code: string) =>
+  CURRENCIES.find((c) => c.code === code) ?? CURRENCIES[0]
 
-export const formatCurrency = (
-  value: number,
-  currency: SupportedCurrency,
-  options?: Intl.NumberFormatOptions
-) => {
-  const digits = currency === 'JPY' ? 0 : 2
-  const formatted = new Intl.NumberFormat(currencyMetaMap[currency].locale, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: digits,
-    ...options,
-  }).format(value)
-
-  return `${currency} ${formatted}`
-}
-
-export const getExpenseAmountLabel = (expense: Expense) => {
-  const baseAmount = formatCurrency(expense.amount, expense.baseCurrency)
-  if (expense.originalCurrency === expense.baseCurrency) {
-    return baseAmount
-  }
-
-  const originalAmount = formatCurrency(expense.originalAmount, expense.originalCurrency)
-  return `${originalAmount} ≈ ${baseAmount}`
-}
+export const isCurrencyCode = (code: unknown): code is CurrencyCode =>
+  CURRENCIES.some((c) => c.code === code)

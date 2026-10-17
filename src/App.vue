@@ -1,313 +1,221 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import TabBar from './components/TabBar.vue'
+import type { TabKey } from './types'
 import ToastViewport from './components/ToastViewport.vue'
+import ConfirmHost from './components/ConfirmHost.vue'
 import AuthPage from './pages/AuthPage.vue'
-import AddExpensePage from './pages/AddExpensePage.vue'
 import BookSetupPage from './pages/BookSetupPage.vue'
-import CalendarPage from './pages/CalendarPage.vue'
-import CategoryManagementPage from './pages/CategoryManagementPage.vue'
-import ExpenseDetailModal from './components/ExpenseDetailModal.vue'
+import ProfileSetupPage from './pages/ProfileSetupPage.vue'
+import ProfileDetailPage from './pages/ProfileDetailPage.vue'
 import FixedExpensesPage from './pages/FixedExpensesPage.vue'
-import HomePage from './pages/HomePage.vue'
-import RecordsPage from './pages/RecordsPage.vue'
-import SettingsPage from './pages/SettingsPage.vue'
-import StatsPage from './pages/StatsPage.vue'
-import { applyPwaUpdate, checkForPwaUpdate, dismissPwaUpdate, usePwaUpdate } from './composables/usePwaUpdate'
-import { useBooks } from './composables/useBooks'
-import { useExpenses } from './composables/useExpenses'
+import AboutPage from './pages/AboutPage.vue'
+import CalendarPage from './pages/CalendarPage.vue'
+import MonthRecap from './components/MonthRecap.vue'
+import SettlementRulesPage from './pages/SettlementRulesPage.vue'
 import { useFixedExpenses } from './composables/useFixedExpenses'
+// 本机偏好（金额配色等）在启动时就要生效
+import './composables/usePrefs'
+import HomePage from './pages/HomePage.vue'
+import StatsPage from './pages/StatsPage.vue'
+import MePage from './pages/MePage.vue'
+import AddRecordPage from './pages/AddRecordPage.vue'
 import { useSupabaseAuth } from './composables/useSupabaseAuth'
+import { useBooks } from './composables/useBooks'
+import { useRecords } from './composables/useRecords'
+import { applyPwaUpdate, dismissPwaUpdate, usePwaUpdate } from './composables/usePwaUpdate'
 import { toast } from './composables/useToast'
+import { isDemoMode } from './lib/demo'
+import {
+  aboutPageOpen,
+  addSheetOpen,
+  calendarPageOpen,
+  closeAddSheet,
+  editingRecord,
+  fixedPageOpen,
+  openAddSheet,
+  profilePageOpen,
+  rulesPageOpen,
+} from './composables/useUi'
 
-const { authUser, authLoading, isSupabaseEnabled } = useSupabaseAuth()
-const { needsBookSetup } = useBooks()
-const { expenses, refreshExpenses } = useExpenses()
-const { ensureFixedExpensesGenerated } = useFixedExpenses()
-const { updateAvailable, updateMessage, isApplyingUpdate } = usePwaUpdate()
+const { authUser, authLoading, authGender, isSupabaseEnabled } = useSupabaseAuth()
+const { currentBook, booksLoading, loadBook, me } = useBooks()
+const { loadRecords } = useRecords()
+const { updateAvailable, updateMessage } = usePwaUpdate()
 
-const tabs = [
-  { key: 'home', label: '首页', icon: '⌂' },
-  { key: 'records', label: '记录', icon: '≣' },
-  { key: 'stats', label: '统计', icon: '◔' },
-  { key: 'settings', label: '设置', icon: '⚙' },
-]
+const activeTab = ref<TabKey>('home')
 
-const activeTab = ref('home')
-const visibleTab = computed(() =>
-  ['calendar', 'add'].includes(activeTab.value) ? 'home' : ['categories', 'fixed-expenses'].includes(activeTab.value) ? 'settings' : activeTab.value
+// 新注册（还没选性别）的用户先完善资料；老账本里已有性别的成员直接放行
+const needsProfile = computed(() => !authGender.value && !me.value?.gender)
+
+const screen = computed(() => {
+  if (isDemoMode) return !currentBook.value ? 'loading' : needsProfile.value ? 'profile' : 'app'
+  if (!isSupabaseEnabled) return 'unconfigured'
+  if (authLoading.value) return 'loading'
+  if (!authUser.value) return 'auth'
+  if (booksLoading.value && !currentBook.value) return 'loading'
+  if (needsProfile.value) return 'profile'
+  if (!currentBook.value) return 'setup'
+  return 'app'
+})
+
+// 离开主界面（退出账本 / 退出登录）时把二级页、弹窗都收起，重新进来不会停在半路
+watch(screen, (next) => {
+  if (next === 'app') return
+  profilePageOpen.value = false
+  fixedPageOpen.value = false
+  aboutPageOpen.value = false
+  rulesPageOpen.value = false
+  calendarPageOpen.value = false
+  closeAddSheet()
+  activeTab.value = 'home'
+})
+
+// 进入账本、回到前台时检查到期的固定扣款，自动记账
+const { generateDue } = useFixedExpenses()
+const runFixedExpenses = async () => {
+  const count = await generateDue()
+  if (count) toast.success(`已自动记入 ${count} 笔固定扣款`)
+}
+watch(
+  () => (screen.value === 'app' ? currentBook.value?.id : null),
+  (id) => {
+    if (id) runFixedExpenses()
+  },
+  { immediate: true },
 )
-const editingExpenseId = ref<string | null>(null)
-const detailExpenseId = ref<string | null>(null)
-const pendingDetailExpenseId = ref<string | null>(null)
-const detailOriginTab = ref<'home' | 'records'>('home')
-const afterSaveTab = ref<'home' | 'records'>('home')
-const pullState = ref<'idle' | 'pulling' | 'ready' | 'refreshing' | 'done'>('idle')
-const pullDistance = ref(0)
-const touchStartY = ref(0)
-const isTrackingPull = ref(false)
+
+// 回到前台时刷新，拿到对方新记的账
+const refreshOnVisible = () => {
+  if (document.visibilityState !== 'visible' || screen.value !== 'app') return
+  loadBook().then(loadRecords).then(runFixedExpenses)
+}
+onMounted(() => document.addEventListener('visibilitychange', refreshOnVisible))
+onBeforeUnmount(() => document.removeEventListener('visibilitychange', refreshOnVisible))
 
 if (typeof window !== 'undefined' && window.sessionStorage.getItem('pwa-updated') === '1') {
   window.sessionStorage.removeItem('pwa-updated')
   toast.success('已更新到最新版本。')
 }
 
-const selectedExpense = computed(() =>
-  detailExpenseId.value ? expenses.value.find((item) => item.id === detailExpenseId.value) || null : null
-)
-
-const openNewExpense = (returnTab: 'home' | 'records' = 'home') => {
-  editingExpenseId.value = null
-  detailExpenseId.value = null
-  pendingDetailExpenseId.value = null
-  afterSaveTab.value = returnTab
-  activeTab.value = 'add'
-}
-
-const openExpenseDetail = (expenseId: string, origin: 'home' | 'records' = 'home') => {
-  detailExpenseId.value = expenseId
-  detailOriginTab.value = origin
-}
-
-const closeExpenseDetail = () => {
-  detailExpenseId.value = null
-}
-
-const openEditExpense = (
-  expenseId: string,
-  returnTab: 'home' | 'records' = 'records',
-  returnToDetail = false
-) => {
-  editingExpenseId.value = expenseId
-  detailExpenseId.value = null
-  afterSaveTab.value = returnTab
-  pendingDetailExpenseId.value = returnToDetail ? expenseId : null
-  activeTab.value = 'add'
-}
-
-const handleSaved = (message: string) => {
-  if (message) {
-    toast.success(message)
+watch(updateAvailable, (visible) => {
+  if (!visible) {
+    toast.dismiss('pwa-update')
+    return
   }
-  editingExpenseId.value = null
-  activeTab.value = afterSaveTab.value
-  if (pendingDetailExpenseId.value) {
-    detailExpenseId.value = pendingDetailExpenseId.value
-  }
-  pendingDetailExpenseId.value = null
-}
-
-const handleCancelForm = () => {
-  editingExpenseId.value = null
-  activeTab.value = afterSaveTab.value
-  if (pendingDetailExpenseId.value) {
-    detailExpenseId.value = pendingDetailExpenseId.value
-  }
-  pendingDetailExpenseId.value = null
-}
-
-const handleTabChange = (tab: string) => {
-  editingExpenseId.value = null
-  detailExpenseId.value = null
-  pendingDetailExpenseId.value = null
-  activeTab.value = tab
-}
-
-const handleDeleteSuccess = () => {
-  detailExpenseId.value = null
-  toast.success('已删除这笔记录。')
-}
-
-const pullMessage = computed(() => {
-  if (pullState.value === 'refreshing') return '正在刷新'
-  if (pullState.value === 'done') return '已是最新'
-  if (pullState.value === 'ready') return '松开刷新'
-  if (pullState.value === 'pulling') return '下拉刷新'
-  return ''
+  toast.info(updateMessage.value, {
+    id: 'pwa-update',
+    title: '有新版本',
+    duration: 0,
+    dismissible: false,
+    actions: [
+      { label: '稍后', kind: 'text', onClick: () => dismissPwaUpdate() },
+      { label: '立即更新', kind: 'primary', onClick: () => applyPwaUpdate() },
+    ],
+  })
 })
-
-const resetPullState = () => {
-  pullDistance.value = 0
-  isTrackingPull.value = false
-  if (pullState.value !== 'refreshing') {
-    pullState.value = 'idle'
-  }
-}
-
-const finishPullState = (message: '已是最新' | '已更新') => {
-  pullState.value = 'done'
-  toast.info(message)
-  window.setTimeout(() => {
-    if (pullState.value === 'done') {
-      pullState.value = 'idle'
-    }
-  }, 900)
-}
-
-const handleRefresh = async () => {
-  pullState.value = 'refreshing'
-  pullDistance.value = 72
-  await refreshExpenses()
-  await ensureFixedExpensesGenerated()
-  await checkForPwaUpdate()
-  finishPullState('已是最新')
-}
-
-const handleTouchStart = (event: TouchEvent) => {
-  if (window.scrollY > 0 || pullState.value === 'refreshing' || activeTab.value === 'add') {
-    resetPullState()
-    return
-  }
-
-  touchStartY.value = event.touches[0]?.clientY || 0
-  isTrackingPull.value = true
-}
-
-const handleTouchMove = (event: TouchEvent) => {
-  if (!isTrackingPull.value || window.scrollY > 0) return
-
-  const currentY = event.touches[0]?.clientY || 0
-  const distance = Math.max(0, currentY - touchStartY.value)
-  if (distance <= 0) {
-    resetPullState()
-    return
-  }
-
-  pullDistance.value = Math.min(distance * 0.45, 84)
-  pullState.value = pullDistance.value >= 54 ? 'ready' : 'pulling'
-}
-
-const handleTouchEnd = async () => {
-  if (!isTrackingPull.value) return
-  isTrackingPull.value = false
-
-  if (pullState.value === 'ready') {
-    await handleRefresh()
-    return
-  }
-
-  resetPullState()
-}
-
-watch(
-  [updateAvailable, updateMessage, isApplyingUpdate],
-  ([visible, message, applying]) => {
-    if (!visible) {
-      toast.dismiss('pwa-update')
-      return
-    }
-
-    toast.info(message, {
-      id: 'pwa-update',
-      title: '发现新版本',
-      duration: 0,
-      actions: [
-        {
-          label: '稍后',
-          kind: 'text',
-          onClick: () => dismissPwaUpdate(),
-        },
-        {
-          label: applying ? '正在刷新' : '立即刷新',
-          kind: 'primary',
-          disabled: applying,
-          onClick: () => applyPwaUpdate(),
-        },
-      ],
-    })
-  },
-  { immediate: true }
-)
-
-watch(
-  [authUser, needsBookSetup, activeTab],
-  ([user, needsSetup, tab]) => {
-    if (!user || needsSetup) return
-    if (tab === 'home' || tab === 'settings' || tab === 'fixed-expenses') {
-      void ensureFixedExpensesGenerated()
-    }
-  },
-  { immediate: true }
-)
-
 </script>
 
 <template>
-  <div class="app-shell" v-if="authLoading">
-    <div class="page-card centered-card">
-      <p class="section-kicker">正在加载</p>
-      <h2>检查同步状态中</h2>
-    </div>
-  </div>
-
-  <div class="app-shell" v-else>
-    <AuthPage v-if="isSupabaseEnabled && !authUser" />
-
-    <template v-else>
-      <div
-        v-if="pullMessage"
-        class="pull-refresh-indicator"
-        :style="{ transform: `translate(-50%, ${Math.min(pullDistance, 72) - 72}px)` }"
-      >
-        {{ pullMessage }}
-      </div>
-
-      <main
-        class="page-stack"
-        @touchstart.passive="handleTouchStart"
-        @touchmove.passive="handleTouchMove"
-        @touchend="handleTouchEnd"
-        @touchcancel="resetPullState"
-      >
-        <BookSetupPage v-if="needsBookSetup" />
-        <HomePage
-          v-else-if="activeTab === 'home'"
-          @add="openNewExpense('home')"
-          @open="openExpenseDetail($event, 'home')"
-          @open-calendar="handleTabChange('calendar')"
-          @open-settings="handleTabChange('settings')"
-        />
-        <CalendarPage
-          v-else-if="activeTab === 'calendar'"
-          @back="handleTabChange('home')"
-          @edit="openExpenseDetail($event, 'home')"
-        />
-        <AddExpensePage
-          v-else-if="activeTab === 'add'"
-          :expense-id="editingExpenseId"
-          @saved="handleSaved"
-          @cancel="handleCancelForm"
-        />
-        <RecordsPage
-          v-else-if="activeTab === 'records'"
-          @open="openExpenseDetail($event, 'records')"
-        />
-        <StatsPage v-else-if="activeTab === 'stats'" />
-        <SettingsPage
-          v-else-if="activeTab === 'settings'"
-          @open-categories="handleTabChange('categories')"
-          @open-fixed-expenses="handleTabChange('fixed-expenses')"
-        />
-        <CategoryManagementPage v-else-if="activeTab === 'categories'" @back="handleTabChange('settings')" />
-        <FixedExpensesPage v-else-if="activeTab === 'fixed-expenses'" @back="handleTabChange('settings')" />
-      </main>
-
-      <TabBar
-        v-if="!needsBookSetup"
-        :tabs="tabs"
-        :active-tab="visibleTab"
-        @change="handleTabChange"
-      />
-    </template>
-  </div>
-
-  <ExpenseDetailModal
-    v-if="selectedExpense"
-    :expense="selectedExpense"
-    @close="closeExpenseDetail"
-    @edit="openEditExpense($event, detailOriginTab, true)"
-    @deleted="handleDeleteSuccess"
-  />
-
   <ToastViewport />
+  <ConfirmHost />
+
+  <div v-if="screen === 'unconfigured'" class="center">
+    <p>请在 <code>.env.local</code> 中配置 VITE_SUPABASE_URL 和 VITE_SUPABASE_ANON_KEY。</p>
+  </div>
+  <div v-else-if="screen === 'loading'" class="center">
+    <div class="spinner" />
+  </div>
+  <AuthPage v-else-if="screen === 'auth'" />
+  <ProfileSetupPage v-else-if="screen === 'profile'" />
+  <BookSetupPage v-else-if="screen === 'setup'" />
+
+  <template v-else>
+    <main class="main">
+      <!-- 页面有多个根节点，Transition 需要包一层单根元素 -->
+      <transition name="tab" mode="out-in">
+        <div :key="activeTab">
+          <HomePage v-if="activeTab === 'home'" />
+          <StatsPage v-else-if="activeTab === 'stats'" />
+          <MePage v-else />
+        </div>
+      </transition>
+    </main>
+    <TabBar v-model="activeTab" @add="openAddSheet" />
+    <MonthRecap :show-trigger="activeTab === 'home'" />
+    <transition name="push">
+      <ProfileDetailPage v-if="profilePageOpen" />
+    </transition>
+    <transition name="push">
+      <FixedExpensesPage v-if="fixedPageOpen" />
+    </transition>
+    <transition name="push">
+      <AboutPage v-if="aboutPageOpen" />
+    </transition>
+    <transition name="push">
+      <CalendarPage v-if="calendarPageOpen" />
+    </transition>
+    <transition name="push">
+      <SettlementRulesPage v-if="rulesPageOpen" />
+    </transition>
+    <transition name="slide-up">
+      <AddRecordPage v-if="addSheetOpen" :key="editingRecord?.id ?? 'new'" :record="editingRecord" @close="closeAddSheet" />
+    </transition>
+  </template>
 </template>
+
+<style scoped>
+.main {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(96px + env(safe-area-inset-bottom, 0px));
+}
+.center {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--text-soft);
+}
+.spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid var(--primary-soft);
+  border-top-color: var(--primary);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.tab-enter-active,
+.tab-leave-active {
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.tab-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.tab-leave-to {
+  opacity: 0;
+}
+.push-enter-active,
+.push-leave-active {
+  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.push-enter-from,
+.push-leave-to {
+  transform: translateX(100%);
+}
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: transform 0.28s ease;
+}
+.slide-up-enter-from,
+.slide-up-leave-to {
+  transform: translateY(100%);
+}
+</style>

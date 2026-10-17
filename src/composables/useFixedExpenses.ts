@@ -1,351 +1,211 @@
 import { computed, ref, watch } from 'vue'
-import type { Expense, FixedExpense, FixedExpenseRun, SplitPreset, SplitRule } from '../types'
-import { loadJSON, saveJSON } from '../utils/storage'
+import { supabase } from '../lib/supabase'
+import { isDemoMode } from '../lib/demo'
+import type { FixedExpense, FixedExpenseInput, NewRecord } from '../types'
+import { formatSupabaseError, useBooks } from './useBooks'
+import { useRecords } from './useRecords'
 import { authUser } from './useSupabaseAuth'
-import { useBooks } from './useBooks'
-import { useSettings } from './useSettings'
-import { toast } from './useToast'
-import {
-  deleteFixedExpenseRemote,
-  deleteFixedExpenseRunRemote,
-  fetchFixedExpenseRunsRemote,
-  fetchFixedExpensesRemote,
-  insertFixedExpenseRunRemote,
-  upsertFixedExpenseRemote,
-} from './useSupabaseFixedExpenses'
-import { normalizeCurrency } from '../utils/currency'
-import { isPersonalExpenseCategory, isSharedExpenseCategory, normalizeCategoryId } from '../utils/categories'
-import {
-  formatMonthKey,
-  getExpenseRunMonth,
-  getFixedExpenseNextDate,
-  getRunDateForMonth,
-  shouldGenerateFixedExpense,
-} from '../utils/fixedExpenses'
-import { useExpenses } from './useExpenses'
+import { toDateKey, todayKey } from '../utils/format'
 
-const FIXED_EXPENSES_STORAGE_KEY = 'couple-expense-app-fixed-expenses'
-const FIXED_EXPENSE_RUNS_STORAGE_KEY = 'couple-expense-app-fixed-expense-runs'
+const items = ref<FixedExpense[]>([])
+const loading = ref(false)
 
-const { settings } = useSettings()
-const { currentBookId, isLocalBookMode } = useBooks()
-const { addExpense } = useExpenses()
+const { currentBook } = useBooks()
 
-const formatFixedExpenseError = (error: unknown, fallback: string) => {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof (error as { message?: unknown })?.message === 'string'
-        ? String((error as { message?: string }).message)
-        : ''
-  const normalized = message.toLowerCase()
-  if (normalized.includes('relation') && normalized.includes('does not exist')) {
-    return '固定消费数据表还没有创建，请先在 Supabase 执行 SQL。'
-  }
-  if (normalized.includes('permission denied') || normalized.includes('row-level security')) {
-    return '当前账号没有权限操作固定消费，请检查 Supabase RLS 策略。'
-  }
-  return fallback
-}
-
-const normalizeSplit = (split: Partial<SplitRule> | undefined, fallback: SplitRule): SplitRule => {
-  const meValue = Number(split?.me)
-  const partnerValue = Number(split?.partner)
-  if (Number.isFinite(meValue) && Number.isFinite(partnerValue) && meValue + partnerValue > 0) {
-    const total = meValue + partnerValue
-    return {
-      me: Number(((meValue / total) * 100).toFixed(2)),
-      partner: Number(((partnerValue / total) * 100).toFixed(2)),
-    }
-  }
-  return fallback
-}
-
-const personalSplit = (payer: FixedExpense['payer']): SplitRule =>
-  payer === 'me' ? { me: 100, partner: 0 } : { me: 0, partner: 100 }
-
-const getDefaultSplitForCategory = (category: string): { split: SplitRule; splitPreset: SplitPreset } => {
-  if (category === 'rent') {
-    return {
-      split: normalizeSplit(settings.value.defaultSplits.rent, { me: 60, partner: 40 }),
-      splitPreset: 'rent',
-    }
-  }
-  if (isPersonalExpenseCategory(category)) {
-    return {
-      split: personalSplit('me'),
-      splitPreset: 'payer-only',
-    }
-  }
-  if (isSharedExpenseCategory(category)) {
-    return {
-      split: normalizeSplit(settings.value.defaultSplits.standard, { me: 50, partner: 50 }),
-      splitPreset: 'equal',
-    }
-  }
-  return {
-    split: normalizeSplit(settings.value.defaultSplits.standard, { me: 50, partner: 50 }),
-    splitPreset: 'equal',
-  }
-}
-
-const normalizeFixedExpense = (item?: Partial<FixedExpense>): FixedExpense => {
-  const category = normalizeCategoryId(item?.category, 'expense')
-  const baseRule = getDefaultSplitForCategory(category)
-  return {
-    id: item?.id || crypto.randomUUID(),
-    bookId: item?.bookId,
-    createdBy: item?.createdBy,
-    name: item?.name?.trim() || '',
-    amount: Math.max(0, Number(item?.amount) || 0),
-    currency: normalizeCurrency(item?.currency || settings.value.defaultCurrency),
-    category,
-    cycle: 'monthly',
-    dayOfMonth: Math.max(1, Math.min(31, Number(item?.dayOfMonth) || new Date().getDate())),
-    startDate: item?.startDate || new Date().toISOString().slice(0, 10),
-    endDate: item?.endDate || null,
-    payer: item?.payer === 'partner' ? 'partner' : 'me',
-    splitPreset: item?.splitPreset || baseRule.splitPreset,
-    split: normalizeSplit(item?.split, baseRule.split),
-    enabled: item?.enabled ?? true,
-    createdAt: item?.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  }
-}
-
-const normalizeRun = (item?: Partial<FixedExpenseRun>): FixedExpenseRun => ({
-  id: item?.id || crypto.randomUUID(),
-  fixedExpenseId: item?.fixedExpenseId || '',
-  bookId: item?.bookId,
-  generatedMonth: item?.generatedMonth || formatMonthKey(new Date()),
-  expenseId: item?.expenseId || null,
-  generatedAt: item?.generatedAt || new Date().toISOString(),
+const normalize = (row: Record<string, unknown>): FixedExpense => ({
+  id: String(row.id),
+  bookId: String(row.book_id),
+  name: String(row.name),
+  amount: Number(row.amount),
+  category: String(row.category),
+  subCategory: row.sub_category ? String(row.sub_category) : null,
+  dayOfMonth: Number(row.day_of_month),
+  payerUid: String(row.payer_uid),
+  type: row.type === 'shared' ? 'shared' : 'personal',
+  ratio: Number(row.ratio ?? 10),
+  paused: !!row.paused,
+  startDate: String(row.start_date),
+  lastGeneratedDate: row.last_generated_date ? String(row.last_generated_date) : null,
+  createdBy: String(row.created_by),
 })
 
-const fixedExpenses = ref<FixedExpense[]>(
-  loadJSON<FixedExpense[]>(FIXED_EXPENSES_STORAGE_KEY, []).map((item) => normalizeFixedExpense(item))
-)
-const fixedExpenseRuns = ref<FixedExpenseRun[]>(
-  loadJSON<FixedExpenseRun[]>(FIXED_EXPENSE_RUNS_STORAGE_KEY, []).map((item) => normalizeRun(item))
-)
-const fixedExpensesLoaded = ref(false)
-const fixedExpensesGenerating = ref(false)
-
-const sortFixedExpenses = (items: FixedExpense[]) =>
-  [...items].sort((left, right) => {
-    if (left.enabled !== right.enabled) return left.enabled ? -1 : 1
-    if (left.dayOfMonth !== right.dayOfMonth) return left.dayOfMonth - right.dayOfMonth
-    return left.name.localeCompare(right.name, 'zh-CN')
-  })
-
-const loadFixedExpensesRemote = async () => {
-  if (!authUser.value?.id || !currentBookId.value || isLocalBookMode.value) {
-    fixedExpensesLoaded.value = true
-    return
-  }
-
-  const [{ data: expenseData, error: expenseError }, { data: runData, error: runError }] = await Promise.all([
-    fetchFixedExpensesRemote(currentBookId.value),
-    fetchFixedExpenseRunsRemote(currentBookId.value),
-  ])
-
-  if (expenseError) throw expenseError
-  if (runError) throw runError
-
-  fixedExpenses.value = sortFixedExpenses((expenseData || []).map((item) => normalizeFixedExpense(item)))
-  fixedExpenseRuns.value = (runData || []).map((item) => normalizeRun(item))
-  fixedExpensesLoaded.value = true
-}
-
-const refreshFixedExpenses = async () => {
-  if (authUser.value?.id && currentBookId.value && !isLocalBookMode.value) {
-    try {
-      await loadFixedExpensesRemote()
-    } catch (error) {
-      console.error('加载固定消费失败：', error)
-      toast.error(formatFixedExpenseError(error, '固定消费读取失败，请稍后重试。'))
-    }
-    return
-  }
-
-  fixedExpenses.value = sortFixedExpenses(
-    loadJSON<FixedExpense[]>(FIXED_EXPENSES_STORAGE_KEY, []).map((item) => normalizeFixedExpense(item))
-  )
-  fixedExpenseRuns.value = loadJSON<FixedExpenseRun[]>(FIXED_EXPENSE_RUNS_STORAGE_KEY, []).map((item) => normalizeRun(item))
-  fixedExpensesLoaded.value = true
-}
-
-watch(
-  [authUser, currentBookId],
-  () => {
-    void refreshFixedExpenses()
-  },
-  { immediate: true }
-)
-
-watch(
-  fixedExpenses,
-  (value) => {
-    saveJSON(FIXED_EXPENSES_STORAGE_KEY, value.map((item) => normalizeFixedExpense(item)))
-  },
-  { deep: true }
-)
-
-watch(
-  fixedExpenseRuns,
-  (value) => {
-    saveJSON(FIXED_EXPENSE_RUNS_STORAGE_KEY, value.map((item) => normalizeRun(item)))
-  },
-  { deep: true }
-)
-
-const buildExpenseFromFixedExpense = (fixedExpense: FixedExpense, expenseId: string, date: string): Expense => ({
-  id: expenseId,
-  recordType: 'expense',
-  title: fixedExpense.name.trim(),
-  amount: fixedExpense.amount,
-  originalAmount: fixedExpense.amount,
-  originalCurrency: fixedExpense.currency,
-  baseCurrency: fixedExpense.currency,
-  exchangeRateUsed: 1,
-  exchangeRateDate: date,
-  date,
-  category: fixedExpense.category,
-  payer: fixedExpense.payer,
-  bookId: currentBookId.value || fixedExpense.bookId,
-  createdBy: authUser.value?.id || fixedExpense.createdBy,
-  split: { ...fixedExpense.split },
-  splitPreset: fixedExpense.splitPreset,
-  recurrence: 'none',
-  note: `由固定消费自动生成（${fixedExpense.id}）`,
+const toRow = (input: FixedExpenseInput) => ({
+  name: input.name,
+  amount: input.amount,
+  category: input.category,
+  sub_category: input.subCategory,
+  day_of_month: input.dayOfMonth,
+  payer_uid: input.payerUid,
+  type: input.type,
+  ratio: input.ratio,
 })
 
-const saveFixedExpense = async (item: FixedExpense) => {
-  const normalized = normalizeFixedExpense({
-    ...item,
-    bookId: currentBookId.value || item.bookId,
-    createdBy: authUser.value?.id || item.createdBy,
-  })
-
-  if (authUser.value?.id && currentBookId.value && !isLocalBookMode.value) {
-    const { data, error } = await upsertFixedExpenseRemote(normalized)
-    if (error) return { error, data: null }
-    const next = normalizeFixedExpense(data as FixedExpense)
-    fixedExpenses.value = sortFixedExpenses(
-      fixedExpenses.value.some((fixedExpense) => fixedExpense.id === next.id)
-        ? fixedExpenses.value.map((fixedExpense) => (fixedExpense.id === next.id ? next : fixedExpense))
-        : [...fixedExpenses.value, next]
-    )
-    return { error: null, data: next }
-  }
-
-  fixedExpenses.value = sortFixedExpenses(
-    fixedExpenses.value.some((fixedExpense) => fixedExpense.id === normalized.id)
-      ? fixedExpenses.value.map((fixedExpense) => (fixedExpense.id === normalized.id ? normalized : fixedExpense))
-      : [...fixedExpenses.value, normalized]
-  )
-  return { error: null, data: normalized }
+/** 某个月的扣款日（超过当月天数按月底） */
+export const dueDateIn = (year: number, monthIndex: number, day: number) => {
+  const lastDay = new Date(year, monthIndex + 1, 0).getDate()
+  return toDateKey(new Date(year, monthIndex, Math.min(day, lastDay)))
 }
 
-const deleteFixedExpense = async (item: FixedExpense) => {
-  if (authUser.value?.id && currentBookId.value && !isLocalBookMode.value) {
-    const { error } = await deleteFixedExpenseRemote(item.id, currentBookId.value)
-    if (error) return { error }
+/** 下一次扣款日期（含今天） */
+export const nextDueDate = (f: FixedExpense, today = todayKey()) => {
+  const base = new Date()
+  for (let i = 0; i < 3; i++) {
+    const due = dueDateIn(base.getFullYear(), base.getMonth() + i, f.dayOfMonth)
+    if (due >= today && due >= f.startDate && (!f.lastGeneratedDate || due > f.lastGeneratedDate)) return due
   }
+  return dueDateIn(base.getFullYear(), base.getMonth() + 1, f.dayOfMonth)
+}
 
-  fixedExpenses.value = fixedExpenses.value.filter((fixedExpense) => fixedExpense.id !== item.id)
-  fixedExpenseRuns.value = fixedExpenseRuns.value.filter((run) => run.fixedExpenseId !== item.id)
+/** 演示模式下在本地模拟服务器端的生成逻辑 */
+const generateLocally = (today: string) => {
+  const created: NewRecord[] = []
+  items.value = items.value.map((f) => {
+    if (f.paused) return f
+    let last = f.lastGeneratedDate
+    const from = last && last >= f.startDate ? last : f.startDate
+    const cursor = new Date(Number(from.slice(0, 4)), Number(from.slice(5, 7)) - 1, 1)
+    for (let guard = 0; guard < 24; guard++) {
+      const due = dueDateIn(cursor.getFullYear(), cursor.getMonth(), f.dayOfMonth)
+      if (due > today) break
+      if (due >= f.startDate && (!last || due > last)) {
+        created.push({
+          amount: f.amount,
+          kind: 'expense',
+          type: f.type,
+          payerUid: f.payerUid,
+          ratio: f.ratio,
+          category: f.category,
+          subCategory: f.subCategory,
+          note: `${f.name}（固定扣款）`,
+          date: due,
+        })
+        last = due
+      }
+      cursor.setMonth(cursor.getMonth() + 1)
+    }
+    return { ...f, lastGeneratedDate: last }
+  })
+  return created
+}
+
+const load = async () => {
+  const bookId = currentBook.value?.id
+  if (!bookId || isDemoMode || !supabase) {
+    if (!bookId) items.value = []
+    return
+  }
+  loading.value = true
+  const { data, error } = await supabase
+    .from('fixed_expenses')
+    .select('*')
+    .eq('book_id', bookId)
+    .order('day_of_month', { ascending: true })
+  loading.value = false
+  if (error) {
+    console.error('读取固定扣款失败：', error)
+    return
+  }
+  items.value = (data ?? []).map(normalize)
+}
+
+/**
+ * 打开 App 时调用：把今天及之前到期、还没生成的固定扣款写进账本。
+ * 返回生成的笔数。
+ */
+const generateDue = async () => {
+  const bookId = currentBook.value?.id
+  if (!bookId) return 0
+  const today = todayKey()
+  if (isDemoMode || !supabase) {
+    const created = generateLocally(today)
+    if (created.length) await useRecords().addRecordsBulk(created)
+    return created.length
+  }
+  const { data, error } = await supabase.rpc('generate_fixed_expenses', { p_book_id: bookId, p_today: today })
+  if (error) {
+    // 表还没建（没执行 SQL）时静默跳过，不影响记账
+    console.warn('生成固定扣款失败：', error)
+    return 0
+  }
+  const count = Number(data ?? 0)
+  if (count > 0) {
+    await Promise.all([useRecords().loadRecords(), load()])
+  }
+  return count
+}
+
+const add = async (input: FixedExpenseInput) => {
+  const bookId = currentBook.value?.id
+  const uid = authUser.value?.id
+  if (!bookId || !uid) return { error: new Error('还没有加入账本。') }
+  if (isDemoMode || !supabase) {
+    items.value = [
+      ...items.value,
+      {
+        ...input,
+        id: crypto.randomUUID(),
+        bookId,
+        paused: false,
+        startDate: todayKey(),
+        lastGeneratedDate: null,
+        createdBy: uid,
+      },
+    ]
+    return { error: null }
+  }
+  const { data, error } = await supabase
+    .from('fixed_expenses')
+    .insert({ ...toRow(input), book_id: bookId, created_by: uid, start_date: todayKey() })
+    .select()
+    .single()
+  if (error) return { error: new Error(formatSupabaseError(error, '保存失败，请稍后重试。')) }
+  items.value = [...items.value, normalize(data)]
   return { error: null }
 }
 
-const toggleFixedExpense = async (item: FixedExpense, enabled: boolean) =>
-  saveFixedExpense({
-    ...item,
-    enabled,
-  })
-
-const ensureFixedExpensesGenerated = async (today = new Date()) => {
-  if (fixedExpensesGenerating.value) return
-  if (!currentBookId.value) return
-
-  fixedExpensesGenerating.value = true
-  try {
-    if (!fixedExpensesLoaded.value) {
-      await refreshFixedExpenses()
-    }
-
-    const month = getExpenseRunMonth(today)
-    for (const fixedExpense of fixedExpenses.value) {
-      if (!shouldGenerateFixedExpense(fixedExpense, fixedExpenseRuns.value, today)) continue
-
-      const effectiveDate = getRunDateForMonth(month, fixedExpense.dayOfMonth)
-
-      const expenseId = crypto.randomUUID()
-      const run = normalizeRun({
-        fixedExpenseId: fixedExpense.id,
-        bookId: currentBookId.value,
-        generatedMonth: month,
-        expenseId,
-      })
-
-      if (authUser.value?.id && !isLocalBookMode.value) {
-        const { error: runError } = await insertFixedExpenseRunRemote(run)
-        if (runError) {
-          const code = (runError as { code?: string }).code
-          if (code === '23505') {
-            await refreshFixedExpenses()
-            continue
-          }
-          console.error('固定消费生成记录失败：', runError)
-          toast.warning('固定消费生成失败，请稍后重试。')
-          continue
-        }
-      }
-
-      const result = await addExpense(buildExpenseFromFixedExpense(fixedExpense, expenseId, effectiveDate))
-
-      if (result.status === 'synced' || result.status === 'local_only') {
-        fixedExpenseRuns.value = [run, ...fixedExpenseRuns.value.filter((item) => item.id !== run.id)]
-        continue
-      }
-
-      if (authUser.value?.id && !isLocalBookMode.value) {
-        await deleteFixedExpenseRunRemote(run.id)
-      }
-      toast.warning('固定消费已尝试生成，但云端同步失败，请稍后重试。')
-    }
-  } finally {
-    fixedExpensesGenerating.value = false
+const patch = async (id: string, values: Record<string, unknown>, local: Partial<FixedExpense>) => {
+  if (isDemoMode || !supabase) {
+    items.value = items.value.map((f) => (f.id === id ? { ...f, ...local } : f))
+    return { error: null }
   }
+  const { data, error } = await supabase.from('fixed_expenses').update(values).eq('id', id).select().single()
+  if (error) return { error: new Error(formatSupabaseError(error, '保存失败，请稍后重试。')) }
+  const next = normalize(data)
+  items.value = items.value.map((f) => (f.id === id ? next : f))
+  return { error: null }
 }
 
-const fixedExpenseList = computed(() =>
-  sortFixedExpenses(
-    fixedExpenses.value.map((item) => ({
-      ...item,
-      split: normalizeSplit(item.split, getDefaultSplitForCategory(item.category).split),
-    }))
-  )
+const update = (id: string, input: FixedExpenseInput) => patch(id, toRow(input), input)
+
+/** 恢复时从今天重新开始算，暂停期间错过的不补 */
+const setPaused = (id: string, paused: boolean) => {
+  const values = paused ? { paused } : { paused, start_date: todayKey() }
+  const local = paused ? { paused } : { paused, startDate: todayKey() }
+  return patch(id, values, local)
+}
+
+const remove = async (id: string) => {
+  if (!isDemoMode && supabase) {
+    const { error } = await supabase.from('fixed_expenses').delete().eq('id', id)
+    if (error) return { error: new Error(formatSupabaseError(error, '删除失败，请稍后重试。')) }
+  }
+  items.value = items.value.filter((f) => f.id !== id)
+  return { error: null }
+}
+
+watch(
+  () => currentBook.value?.id,
+  async (id) => {
+    items.value = []
+    if (!id) return
+    await load()
+  },
+  { immediate: true },
 )
 
-const fixedExpenseNextDates = computed(() =>
-  fixedExpenseList.value.reduce<Record<string, string | null>>((result, item) => {
-    result[item.id] = getFixedExpenseNextDate(item, fixedExpenseRuns.value)
-    return result
-  }, {})
-)
+/** 隐私：对方的个人固定扣款不显示（共同的两人都能看） */
+const visibleItems = computed(() => items.value.filter((f) => f.type === 'shared' || f.payerUid === authUser.value?.id))
 
 export function useFixedExpenses() {
-  return {
-    fixedExpenses: fixedExpenseList,
-    fixedExpenseRuns,
-    fixedExpenseNextDates,
-    fixedExpensesGenerating,
-    saveFixedExpense,
-    deleteFixedExpense,
-    toggleFixedExpense,
-    refreshFixedExpenses,
-    ensureFixedExpensesGenerated,
-    getDefaultSplitForCategory,
-  }
+  return { items, visibleItems, loading, load, generateDue, add, update, setPaused, remove }
 }

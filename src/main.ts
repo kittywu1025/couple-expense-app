@@ -28,6 +28,19 @@ window.addEventListener('unhandledrejection', (event) => {
   setAppError()
 })
 
+// iOS Safari 会忽略 user-scalable=no，这里再拦一次双指缩放。
+// 双击放大由 CSS 的 touch-action: manipulation 关掉（不拦 touchend，免得连点计算器丢键）
+const preventZoom = (event: Event) => event.preventDefault()
+document.addEventListener('gesturestart', preventZoom, { passive: false })
+document.addEventListener('gesturechange', preventZoom, { passive: false })
+document.addEventListener(
+  'touchmove',
+  (event) => {
+    if (event.touches.length > 1) event.preventDefault()
+  },
+  { passive: false },
+)
+
 try {
   const app = createApp(App)
   app.config.errorHandler = (error) => {

@@ -5,46 +5,28 @@ const { toasts } = useToast()
 
 const handleAction = async (toastItem: ToastItem, action: ToastAction) => {
   await action.onClick()
-  if (toastItem.dismissible) {
-    dismissToast(toastItem.id)
-  }
+  if (toastItem.dismissible) dismissToast(toastItem.id)
 }
 </script>
 
 <template>
-  <div class="toast-viewport" aria-live="polite" aria-atomic="true">
-    <transition-group name="toast" tag="div" class="toast-stack">
-      <section
-        v-for="toastItem in toasts"
-        :key="toastItem.id"
-        :class="['toast-card', `toast-${toastItem.type}`]"
-        role="status"
-      >
-        <div class="toast-body">
-          <div class="toast-copy">
-            <strong v-if="toastItem.title" class="toast-title">{{ toastItem.title }}</strong>
-            <p class="toast-message">{{ toastItem.message }}</p>
+  <div class="viewport" aria-live="polite">
+    <transition-group name="toast" tag="div" class="stack">
+      <section v-for="item in toasts" :key="item.id" :class="['toast', item.type]" role="status">
+        <div class="body">
+          <div>
+            <strong v-if="item.title" class="title">{{ item.title }}</strong>
+            <p class="message">{{ item.message }}</p>
           </div>
-
-          <button
-            v-if="toastItem.dismissible"
-            type="button"
-            class="toast-close"
-            aria-label="关闭提示"
-            @click="dismissToast(toastItem.id)"
-          >
-            ×
-          </button>
+          <button v-if="item.dismissible" class="close" aria-label="关闭提示" @click="dismissToast(item.id)">×</button>
         </div>
-
-        <div v-if="toastItem.actions.length" class="toast-actions">
+        <div v-if="item.actions.length" class="actions">
           <button
-            v-for="action in toastItem.actions"
+            v-for="action in item.actions"
             :key="action.label"
-            type="button"
-            :class="['toast-action-button', action.kind || 'secondary']"
+            :class="['action', action.kind || 'secondary']"
             :disabled="action.disabled"
-            @click="handleAction(toastItem, action)"
+            @click="handleAction(item, action)"
           >
             {{ action.label }}
           </button>
@@ -53,3 +35,74 @@ const handleAction = async (toastItem: ToastItem, action: ToastAction) => {
     </transition-group>
   </div>
 </template>
+
+<style scoped>
+.viewport {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(calc(100% - 24px), 440px);
+  z-index: 1000;
+  pointer-events: none;
+}
+.stack {
+  display: grid;
+  gap: 8px;
+}
+.toast {
+  pointer-events: auto;
+  background: rgba(255, 255, 255, 0.97);
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+  border-left: 4px solid var(--primary);
+}
+.toast.success { border-left-color: var(--success); }
+.toast.error { border-left-color: var(--danger); }
+.toast.warning { border-left-color: #ff9f0a; }
+.body {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.title {
+  display: block;
+  font-size: 14px;
+}
+.message {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-soft);
+}
+.close {
+  font-size: 20px;
+  line-height: 1;
+  color: var(--text-faint);
+}
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.action {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  background: var(--bg);
+}
+.action.primary {
+  background: var(--primary);
+  color: #fff;
+}
+.toast-enter-active,
+.toast-leave-active {
+  transition: all 0.2s ease;
+}
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+</style>

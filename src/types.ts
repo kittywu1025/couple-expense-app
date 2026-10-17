@@ -1,119 +1,86 @@
-export type Payer = 'me' | 'partner'
-export type Performer = 'me' | 'partner'
-export type Recurrence = 'none' | 'monthly'
-export type SplitPreset = 'equal' | 'rent' | 'custom' | 'payer-only'
-export type SupportedCurrency = 'JPY' | 'CNY'
-export type RecordType = 'expense' | 'income'
-export type FixedExpenseCycle = 'monthly'
+export type CurrencyCode = 'JPY' | 'CNY' | 'USD' | 'KRW' | 'TWD' | 'HKD'
 
-export interface SplitRule {
-  me: number
-  partner: number
-}
+export type Gender = 'female' | 'male'
+export type MemberColor = 'pink' | 'blue' | 'purple' | 'green' | 'orange' | 'yellow' | 'red' | 'teal'
 
-export interface ExpenseCategory {
-  id: string
+export type RecordKind = 'expense' | 'income'
+export type RecordType = 'personal' | 'shared'
+
+export interface CustomCategory {
+  key: string
   name: string
+  /** IconName，存成字符串 */
   icon: string
-  recordType: RecordType
-  active: boolean
-  isDefault?: boolean
+  color: string
+  kind: RecordKind
+  subs: { name: string; icon: string }[]
 }
-
-export interface Expense {
-  id: string
-  recordType: RecordType
-  title: string
-  amount: number
-  originalAmount: number
-  originalCurrency: SupportedCurrency
-  baseCurrency: SupportedCurrency
-  exchangeRateUsed: number
-  exchangeRateDate: string
-  date: string
-  category: string
-  payer: Payer
-  bookId?: string
-  createdBy?: string
-  split: SplitRule
-  splitPreset: SplitPreset
-  recurrence: Recurrence
-  note?: string
-  shared?: boolean
-  syncStatus?: 'synced' | 'pending'
-  createdAt?: string
-  updatedAt?: string
-}
-
-export interface AppSettings {
-  meName: string
-  partnerName: string
-  defaultCurrency: SupportedCurrency
-  defaultSplits: {
-    standard: SplitRule
-    rent: SplitRule
-  }
-  categories: ExpenseCategory[]
-}
-
-export type BookRole = 'owner' | 'member'
 
 export interface Book {
   id: string
-  name: string
   inviteCode: string
-  createdBy?: string
-  createdAt?: string
+  settleDay: number
+  defaultRatio: number
+  /** 账本记账货币，只影响显示单位，不做汇率换算 */
+  currency: CurrencyCode
+  /** 两人共用的自定义分类 */
+  customCategories: CustomCategory[]
+  createdBy: string
+  createdAt: string
 }
 
 export interface BookMember {
   id: string
   bookId: string
   userId: string
-  role: BookRole
-  joinedAt?: string
+  displayName: string
+  gender: Gender | null
+  /** 自定义标识色，同一账本内两人不同 */
+  color: MemberColor | null
+  joinedAt: string
 }
 
-export interface Chore {
+export interface LedgerRecord {
   id: string
-  title: string
+  bookId: string
+  amount: number
+  kind: RecordKind
+  type: RecordType
+  payerUid: string
+  /** 付款人承担的份额 0-10 */
+  ratio: number
+  category: string
+  subCategory: string | null
+  note: string | null
   date: string
-  performer: Performer
-  points: number
-  done: boolean
-  note?: string
-}
-
-export interface CountdownSettings {
-  startedDate: string
-  birthday: string
+  createdBy: string
+  createdAt: string
 }
 
 export interface FixedExpense {
   id: string
-  bookId?: string
-  createdBy?: string
+  bookId: string
   name: string
   amount: number
-  currency: SupportedCurrency
   category: string
-  cycle: FixedExpenseCycle
+  subCategory: string | null
+  /** 每月几号（1-31，超过当月天数按月底） */
   dayOfMonth: number
+  payerUid: string
+  type: RecordType
+  /** 付款人承担的份额 0-10 */
+  ratio: number
+  paused: boolean
   startDate: string
-  endDate?: string | null
-  payer: Payer
-  splitPreset: SplitPreset
-  split: SplitRule
-  enabled: boolean
-  createdAt?: string
-  updatedAt?: string
+  lastGeneratedDate: string | null
+  createdBy: string
 }
 
-export interface FixedExpenseRun {
-  id: string
-  fixedExpenseId: string
-  bookId?: string
-  generatedMonth: string
-  expenseId?: string | null
-  generatedAt?: string
-}
+export type FixedExpenseInput = Pick<
+  FixedExpense,
+  'name' | 'amount' | 'category' | 'subCategory' | 'dayOfMonth' | 'payerUid' | 'type' | 'ratio'
+>
+
+export type NewRecord = Omit<LedgerRecord, 'id' | 'bookId' | 'createdBy' | 'createdAt'>
+
+export type TabKey = 'home' | 'stats' | 'me'

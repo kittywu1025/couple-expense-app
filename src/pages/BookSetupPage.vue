@@ -1,95 +1,218 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
+import BottomSheet from '../components/BottomSheet.vue'
+import ColorPicker from '../components/ColorPicker.vue'
+import type { MemberColor } from '../types'
 import { useBooks } from '../composables/useBooks'
+import { authColor, authDisplayName, authGender, useSupabaseAuth } from '../composables/useSupabaseAuth'
+import { MEMBER_COLORS, defaultColorFor, swatchOf } from '../utils/palette'
 import { toast } from '../composables/useToast'
-import { toUserMessage } from '../utils/userMessage'
+import AppIcon from '../components/AppIcon.vue'
 
-const { createBook, joinBookByInvite, bookActionLoading } = useBooks()
+const { createBook, joinBook, takenColorsForInvite, bookActionLoading } = useBooks()
+const { signOut, updateProfile } = useSupabaseAuth()
+const code = ref('')
 
-const mode = ref<'create' | 'join'>('create')
-const createName = ref('我们的账本')
-const inviteCode = ref('')
-const emptyStateText = computed(() => '先创建或加入共同账本。')
-
-const handleCreate = async () => {
-  const { data, error } = await createBook(createName.value)
-  if (error) {
-    toast.error(toUserMessage(error, '创建账本失败，请稍后重试。'))
-    return
-  }
-  if (data?.inviteCode) {
-    createName.value = data.name
-  }
-  toast.success('账本已创建。')
+// 性别在注册时已选好（ProfileSetupPage），这里直接带上
+const requireGender = () => {
+  if (authGender.value) return authGender.value
+  toast.warning('请先完成注册资料')
+  return null
 }
 
-const handleJoin = async () => {
-  const { error } = await joinBookByInvite(inviteCode.value)
-  if (error) {
-    toast.error(toUserMessage(error, '加入账本失败，请稍后重试。'))
+const onCreate = async () => {
+  const g = requireGender()
+  if (!g) return
+  const { error } = await createBook(g, authColor.value ?? defaultColorFor(g))
+  if (error) toast.error(error.message)
+  else toast.success('账本已创建，把邀请码发给 TA 吧')
+}
+
+const onJoin = async () => {
+  if (code.value.trim().length !== 6) {
+    toast.warning('邀请码是 6 位')
     return
   }
-  inviteCode.value = ''
-  toast.success('已加入情侣账本。')
+  const g = requireGender()
+  if (!g) return
+  await tryJoin(authColor.value ?? defaultColorFor(g))
+}
+
+// ── 撞色：先加入的人优先，后加入的人重选 ──
+const conflictOpen = ref(false)
+const takenColor = ref<MemberColor | null>(null)
+const retryColor = ref<MemberColor | null>(null)
+
+const tryJoin = async (color: MemberColor) => {
+  const g = authGender.value
+  if (!g) return
+  const { error } = await joinBook(code.value, g, color)
+  if (!error) {
+    conflictOpen.value = false
+    toast.success('已加入账本')
+    return
+  }
+  if (error.message.includes('对方已选择该颜色')) {
+    const taken = await takenColorsForInvite(code.value)
+    takenColor.value = taken[0] ?? color
+    retryColor.value = MEMBER_COLORS.find((c) => !taken.includes(c.key))?.key ?? null
+    conflictOpen.value = true
+    return
+  }
+  toast.error(error.message)
+}
+
+const confirmRetry = async () => {
+  if (!retryColor.value) return
+  await updateProfile({ color: retryColor.value })
+  await tryJoin(retryColor.value)
 }
 </script>
 
 <template>
-  <section class="page-stack">
-    <section class="section-card">
-      <div class="section-heading">
-        <div>
-          <h2>情侣账本</h2>
-          <p class="subtitle">{{ emptyStateText }}</p>
-        </div>
-      </div>
+  <div class="setup">
+    <header>
+      <p class="hi">你好，{{ authDisplayName }}</p>
+      <h1>开始共同记账</h1>
+    </header>
 
-      <div class="segment-row">
-        <button type="button" :class="['segment-button', { active: mode === 'create' }]" @click="mode = 'create'">
-          创建情侣账本
-        </button>
-        <button type="button" :class="['segment-button', { active: mode === 'join' }]" @click="mode = 'join'">
-          加入已有账本
-        </button>
-      </div>
+    <section class="card">
+      <div class="emoji"><AppIcon name="book" :size="22" /></div>
+      <h2>创建新账本</h2>
+      <p>创建后会生成 6 位邀请码，发给 TA 即可加入</p>
+      <button class="primary" :disabled="bookActionLoading" @click="onCreate">{{ bookActionLoading ? '请稍候…' : '创建账本' }}</button>
     </section>
 
-    <section class="section-card" v-if="mode === 'create'">
-      <div class="section-heading compact">
-        <div>
-          <h3>创建账本</h3>
-        </div>
-      </div>
-
-      <label class="field-group">
-        <span class="field-label">账本名称</span>
-        <input v-model="createName" type="text" placeholder="例如：我们的账本" />
-      </label>
-
-      <div class="form-actions">
-        <button type="button" class="primary-button" :disabled="bookActionLoading" @click="handleCreate">
-          {{ bookActionLoading ? '创建中...' : '创建账本' }}
-        </button>
-      </div>
+    <section class="card">
+      <div class="emoji"><AppIcon name="link" :size="22" /></div>
+      <h2>加入 TA 的账本</h2>
+      <input
+        v-model="code"
+        class="code"
+        maxlength="6"
+        placeholder="输入邀请码"
+        autocapitalize="characters"
+        @keyup.enter="onJoin"
+      />
+      <button class="outline" :disabled="bookActionLoading" @click="onJoin">{{ bookActionLoading ? '请稍候…' : '加入' }}</button>
     </section>
 
-    <section class="section-card" v-else>
-      <div class="section-heading compact">
-        <div>
-          <h3>输入邀请码</h3>
-        </div>
-      </div>
+    <button class="logout" @click="signOut">退出登录</button>
 
-      <label class="field-group">
-        <span class="field-label">邀请码</span>
-        <input v-model="inviteCode" type="text" placeholder="例如：A1B2C3" style="text-transform: uppercase;" />
-      </label>
-
-      <div class="form-actions">
-        <button type="button" class="primary-button" :disabled="bookActionLoading" @click="handleJoin">
-          {{ bookActionLoading ? '加入中...' : '加入账本' }}
-        </button>
-      </div>
-    </section>
-  </section>
+    <BottomSheet :open="conflictOpen" @close="conflictOpen = false">
+      <h3 class="sheet-title">对方已选择该颜色，请重新选择</h3>
+      <p class="sheet-tip">
+        TA 先加入，已经用了「{{ takenColor ? swatchOf(takenColor).name : '' }}」。换一个颜色就能加入，之后也可以在「我的」里改。
+      </p>
+      <ColorPicker
+        :model-value="retryColor"
+        :taken="takenColor"
+        @update:model-value="retryColor = $event"
+        @blocked="toast.info('对方已选择该颜色，请重新选择')"
+      />
+      <button class="primary sheet-btn" :disabled="!retryColor || bookActionLoading" @click="confirmRetry">
+        用「{{ retryColor ? swatchOf(retryColor).name : '' }}」加入
+      </button>
+    </BottomSheet>
+  </div>
 </template>
+
+<style scoped>
+.setup {
+  max-width: 440px;
+  margin: 0 auto;
+  min-height: 100vh;
+  padding: calc(48px + env(safe-area-inset-top, 0px)) 20px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.hi {
+  margin: 0;
+  color: var(--text-soft);
+}
+h1 {
+  margin: 4px 0 8px;
+  font-size: 26px;
+}
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.emoji {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  display: grid;
+  place-items: center;
+}
+h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.card p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 14px;
+}
+.code {
+  height: 52px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 22px;
+  letter-spacing: 8px;
+  text-transform: uppercase;
+  outline: none;
+}
+.code:focus {
+  border-color: var(--primary);
+}
+.primary,
+.outline {
+  height: 48px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+.primary {
+  background: var(--primary);
+  color: #fff;
+}
+.outline {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+button:disabled {
+  opacity: 0.6;
+}
+.logout {
+  margin-top: auto;
+  color: var(--text-faint);
+  font-size: 14px;
+  padding: 12px;
+}
+.sheet-title {
+  margin: 0;
+  text-align: center;
+  font-size: 16px;
+}
+.sheet-tip {
+  margin: 6px 0 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+.sheet-btn {
+  width: 100%;
+  margin-top: 18px;
+}
+</style>

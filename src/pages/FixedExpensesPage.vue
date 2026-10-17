@@ -1,396 +1,336 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
-import type { FixedExpense, Payer, SplitPreset } from '../types'
-import { useFixedExpenses } from '../composables/useFixedExpenses'
-import { useSettings } from '../composables/useSettings'
+import { computed, ref } from 'vue'
+import AppIcon from '../components/AppIcon.vue'
+import CategoryIcon from '../components/CategoryIcon.vue'
+import EmptyState from '../components/EmptyState.vue'
+import SkeletonList from '../components/SkeletonList.vue'
+import FixedExpenseEditorSheet from '../components/FixedExpenseEditorSheet.vue'
+import { nextDueDate, useFixedExpenses } from '../composables/useFixedExpenses'
+import { useBooks } from '../composables/useBooks'
+import { closeFixedPage, confirmAction } from '../composables/useUi'
 import { toast } from '../composables/useToast'
-import { formatCurrency } from '../utils/currency'
-import { isPersonalExpenseCategory, isSharedExpenseCategory } from '../utils/categories'
+import type { FixedExpense, FixedExpenseInput } from '../types'
+import { recordColor, recordIcon } from '../utils/categories'
+import { formatDateLabel, formatMoney } from '../utils/format'
 
-const emit = defineEmits<{
-  (e: 'back'): void
-}>()
+const { items, visibleItems, loading, add, update, setPaused, remove, generateDue } = useFixedExpenses()
+const { myUid, nameOf } = useBooks()
 
-const { settings, categoryMap } = useSettings()
-const {
-  fixedExpenses,
-  fixedExpenseNextDates,
-  saveFixedExpense,
-  deleteFixedExpense,
-  toggleFixedExpense,
-  ensureFixedExpensesGenerated,
-  getDefaultSplitForCategory,
-} = useFixedExpenses()
-
-const toFixedExpenseMessage = (error: unknown, fallback: string) => {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof (error as { message?: unknown })?.message === 'string'
-        ? String((error as { message?: string }).message)
-        : ''
-  const normalized = message.toLowerCase()
-  if (normalized.includes('fixed_expenses') && normalized.includes('schema cache')) {
-    return '固定消费数据表还没有创建，请先在 Supabase 执行 SQL。'
-  }
-  return fallback
-}
-
-const editingId = ref<string | null>(null)
-const confirmDeleteId = ref<string | null>(null)
+const editorOpen = ref(false)
+const editing = ref<FixedExpense | null>(null)
 const saving = ref(false)
-const deleting = ref(false)
 
-const createDraft = (): FixedExpense => {
-  const defaultCategory = settings.value.categories.find((item) => item.recordType === 'expense' && item.active)?.id || 'rent'
-  const baseRule = getDefaultSplitForCategory(defaultCategory)
-  return {
-    id: '',
-    name: '',
-    amount: 0,
-    currency: settings.value.defaultCurrency,
-    category: defaultCategory,
-    cycle: 'monthly',
-    dayOfMonth: new Date().getDate(),
-    startDate: new Date().toISOString().slice(0, 10),
-    endDate: null,
-    payer: 'me',
-    splitPreset: baseRule.splitPreset,
-    split: { ...baseRule.split },
-    enabled: true,
-  }
+const sorted = computed(() => [...items.value].sort((a, b) => Number(a.paused) - Number(b.paused) || a.dayOfMonth - b.dayOfMonth))
+// 列表显示全部；汇总数字只算共同 + 自己的
+const monthlyTotal = computed(() => visibleItems.value.filter((f) => !f.paused).reduce((s, f) => s + f.amount, 0))
+
+const typeText = (f: FixedExpense) => {
+  if (f.type === 'personal') return '个人'
+  const mine = f.payerUid === myUid.value ? f.ratio : 10 - f.ratio
+  if (mine === 10 || mine === 0) return '请客'
+  return mine === 5 ? '共同 · 平摊' : `共同 · ${mine}:${10 - mine}`
 }
 
-const form = reactive<FixedExpense>(createDraft())
-
-const expenseCategories = computed(() =>
-  settings.value.categories.filter((item) => item.recordType === 'expense' && item.active)
-)
-
-const splitOptions = computed(() => [
-  { value: 'equal' as const, label: '平摊' },
-  { value: 'payer-only' as const, label: '个人消费' },
-  { value: 'rent' as const, label: '房租比例' },
-  { value: 'custom' as const, label: '自定义' },
-])
-
-const nextRunLabel = computed(() => {
-  if (!form.enabled) return '已停用'
-  const preview = {
-    ...form,
-    id: editingId.value || 'preview',
-  }
-  return fixedExpenseNextDates.value[preview.id] || '保存后生成'
-})
-
-const amountInput = computed({
-  get: () => (form.amount > 0 ? String(form.amount) : ''),
-  set: (value: string | number) => {
-    const raw = typeof value === 'number' ? String(value) : value
-    form.amount = raw.trim() ? Number(raw) || 0 : 0
-  },
-})
-
-const resetForm = () => {
-  editingId.value = null
-  Object.assign(form, createDraft())
+const openNew = () => {
+  editing.value = null
+  editorOpen.value = true
+}
+const openEdit = (f: FixedExpense) => {
+  editing.value = f
+  editorOpen.value = true
 }
 
-const loadIntoForm = (item: FixedExpense) => {
-  editingId.value = item.id
-  Object.assign(form, {
-    ...item,
-    split: { ...item.split },
-  })
-}
-
-const applyCategoryDefaults = (category: string) => {
-  form.category = category
-  if (form.splitPreset === 'custom') return
-  if (category === 'rent') {
-    form.splitPreset = 'rent'
-  } else if (isPersonalExpenseCategory(category)) {
-    form.splitPreset = 'payer-only'
-  } else if (isSharedExpenseCategory(category)) {
-    form.splitPreset = 'equal'
-  }
-  form.split = { ...getDefaultSplitForCategory(category).split }
-}
-
-const updateSplitPreset = (preset: SplitPreset) => {
-  form.splitPreset = preset
-  if (preset === 'custom') return
-  if (preset === 'payer-only') {
-    form.split = form.payer === 'me' ? { me: 100, partner: 0 } : { me: 0, partner: 100 }
-    return
-  }
-  if (preset === 'rent') {
-    form.split = { ...settings.value.defaultSplits.rent }
-    return
-  }
-  form.split = { ...settings.value.defaultSplits.standard }
-}
-
-const updatePayer = (payer: Payer) => {
-  form.payer = payer
-  if (form.splitPreset === 'payer-only') {
-    form.split = payer === 'me' ? { me: 100, partner: 0 } : { me: 0, partner: 100 }
-  }
-}
-
-const updateCustomShare = (value: string) => {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
-    toast.warning('我的承担比例需要在 0 到 100 之间。')
-    return
-  }
-  form.splitPreset = 'custom'
-  form.split.me = parsed
-  form.split.partner = Number((100 - parsed).toFixed(2))
-}
-
-const saveForm = async () => {
-  if (!form.name.trim()) {
-    toast.warning('请填写固定消费名称。')
-    return
-  }
-  if (!(form.amount > 0)) {
-    toast.warning('请输入有效金额')
-    return
-  }
-  if (!(form.dayOfMonth >= 1 && form.dayOfMonth <= 31)) {
-    toast.warning('每月日期需要在 1 到 31 之间。')
-    return
-  }
-  if (!form.startDate) {
-    toast.warning('请选择开始日期。')
-    return
-  }
-
+const onSave = async (input: FixedExpenseInput) => {
   saving.value = true
-  const { error } = await saveFixedExpense({
-    ...form,
-    id: editingId.value || form.id,
-  })
+  const { error } = editing.value ? await update(editing.value.id, input) : await add(input)
   saving.value = false
-
   if (error) {
-    console.error('保存固定消费失败：', error)
-    toast.error(toFixedExpenseMessage(error, '固定消费保存失败，请稍后重试。'))
+    toast.error(error.message)
     return
   }
-
-  await ensureFixedExpensesGenerated()
-  toast.success(editingId.value ? '固定消费已更新。' : '固定消费已保存。')
-  resetForm()
+  editorOpen.value = false
+  toast.success(editing.value ? '已保存' : `已添加「${input.name}」`)
+  // 新加的如果今天就是扣款日，马上生成
+  const count = await generateDue()
+  if (count) toast.success(`已自动记入 ${count} 笔固定扣款`)
 }
 
-const handleToggle = async (item: FixedExpense, enabled: boolean) => {
-  const { error } = await toggleFixedExpense(item, enabled)
+const onDelete = async () => {
+  const f = editing.value
+  if (!f) return
+  const ok = await confirmAction({
+    title: `删除「${f.name}」？`,
+    message: '以后不会再自动记账。已经生成的账单不会被删除。',
+    confirmText: '删除',
+    danger: true,
+  })
+  if (!ok) return
+  const { error } = await remove(f.id)
   if (error) {
-    console.error('切换固定消费失败：', error)
-    toast.error(toFixedExpenseMessage(error, '固定消费状态更新失败，请稍后重试。'))
+    toast.error(error.message)
     return
   }
-  toast.success(enabled ? '已启用固定消费。' : '已停用固定消费。')
+  editorOpen.value = false
+  toast.success('已删除')
 }
 
-const confirmDelete = async () => {
-  const target = fixedExpenses.value.find((item) => item.id === confirmDeleteId.value)
-  if (!target) return
-  deleting.value = true
-  const { error } = await deleteFixedExpense(target)
-  deleting.value = false
-  if (error) {
-    console.error('删除固定消费失败：', error)
-    toast.error(toFixedExpenseMessage(error, '删除失败，请稍后重试。'))
-    return
-  }
-  confirmDeleteId.value = null
-  if (editingId.value === target.id) {
-    resetForm()
-  }
-  toast.success('固定消费已删除。')
+const togglePause = async (f: FixedExpense) => {
+  const { error } = await setPaused(f.id, !f.paused)
+  if (error) toast.error(error.message)
+  else toast.success(f.paused ? `已恢复「${f.name}」，从今天起继续自动记账` : `已暂停「${f.name}」`)
 }
-
-watch(
-  () => form.category,
-  (category, previous) => {
-    if (!previous || category === previous) return
-    applyCategoryDefaults(category)
-  }
-)
 </script>
 
 <template>
-  <section class="page-stack">
-    <section class="section-card">
-      <div class="section-heading">
-        <div>
-          <h2>固定消费</h2>
-          <p>管理每月自动提醒或自动生成的固定账单</p>
-        </div>
-        <button type="button" class="secondary-button compact-button" @click="emit('back')">返回</button>
-      </div>
+  <div class="page">
+    <header class="nav">
+      <button class="back" aria-label="返回" @click="closeFixedPage">
+        <AppIcon name="chevronLeft" :size="22" :stroke="2.2" />我的
+      </button>
+      <h1>固定扣款</h1>
+      <button class="add" aria-label="添加固定扣款" @click="openNew"><AppIcon name="plus" :size="22" :stroke="2.2" /></button>
+    </header>
 
-      <div class="field-row">
-        <label class="field-group">
-          <span class="field-label">名称</span>
-          <input v-model="form.name" type="text" placeholder="例如：房租" />
-        </label>
-        <label class="field-group">
-          <span class="field-label">金额</span>
-          <div class="amount-input-wrap">
-            <button type="button" class="currency-inline-pill" @click="form.currency = form.currency === 'JPY' ? 'CNY' : 'JPY'">
-              {{ form.currency }}
-            </button>
-            <input v-model="amountInput" type="number" min="0" step="0.01" inputmode="decimal" placeholder="输入金额" />
-          </div>
-        </label>
-      </div>
+    <div class="body">
+      <section v-if="items.length" class="summary">
+        <span>每月固定支出</span>
+        <b class="mono">{{ formatMoney(monthlyTotal) }}</b>
+        <small>到扣款日自动记一笔账，打开 App 时检查</small>
+      </section>
 
-      <div class="field-row">
-        <label class="field-group">
-          <span class="field-label">分类</span>
-          <select v-model="form.category">
-            <option v-for="category in expenseCategories" :key="category.id" :value="category.id">
-              {{ category.name }}
-            </option>
-          </select>
-        </label>
-        <label class="field-group">
-          <span class="field-label">循环周期</span>
-          <input value="每月一次" type="text" readonly />
-        </label>
-      </div>
+      <SkeletonList v-if="loading && !items.length" />
+      <section v-else-if="!items.length" class="empty">
+        <EmptyState
+          icon="calendar"
+          title="还没有固定扣款"
+          desc="房租、话费这类每月固定的支出，设置一次就会按日期自动记账"
+          action="添加固定扣款"
+          @action="openNew"
+        />
+      </section>
 
-      <div class="field-row">
-        <label class="field-group">
-          <span class="field-label">每月日期</span>
-          <input v-model.number="form.dayOfMonth" type="number" min="1" max="31" />
-        </label>
-        <label class="field-group">
-          <span class="field-label">开始日期</span>
-          <input v-model="form.startDate" type="date" />
-        </label>
-      </div>
-
-      <div class="field-row">
-        <label class="field-group">
-          <span class="field-label">结束日期（可选）</span>
-          <input v-model="form.endDate" type="date" />
-        </label>
-        <label class="field-group">
-          <span class="field-label">下次生成</span>
-          <input :value="nextRunLabel || '—'" type="text" readonly />
-        </label>
-      </div>
-
-      <div class="section-heading compact">
-        <div>
-          <h3>分摊方式</h3>
-        </div>
-      </div>
-
-      <div class="segment-row">
-        <button
-          v-for="option in splitOptions"
-          :key="option.value"
-          type="button"
-          :class="['segment-button', { active: form.splitPreset === option.value }]"
-          @click="updateSplitPreset(option.value)"
-        >
-          {{ option.label }}
-        </button>
-      </div>
-
-      <div class="segment-row">
-        <button
-          type="button"
-          :class="['segment-button', { active: form.payer === 'me' }]"
-          @click="updatePayer('me')"
-        >
-          {{ settings.meName }}
-        </button>
-        <button
-          type="button"
-          :class="['segment-button', { active: form.payer === 'partner' }]"
-          @click="updatePayer('partner')"
-        >
-          {{ settings.partnerName }}
-        </button>
-      </div>
-
-      <div v-if="form.splitPreset === 'custom'" class="custom-split-inline">
-        <label class="field-group compact-inline-field">
-          <span class="field-label">我的承担比例</span>
-          <div class="custom-split-input-row">
-            <input :value="form.split.me" type="number" min="0" max="100" @input="updateCustomShare(($event.target as HTMLInputElement).value)" />
-            <span>%</span>
-          </div>
-        </label>
-        <p class="custom-split-result">{{ settings.partnerName }}承担：{{ form.split.partner }}%</p>
-      </div>
-
-      <label class="field-group checkbox-row">
-        <span class="field-label">是否启用</span>
-        <input v-model="form.enabled" type="checkbox" />
-      </label>
-
-      <div class="form-actions">
-        <button type="button" class="secondary-button" @click="resetForm">清空</button>
-        <button type="button" class="primary-button" :disabled="saving" @click="saveForm">
-          {{ saving ? '保存中...' : editingId ? '保存修改' : '新增固定消费' }}
-        </button>
-      </div>
-    </section>
-
-    <section class="section-card">
-      <div class="section-heading compact">
-        <div>
-          <h3>固定消费列表</h3>
-        </div>
-      </div>
-
-      <div v-if="!fixedExpenses.length" class="empty-state">
-        <strong>还没有固定消费</strong>
-        <p>例如房租、水费、订阅费，都可以在这里按月自动生成。</p>
-      </div>
-
-      <div v-else class="settings-list">
-        <article v-for="item in fixedExpenses" :key="item.id" class="category-row fixed-expense-row">
-          <div class="fixed-expense-copy">
-            <strong>{{ item.name }}</strong>
-            <span>{{ formatCurrency(item.amount, item.currency) }} · {{ categoryMap[item.category]?.name || item.category }}</span>
-            <span>每月 {{ item.dayOfMonth }} 日 · 下次 {{ fixedExpenseNextDates[item.id] || '已结束' }}</span>
-            <span>{{ item.enabled ? '已启用' : '已停用' }} · {{ settings.meName }} {{ item.split.me }}% / {{ settings.partnerName }} {{ item.split.partner }}%</span>
-          </div>
-          <div class="settings-inline-actions">
-            <button type="button" class="secondary-button compact-button" @click="loadIntoForm(item)">编辑</button>
-            <button
-              type="button"
-              class="secondary-button compact-button"
-              @click="handleToggle(item, !item.enabled)"
-            >
-              {{ item.enabled ? '停用' : '启用' }}
-            </button>
-            <button type="button" class="secondary-button compact-button" @click="confirmDeleteId = item.id">删除</button>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <div v-if="confirmDeleteId" class="expense-delete-overlay" @click.self="confirmDeleteId = null">
-      <section class="expense-delete-card" role="dialog" aria-modal="true">
-        <h3>确定删除这条固定消费吗？</h3>
-        <p>删除后不会再自动生成后续账单。</p>
-        <div class="expense-delete-actions">
-          <button type="button" class="secondary-button" :disabled="deleting" @click="confirmDeleteId = null">取消</button>
-          <button type="button" class="primary-button danger-button" :disabled="deleting" @click="confirmDelete">
-            {{ deleting ? '删除中...' : '删除' }}
+      <section v-else class="group">
+        <div v-for="f in sorted" :key="f.id" :class="['row', { paused: f.paused }]">
+          <button class="main" @click="openEdit(f)">
+            <CategoryIcon :name="recordIcon(f.category, f.subCategory)" :color="recordColor(f.category)" :size="40" />
+            <span class="info">
+              <span class="line">
+                <span class="name">{{ f.name }}</span>
+                <span class="mono amount">{{ formatMoney(f.amount) }}</span>
+              </span>
+              <span class="meta">
+                <i :class="['dot', f.payerUid === myUid ? 'me' : 'partner']" />
+                每月 {{ f.dayOfMonth }} 号 · {{ typeText(f) }} · {{ nameOf(f.payerUid) }}付
+              </span>
+              <span class="next">{{ f.paused ? '已暂停' : `下次 ${formatDateLabel(nextDueDate(f))}` }}</span>
+            </span>
+          </button>
+          <button
+            :class="['switch', { on: !f.paused }]"
+            role="switch"
+            :aria-checked="!f.paused"
+            :aria-label="f.paused ? '恢复' : '暂停'"
+            @click="togglePause(f)"
+          >
+            <span class="knob" />
           </button>
         </div>
       </section>
+
+      <p v-if="items.length" class="tip">右侧开关可以暂停 / 恢复；点条目可以编辑或删除</p>
     </div>
-  </section>
+
+    <FixedExpenseEditorSheet
+      :open="editorOpen"
+      :item="editing"
+      :saving="saving"
+      @close="editorOpen = false"
+      @save="onSave"
+      @delete="onDelete"
+    />
+  </div>
 </template>
+
+<style scoped>
+.page {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: var(--bg);
+  overflow-y: auto;
+}
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 80px 1fr 80px;
+  align-items: center;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 8px 8px;
+  background: rgba(245, 245, 247, 0.9);
+  backdrop-filter: blur(16px);
+}
+.nav h1 {
+  margin: 0;
+  text-align: center;
+  font-size: 17px;
+}
+.back {
+  display: flex;
+  align-items: center;
+  color: var(--primary);
+  font-size: 16px;
+  padding: 6px 4px;
+}
+.add {
+  justify-self: end;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--primary);
+}
+.body {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 8px 16px calc(32px + env(safe-area-inset-bottom, 0px));
+}
+.summary {
+  display: flex;
+  flex-direction: column;
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  background: var(--card);
+  margin-bottom: 14px;
+}
+.summary span {
+  font-size: 13px;
+  color: var(--text-soft);
+}
+.summary b {
+  font-size: 28px;
+  margin: 2px 0;
+}
+.summary small {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.empty,
+.group {
+  background: var(--card);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 14px;
+  position: relative;
+  transition: opacity 0.2s;
+}
+.row + .row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 66px;
+  right: 0;
+  border-top: 1px solid var(--line);
+}
+.row.paused .main {
+  opacity: 0.45;
+}
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0 12px 14px;
+  text-align: left;
+}
+.main:active {
+  opacity: 0.7;
+}
+.info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.name {
+  font-weight: 600;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.amount {
+  font-weight: 600;
+  color: var(--expense);
+}
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.next {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.dot.me {
+  background: var(--me);
+}
+.dot.partner {
+  background: var(--partner);
+}
+.mono {
+  font-family: var(--mono);
+}
+.switch {
+  flex-shrink: 0;
+  width: 46px;
+  height: 28px;
+  border-radius: 999px;
+  background: #d1d1d6;
+  position: relative;
+  transition: background 0.2s;
+}
+.switch.on {
+  background: #34c759;
+}
+.knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s;
+}
+.switch.on .knob {
+  transform: translateX(18px);
+}
+.tip {
+  margin: 10px 4px 0;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+}
+</style>

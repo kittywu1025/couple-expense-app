@@ -1,250 +1,221 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { Expense } from '../types'
-import { getEffectiveExpenseDate, useExpenses } from '../composables/useExpenses'
-import { useSettings } from '../composables/useSettings'
-import { formatCurrency } from '../utils/currency'
+import AppIcon from '../components/AppIcon.vue'
+import PushPage from '../components/PushPage.vue'
+import RecordList from '../components/RecordList.vue'
+import { useRecords } from '../composables/useRecords'
+import { calendarPageOpen } from '../composables/useUi'
+import { toast } from '../composables/useToast'
+import { formatMoney, todayKey, toDateKey } from '../utils/format'
+import { addDays, mondayOf, parseKey } from '../utils/period'
 
-const emit = defineEmits<{
-  (e: 'back'): void
-  (e: 'edit', expenseId: string): void
-}>()
+// 日历只显示共同记录 + 自己的个人记录（对方的个人消费不可见）
+const { visibleRecords } = useRecords()
 
-const { filteredExpenses, selectedYearMonth } = useExpenses()
-const { categoryMap, settings } = useSettings()
+const today = todayKey()
+const month = ref(today.slice(0, 7))
+const selected = ref<string | null>(null)
 
-const monthLabel = computed(() => {
-  const [year, month] = selectedYearMonth.value.split('-')
-  return `${year}年${month}月`
+const title = computed(() => {
+  const [y, m] = month.value.split('-').map(Number)
+  return `${y}年${m}月`
 })
-
-const parsedMonth = computed(() => {
-  const [year, month] = selectedYearMonth.value.split('-').map(Number)
-  return { year, month }
-})
-
-const monthDays = computed(() => new Date(parsedMonth.value.year, parsedMonth.value.month, 0).getDate())
-const firstWeekday = computed(() => new Date(parsedMonth.value.year, parsedMonth.value.month - 1, 1).getDay())
-
-type DailyTotal = {
-  expense: number
-  income: number
+const shift = (dir: number) => {
+  const [y, m] = month.value.split('-').map(Number)
+  const d = new Date(y, m - 1 + dir, 1)
+  month.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  selected.value = null
 }
 
-const createDailyTotal = (): DailyTotal => ({ expense: 0, income: 0 })
+const monthRecords = computed(() => visibleRecords.value.filter((r) => r.date.startsWith(month.value)))
+const byDay = computed(() => {
+  const map = new Map<string, { expense: number; income: number; count: number }>()
+  for (const r of monthRecords.value) {
+    const cur = map.get(r.date) ?? { expense: 0, income: 0, count: 0 }
+    if (r.kind === 'expense') cur.expense += r.amount
+    else cur.income += r.amount
+    cur.count++
+    map.set(r.date, cur)
+  }
+  return map
+})
+// 打开时今天有记录就直接展开今天
+if (byDay.value.has(today)) selected.value = today
 
-const dailyTotals = computed(() => {
-  const totals: Record<string, DailyTotal> = {}
-  filteredExpenses.value.forEach((expense) => {
-    const date = getEffectiveExpenseDate(expense, selectedYearMonth.value)
-    const total = totals[date] || createDailyTotal()
-    if (expense.recordType === 'income') {
-      total.income += expense.amount
-    } else {
-      total.expense += expense.amount
-    }
-    totals[date] = total
-  })
-  return totals
+const monthExpense = computed(() => [...byDay.value.values()].reduce((s, d) => s + d.expense, 0))
+const monthIncome = computed(() => [...byDay.value.values()].reduce((s, d) => s + d.income, 0))
+
+const weeks = computed(() => {
+  const [y, m] = month.value.split('-').map(Number)
+  let cursor = mondayOf(toDateKey(new Date(y, m - 1, 1)))
+  const rows: string[][] = []
+  for (let r = 0; r < 6; r++) {
+    const row = Array.from({ length: 7 }, (_, i) => addDays(cursor, i))
+    if (r > 0 && parseKey(row[0]).getMonth() !== m - 1) break
+    rows.push(row)
+    cursor = addDays(cursor, 7)
+  }
+  return rows
 })
 
-const weekdayLabels = ['日', '一', '二', '三', '四', '五', '六']
-const selectedDate = ref<string | null>(null)
+/** 日历格子里的金额：过万用「1.2万」缩短，避免挤出格子 */
+const short = (n: number) => (n >= 10000 ? `${(n / 10000).toFixed(n >= 100000 ? 0 : 1)}万` : Math.round(n).toLocaleString('ja-JP'))
 
-const monthExpenseTotal = computed(() =>
-  Object.values(dailyTotals.value).reduce((sum, value) => sum + value.expense, 0)
-)
-const monthIncomeTotal = computed(() =>
-  Object.values(dailyTotals.value).reduce((sum, value) => sum + value.income, 0)
-)
-const maxDailyExpenseAmount = computed(() => Math.max(0, ...Object.values(dailyTotals.value).map((item) => item.expense)))
-
-const shiftMonth = (offset: number) => {
-  const [year, month] = selectedYearMonth.value.split('-').map(Number)
-  const next = new Date(year, month - 1 + offset, 1)
-  selectedYearMonth.value = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`
-  selectedDate.value = null
-}
-
-const formatAmount = (value: number) => formatCurrency(value, settings.value.defaultCurrency)
-const formatCompactAmount = (value: number) => {
-  if (value >= 10000) {
-    return `${Number((value / 10000).toFixed(value >= 100000 ? 0 : 1))}万`
+const dayRecords = computed(() => (selected.value ? monthRecords.value.filter((r) => r.date === selected.value) : []))
+const pick = (key: string) => {
+  if (!key.startsWith(month.value)) return
+  // 没记录的日子不展开，只轻轻说一句
+  if (!byDay.value.has(key)) {
+    selected.value = null
+    toast.info(key > today ? '这天还没到呢' : '这天没有花钱，不错')
+    return
   }
-  if (value >= 1000) {
-    return `${Number((value / 1000).toFixed(value >= 10000 ? 0 : 1))}k`
-  }
-  return new Intl.NumberFormat('zh-CN', {
-    maximumFractionDigits: 0,
-  }).format(value)
-}
-
-const calendarCells = computed(() => {
-  const cells: Array<{ day: number; date: string; total: DailyTotal } | null> = []
-  const totalCells = firstWeekday.value + monthDays.value
-  for (let i = 0; i < totalCells; i += 1) {
-    if (i < firstWeekday.value) {
-      cells.push(null)
-    } else {
-      const day = i - firstWeekday.value + 1
-      const date = `${selectedYearMonth.value}-${String(day).padStart(2, '0')}`
-      cells.push({
-        day,
-        date,
-        total: dailyTotals.value[date] || createDailyTotal(),
-      })
-    }
-  }
-  const extra = 7 - (cells.length % 7)
-  if (extra < 7) {
-    for (let i = 0; i < extra; i += 1) {
-      cells.push(null)
-    }
-  }
-  return cells
-})
-
-const selectedDayRecords = computed(() => {
-  if (!selectedDate.value) return []
-  return filteredExpenses.value.filter(
-    (record) => getEffectiveExpenseDate(record, selectedYearMonth.value) === selectedDate.value
-  )
-})
-
-const selectedDayExpenseTotal = computed(() =>
-  selectedDayRecords.value
-    .filter((record) => record.recordType === 'expense')
-    .reduce((sum, record) => sum + record.amount, 0)
-)
-
-const selectedDayIncomeTotal = computed(() =>
-  selectedDayRecords.value
-    .filter((record) => record.recordType === 'income')
-    .reduce((sum, record) => sum + record.amount, 0)
-)
-
-const activeDateLabel = computed(() => {
-  if (!selectedDate.value) return ''
-  return new Date(`${selectedDate.value}T00:00:00`).toLocaleDateString('zh-CN', {
-    month: 'numeric',
-    day: 'numeric',
-    weekday: 'short',
-  })
-})
-
-const formatRecordAmount = (record: Expense) =>
-  record.recordType === 'income' ? `+ ${formatAmount(record.amount)}` : `- ${formatAmount(record.amount)}`
-
-const cellTone = (expenseAmount: number) => {
-  if (expenseAmount <= 0 || maxDailyExpenseAmount.value <= 0) {
-    return {
-      backgroundColor: 'rgba(255, 255, 255, 0.78)',
-      borderColor: 'rgba(15, 23, 42, 0.05)',
-    }
-  }
-
-  const ratio = expenseAmount / maxDailyExpenseAmount.value
-  const alpha = 0.08 + ratio * 0.26
-  return {
-    backgroundColor: `rgba(227, 93, 84, ${alpha.toFixed(3)})`,
-    borderColor: `rgba(227, 93, 84, ${(0.12 + ratio * 0.18).toFixed(3)})`,
-  }
+  selected.value = selected.value === key ? null : key
 }
 </script>
 
 <template>
-  <section class="page-stack">
-    <section class="calendar-shell">
-      <div class="calendar-topbar">
-        <button type="button" class="ghost-icon-button" @click="emit('back')">‹</button>
-        <div class="calendar-title-block">
-          <p class="section-kicker">收支日历</p>
-          <h2>{{ monthLabel }}</h2>
+  <PushPage title="收支日历" back-label="首页" @back="calendarPageOpen = false">
+    <section class="card">
+      <div class="head">
+        <button class="nav-btn" aria-label="上个月" @click="shift(-1)"><AppIcon name="chevronLeft" :size="18" :stroke="2.2" /></button>
+        <div class="title">
+          <b>{{ title }}</b>
+          <small>支出 <span class="mono exp">{{ formatMoney(monthExpense) }}</span><template v-if="monthIncome"> · 收入 <span class="mono inc">{{ formatMoney(monthIncome) }}</span></template></small>
         </div>
-        <div class="calendar-total-pill">
-          <span class="calendar-total-expense">支出 {{ formatAmount(monthExpenseTotal) }}</span>
-          <span v-if="monthIncomeTotal" class="calendar-total-income">收入 {{ formatAmount(monthIncomeTotal) }}</span>
-        </div>
+        <button class="nav-btn" aria-label="下个月" @click="shift(1)"><AppIcon name="chevronRight" :size="18" :stroke="2.2" /></button>
       </div>
 
-      <div class="calendar-month-toolbar">
-        <div class="home-month-group">
-          <button type="button" class="round-nav-button" @click="shiftMonth(-1)">‹</button>
-          <strong>{{ monthLabel }}</strong>
-          <button type="button" class="round-nav-button" @click="shiftMonth(1)">›</button>
-        </div>
+      <div class="grid weekdays">
+        <span v-for="w in ['一', '二', '三', '四', '五', '六', '日']" :key="w">{{ w }}</span>
       </div>
-
-      <div class="calendar-grid calendar-grid-heatmap">
-        <div class="calendar-header" v-for="label in weekdayLabels" :key="label">{{ label }}</div>
+      <div v-for="row in weeks" :key="row[0]" class="grid">
         <button
-          v-for="(cell, index) in calendarCells"
-          :key="index"
-          type="button"
-          class="calendar-cell"
-          :class="{
-            empty: !cell,
-            selected: cell && cell.date === selectedDate,
-          }"
-          :style="cell ? cellTone(cell.total.expense) : undefined"
-          :disabled="!cell"
-          @click="selectedDate = cell?.date || null"
+          v-for="d in row"
+          :key="d"
+          :class="['day', { out: !d.startsWith(month), today: d === today, on: d === selected, has: byDay.has(d) }]"
+          :disabled="!d.startsWith(month)"
+          @click="pick(d)"
         >
-          <template v-if="cell">
-            <span class="calendar-day">{{ cell.day }}</span>
-            <span class="calendar-cell-amounts">
-              <small v-if="cell.total.expense" class="calendar-expense-amount">
-                -{{ formatCompactAmount(cell.total.expense) }}
-              </small>
-              <small v-if="cell.total.income" class="calendar-income-amount">
-                +{{ formatCompactAmount(cell.total.income) }}
-              </small>
-            </span>
-          </template>
+          <span class="num">{{ parseKey(d).getDate() }}</span>
+          <span v-if="d.startsWith(month) && byDay.get(d)?.expense" class="amt exp mono">{{ short(byDay.get(d)!.expense) }}</span>
+          <span v-else-if="d.startsWith(month) && byDay.get(d)?.income" class="amt inc mono">+{{ short(byDay.get(d)!.income) }}</span>
         </button>
       </div>
-
-      <div v-if="monthExpenseTotal === 0 && monthIncomeTotal === 0" class="calendar-empty-state">
-        <strong>暂无数据</strong>
-        <p>这个月还没有收支记录。</p>
-      </div>
-
-      <div v-else-if="selectedDate" class="calendar-day-sheet">
-        <div class="calendar-day-sheet-header">
-          <div>
-            <p class="section-kicker">当日流水</p>
-            <h3>{{ activeDateLabel }}</h3>
-          </div>
-          <strong>
-            <span v-if="selectedDayExpenseTotal" class="calendar-total-expense">支出 {{ formatAmount(selectedDayExpenseTotal) }}</span>
-            <span v-if="selectedDayIncomeTotal" class="calendar-total-income">收入 {{ formatAmount(selectedDayIncomeTotal) }}</span>
-          </strong>
-        </div>
-
-        <div v-if="!selectedDayRecords.length" class="calendar-day-empty">
-          <p>当天暂无记录。</p>
-        </div>
-
-        <button
-          v-for="record in selectedDayRecords"
-          :key="record.id"
-          type="button"
-          :class="['calendar-day-expense', { 'calendar-day-income': record.recordType === 'income' }]"
-          @click="emit('edit', record.id)"
-        >
-          <span class="home-ledger-icon">{{ categoryMap[record.category]?.icon || '🧾' }}</span>
-          <span class="home-ledger-copy">
-            <strong>{{ record.title }}</strong>
-            <span class="home-ledger-meta">
-              {{ record.recordType === 'income' ? '收入' : '支出' }} · {{ categoryMap[record.category]?.name || record.category }}
-            </span>
-            <span v-if="record.note" class="home-ledger-note">{{ record.note }}</span>
-          </span>
-          <span :class="['home-ledger-amount', record.recordType === 'income' ? 'income-amount' : 'expense-out-amount']">
-            {{ formatRecordAmount(record) }}
-          </span>
-        </button>
-      </div>
+      <p class="tip">点有金额的日子看当天账单 · 显示共同记录和你自己的记录</p>
     </section>
-  </section>
+
+    <transition name="fade" mode="out-in">
+      <div v-if="selected" :key="selected" class="day-list">
+        <RecordList :records="dayRecords" />
+      </div>
+    </transition>
+  </PushPage>
 </template>
+
+<style scoped>
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 14px 10px 10px;
+}
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding: 0 4px;
+}
+.title {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+}
+.title b {
+  font-size: 17px;
+}
+.title small {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.nav-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--primary);
+  display: grid;
+  place-items: center;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.weekdays {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-bottom: 4px;
+}
+.day {
+  height: 50px;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 6px;
+  gap: 1px;
+  transition: background 0.15s;
+}
+.day:active:not(:disabled) {
+  background: var(--bg);
+}
+.day.out {
+  opacity: 0.25;
+}
+.num {
+  font-size: 15px;
+}
+.day.today .num {
+  color: var(--primary);
+  font-weight: 800;
+}
+.day.on {
+  background: var(--primary-soft);
+}
+.day.on .num {
+  font-weight: 700;
+}
+.amt {
+  font-size: 9.5px;
+  line-height: 1.2;
+}
+.exp {
+  color: var(--expense);
+}
+.inc {
+  color: var(--income);
+}
+.mono {
+  font-family: var(--mono);
+}
+.tip {
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.day-list {
+  margin-top: 14px;
+}
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+</style>

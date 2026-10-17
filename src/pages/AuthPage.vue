@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useSupabaseAuth } from '../composables/useSupabaseAuth'
 import { toast } from '../composables/useToast'
+import AppIcon from '../components/AppIcon.vue'
 
 const { signInWithGoogle } = useSupabaseAuth()
 const loading = ref(false)
@@ -19,7 +20,7 @@ const login = async () => {
 <template>
   <div class="auth">
     <div class="hero">
-      <div class="logo">💑</div>
+      <div class="logo"><AppIcon name="heart" :size="44" :stroke="2" /></div>
       <h1>两个人的账本</h1>
       <p>一起记账，月底自动算清谁该转给谁</p>
     </div>
@@ -51,7 +52,7 @@ const login = async () => {
   background: var(--primary);
   display: grid;
   place-items: center;
-  font-size: 44px;
+  color: #fff;
   box-shadow: 0 16px 32px rgba(108, 99, 255, 0.35);
 }
 h1 {

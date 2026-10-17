@@ -1,5 +1,19 @@
-export const formatMoney = (value: number) =>
-  `¥${Math.round(value).toLocaleString('ja-JP')}`
+import { computed, ref } from 'vue'
+import type { CurrencyCode } from '../types'
+import { DEFAULT_CURRENCY, currencyInfo } from './currency'
+
+/** 当前账本的货币，由 useBooks 同步 */
+export const activeCurrency = ref<CurrencyCode>(DEFAULT_CURRENCY)
+export const activeCurrencyInfo = computed(() => currencyInfo(activeCurrency.value))
+
+export const formatMoney = (value: number) => {
+  const { symbol, decimals } = activeCurrencyInfo.value
+  const text = value.toLocaleString('ja-JP', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })
+  return `${symbol}${text}`
+}
 
 export const toDateKey = (d: Date) => {
   const y = d.getFullYear()
@@ -18,4 +32,18 @@ export const formatDateLabel = (key: string) => {
   if (key === toDateKey(y)) return '昨天'
   const [, m, d] = key.split('-')
   return `${Number(m)}月${Number(d)}日`
+}
+
+const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+
+/** 'YYYY-MM-DD' → '周五' */
+export const formatWeekday = (key: string) => {
+  const [y, m, d] = key.split('-').map(Number)
+  return WEEKDAYS[new Date(y, m - 1, d).getDay()]
+}
+
+/** 'YYYY-MM-DD' → '2026年10月17日 周六' */
+export const formatFullDate = (key: string) => {
+  const [y, m, d] = key.split('-').map(Number)
+  return `${y}年${m}月${d}日 ${formatWeekday(key)}`
 }

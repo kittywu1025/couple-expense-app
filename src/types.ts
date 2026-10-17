@@ -1,3 +1,7 @@
+export type CurrencyCode = 'JPY' | 'CNY' | 'USD' | 'KRW' | 'TWD' | 'HKD'
+
+export type Gender = 'female' | 'male'
+
 export type RecordKind = 'expense' | 'income'
 export type RecordType = 'personal' | 'shared'
 
@@ -6,6 +10,8 @@ export interface Book {
   inviteCode: string
   settleDay: number
   defaultRatio: number
+  /** 账本记账货币，只影响显示单位，不做汇率换算 */
+  currency: CurrencyCode
   createdBy: string
   createdAt: string
 }
@@ -15,6 +21,7 @@ export interface BookMember {
   bookId: string
   userId: string
   displayName: string
+  gender: Gender | null
   joinedAt: string
 }
 

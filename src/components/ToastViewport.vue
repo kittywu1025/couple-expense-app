@@ -58,7 +58,7 @@ const handleAction = async (toastItem: ToastItem, action: ToastAction) => {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
   border-left: 4px solid var(--primary);
 }
-.toast.success { border-left-color: #34c759; }
+.toast.success { border-left-color: var(--success); }
 .toast.error { border-left-color: var(--danger); }
 .toast.warning { border-left-color: #ff9f0a; }
 .body {

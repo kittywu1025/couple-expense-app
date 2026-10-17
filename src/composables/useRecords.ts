@@ -1,5 +1,6 @@
 import { ref, watch } from 'vue'
 import { supabase } from '../lib/supabase'
+import { createDemoRecords, isDemoMode } from '../lib/demo'
 import type { LedgerRecord, NewRecord } from '../types'
 import { formatSupabaseError, useBooks } from './useBooks'
 import { authUser } from './useSupabaseAuth'
@@ -30,6 +31,10 @@ const sortRecords = (list: LedgerRecord[]) =>
 const { currentBook } = useBooks()
 
 const loadRecords = async () => {
+  if (isDemoMode) {
+    if (!records.value.length) records.value = sortRecords(createDemoRecords())
+    return
+  }
   const bookId = currentBook.value?.id
   if (!supabase || !bookId) {
     records.value = []
@@ -57,6 +62,17 @@ const loadRecords = async () => {
 const addRecord = async (input: NewRecord) => {
   const bookId = currentBook.value?.id
   const uid = authUser.value?.id
+  if (isDemoMode && bookId && uid) {
+    const local: LedgerRecord = {
+      ...input,
+      id: crypto.randomUUID(),
+      bookId,
+      createdBy: uid,
+      createdAt: new Date().toISOString(),
+    }
+    records.value = sortRecords([local, ...records.value])
+    return { error: null }
+  }
   if (!supabase || !bookId || !uid) return { error: new Error('还没有加入账本。') }
 
   const { data, error } = await supabase
@@ -85,8 +101,43 @@ const addRecord = async (input: NewRecord) => {
   return { error: null }
 }
 
+const updateRecord = async (id: string, input: NewRecord) => {
+  if (isDemoMode || !supabase) {
+    records.value = sortRecords(records.value.map((r) => (r.id === id ? { ...r, ...input } : r)))
+    return { error: null }
+  }
+
+  const { data, error } = await supabase
+    .from('records')
+    .update({
+      amount: input.amount,
+      kind: input.kind,
+      type: input.type,
+      payer_uid: input.payerUid,
+      ratio: input.ratio,
+      category: input.category,
+      sub_category: input.subCategory,
+      note: input.note,
+      date: input.date,
+    })
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) {
+    console.error('更新账单失败：', error)
+    return { error: new Error(formatSupabaseError(error, '保存失败，请稍后重试。')) }
+  }
+  const next = normalizeRecord(data)
+  records.value = sortRecords(records.value.map((r) => (r.id === id ? next : r)))
+  return { error: null }
+}
+
 const deleteRecord = async (id: string) => {
-  if (!supabase) return { error: null }
+  if (isDemoMode || !supabase) {
+    records.value = records.value.filter((r) => r.id !== id)
+    return { error: null }
+  }
   const { error } = await supabase.from('records').delete().eq('id', id)
   if (error) {
     console.error('删除账单失败：', error)
@@ -99,5 +150,5 @@ const deleteRecord = async (id: string) => {
 watch(() => currentBook.value?.id, loadRecords, { immediate: true })
 
 export function useRecords() {
-  return { records, recordsLoading, loadRecords, addRecord, deleteRecord }
+  return { records, recordsLoading, loadRecords, addRecord, updateRecord, deleteRecord }
 }

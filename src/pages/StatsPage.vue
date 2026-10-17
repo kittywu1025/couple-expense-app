@@ -2,7 +2,8 @@
 import { computed, ref } from 'vue'
 import { useBooks } from '../composables/useBooks'
 import { useRecords } from '../composables/useRecords'
-import { findCategory } from '../utils/categories'
+import CategoryBreakdown from '../components/CategoryBreakdown.vue'
+import AppIcon from '../components/AppIcon.vue'
 import { formatMoney } from '../utils/format'
 import { currentPeriodMonth, debtOf, inPeriod, isTreat, periodRange, shiftMonth, treaterOf } from '../utils/settlement'
 
@@ -26,7 +27,8 @@ const rangeLabel = computed(() => {
 })
 const isCurrent = computed(() => month.value === currentPeriodMonth(settleDay.value))
 
-const expenses = computed(() => records.value.filter((r) => r.kind === 'expense' && inPeriod(r, range.value)))
+const periodRecords = computed(() => records.value.filter((r) => inPeriod(r, range.value)))
+const expenses = computed(() => periodRecords.value.filter((r) => r.kind === 'expense'))
 const shared = computed(() => expenses.value.filter((r) => r.type === 'shared'))
 const aa = computed(() => shared.value.filter((r) => !isTreat(r)))
 const treats = computed(() => shared.value.filter(isTreat))
@@ -47,18 +49,6 @@ const paidBy = (uid: string) => expenses.value.filter((r) => r.payerUid === uid)
 const myPaid = computed(() => paidBy(myUid.value))
 const partnerPaid = computed(() => expenses.value.reduce((s, r) => s + r.amount, 0) - myPaid.value)
 const paidMax = computed(() => Math.max(myPaid.value, partnerPaid.value, 1))
-
-const categoryRows = computed(() => {
-  const map = new Map<string, number>()
-  for (const r of expenses.value) map.set(r.category, (map.get(r.category) ?? 0) + r.amount)
-  const total = [...map.values()].reduce((s, v) => s + v, 0) || 1
-  return [...map.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([name, value]) => {
-      const cat = findCategory(name)
-      return { name, value, pct: (value / total) * 100, icon: cat?.icon ?? '✨', color: cat?.color ?? '#B0B3C0' }
-    })
-})
 
 const openSettle = ref(false)
 const openPaid = ref(false)
@@ -102,11 +92,11 @@ const openPaid = ref(false)
 
   <div class="card fold">
     <button class="fold-head" @click="openSettle = !openSettle">
-      <span>💸 月末结算明细</span>
+      <span class="fold-title"><span class="fold-icon"><AppIcon name="transfer" :size="16" :stroke="2" /></span>月末结算明细</span>
       <span :class="['chev', { open: openSettle }]">›</span>
     </button>
     <div v-if="openSettle" class="fold-body">
-      <div v-if="Math.abs(diff) < 0.5" class="settle-result even">本期两清，无需转账 🎉</div>
+      <div v-if="Math.abs(diff) < 0.5" class="settle-result even"><AppIcon name="party" :size="20" />本期两清，无需转账</div>
       <div v-else class="settle-result">
         <div class="flow">
           <span :class="['avatar', diff > 0 ? 'me' : 'partner']">{{ (diff > 0 ? nameOf(myUid) : partnerName).slice(0, 1) }}</span>
@@ -129,7 +119,7 @@ const openPaid = ref(false)
 
   <div class="card fold">
     <button class="fold-head" @click="openPaid = !openPaid">
-      <span>👛 各自支出明细</span>
+      <span class="fold-title"><span class="fold-icon"><AppIcon name="wallet" :size="16" :stroke="2" /></span>各自支出明细</span>
       <span :class="['chev', { open: openPaid }]">›</span>
     </button>
     <div v-if="openPaid" class="fold-body">
@@ -147,20 +137,7 @@ const openPaid = ref(false)
     </div>
   </div>
 
-  <h2 class="section-title">分类明细</h2>
-  <div class="card list">
-    <div v-if="!categoryRows.length" class="empty">这个月还没有支出</div>
-    <div v-for="row in categoryRows" :key="row.name" class="cat-row">
-      <span class="cat-icon" :style="{ background: row.color + '33' }">{{ row.icon }}</span>
-      <div class="cat-main">
-        <div class="cat-top">
-          <span>{{ row.name }} <small>{{ row.pct.toFixed(1) }}%</small></span>
-          <span class="mono">{{ formatMoney(row.value) }}</span>
-        </div>
-        <div class="bar-track thin"><div class="bar" :style="{ width: row.pct + '%', background: row.color }" /></div>
-      </div>
-    </div>
-  </div>
+  <CategoryBreakdown :records="periodRecords" />
 </template>
 
 <style scoped>
@@ -261,6 +238,20 @@ const openPaid = ref(false)
   padding: 16px;
   font-weight: 600;
 }
+.fold-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fold-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  display: grid;
+  place-items: center;
+}
 .chev {
   font-size: 20px;
   color: var(--text-faint);
@@ -280,6 +271,10 @@ const openPaid = ref(false)
 }
 .settle-result.even {
   color: var(--text-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 .settle-result p {
   margin: 6px 0 0;
@@ -363,9 +358,6 @@ const openPaid = ref(false)
   border-radius: 999px;
   overflow: hidden;
 }
-.bar-track.thin {
-  height: 6px;
-}
 .bar {
   height: 100%;
   border-radius: 999px;
@@ -376,49 +368,6 @@ const openPaid = ref(false)
 }
 .bar.partner {
   background: var(--partner);
-}
-.section-title {
-  font-size: 17px;
-  margin: 20px 4px 10px;
-}
-.list {
-  padding: 4px 16px;
-}
-.empty {
-  text-align: center;
-  color: var(--text-faint);
-  padding: 24px 0;
-  font-size: 14px;
-}
-.cat-row {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 12px 0;
-}
-.cat-row + .cat-row {
-  border-top: 1px solid var(--line);
-}
-.cat-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 18px;
-}
-.cat-main {
-  flex: 1;
-}
-.cat-top {
-  display: flex;
-  justify-content: space-between;
-  font-size: 14px;
-  margin-bottom: 6px;
-}
-.cat-top small {
-  color: var(--text-faint);
-  margin-left: 4px;
 }
 .mono {
   font-family: var(--mono);

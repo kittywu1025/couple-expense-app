@@ -1,15 +1,25 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useBooks } from '../composables/useBooks'
-import { authDisplayName, useSupabaseAuth } from '../composables/useSupabaseAuth'
+import { authDisplayName, authGender, useSupabaseAuth } from '../composables/useSupabaseAuth'
 import { toast } from '../composables/useToast'
+import AppIcon from '../components/AppIcon.vue'
 
 const { createBook, joinBook, bookActionLoading } = useBooks()
 const { signOut } = useSupabaseAuth()
 const code = ref('')
 
+// 性别在注册时已选好（ProfileSetupPage），这里直接带上
+const requireGender = () => {
+  if (authGender.value) return authGender.value
+  toast.warning('请先完成注册资料')
+  return null
+}
+
 const onCreate = async () => {
-  const { error } = await createBook()
+  const g = requireGender()
+  if (!g) return
+  const { error } = await createBook(g)
   if (error) toast.error(error.message)
   else toast.success('账本已创建，把邀请码发给 TA 吧')
 }
@@ -19,7 +29,9 @@ const onJoin = async () => {
     toast.warning('邀请码是 6 位')
     return
   }
-  const { error } = await joinBook(code.value)
+  const g = requireGender()
+  if (!g) return
+  const { error } = await joinBook(code.value, g)
   if (error) toast.error(error.message)
   else toast.success('已加入账本')
 }
@@ -33,14 +45,14 @@ const onJoin = async () => {
     </header>
 
     <section class="card">
-      <div class="emoji">📒</div>
+      <div class="emoji"><AppIcon name="book" :size="22" /></div>
       <h2>创建新账本</h2>
       <p>创建后会生成 6 位邀请码，发给 TA 即可加入</p>
       <button class="primary" :disabled="bookActionLoading" @click="onCreate">创建账本</button>
     </section>
 
     <section class="card">
-      <div class="emoji">🔗</div>
+      <div class="emoji"><AppIcon name="link" :size="22" /></div>
       <h2>加入 TA 的账本</h2>
       <input
         v-model="code"
@@ -84,7 +96,13 @@ h1 {
   gap: 10px;
 }
 .emoji {
-  font-size: 28px;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  display: grid;
+  place-items: center;
 }
 h2 {
   margin: 0;

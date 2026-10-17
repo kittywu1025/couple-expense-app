@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import type { TabKey } from '../types'
+import type { IconName } from '../utils/icons'
+import AppIcon from './AppIcon.vue'
 
 defineProps<{ modelValue: TabKey }>()
 defineEmits<{ 'update:modelValue': [TabKey]; add: [] }>()
 
-const tabs: { key: TabKey; label: string; icon: string }[] = [
-  { key: 'home', label: '首页', icon: '⌂' },
-  { key: 'stats', label: '统计', icon: '◔' },
-  { key: 'me', label: '我的', icon: '☺' },
+const tabs: { key: TabKey; label: string; icon: IconName }[] = [
+  { key: 'home', label: '首页', icon: 'home' },
+  { key: 'stats', label: '统计', icon: 'chart' },
+  { key: 'me', label: '我的', icon: 'user' },
 ]
 </script>
 
@@ -19,11 +21,11 @@ const tabs: { key: TabKey; label: string; icon: string }[] = [
       :class="['tab', { active: modelValue === tab.key }]"
       @click="$emit('update:modelValue', tab.key)"
     >
-      <span class="icon">{{ tab.icon }}</span>
+      <AppIcon :name="tab.icon" :size="24" :stroke="modelValue === tab.key ? 2.1 : 1.7" />
       <span class="label">{{ tab.label }}</span>
     </button>
   </nav>
-  <button class="fab" aria-label="记一笔" @click="$emit('add')">＋</button>
+  <button class="fab" aria-label="记一笔" @click="$emit('add')"><AppIcon name="plus" :size="28" :stroke="2.4" /></button>
 </template>
 
 <style scoped>
@@ -52,10 +54,6 @@ const tabs: { key: TabKey; label: string; icon: string }[] = [
 .tab.active {
   color: var(--primary);
 }
-.icon {
-  font-size: 22px;
-  line-height: 1;
-}
 .label {
   font-size: 11px;
 }
@@ -68,8 +66,8 @@ const tabs: { key: TabKey; label: string; icon: string }[] = [
   border-radius: 50%;
   background: var(--primary);
   color: #fff;
-  font-size: 30px;
-  line-height: 56px;
+  display: grid;
+  place-items: center;
   box-shadow: 0 10px 24px rgba(108, 99, 255, 0.4);
   z-index: 60;
 }

@@ -9,13 +9,15 @@ create table if not exists public.books (
   invite_code text not null unique,
   settle_day integer not null default 1,
   default_ratio integer not null default 5,
+  currency text not null default 'JPY',
   created_by uuid not null references auth.users(id) on delete cascade,
   created_at timestamptz not null default now()
 );
 
 alter table public.books
   add column if not exists settle_day integer not null default 1,
-  add column if not exists default_ratio integer not null default 5;
+  add column if not exists default_ratio integer not null default 5,
+  add column if not exists currency text not null default 'JPY';
 
 -- 旧版 books 有 name 列，新版不再需要
 do $$
@@ -32,6 +34,9 @@ alter table public.books drop constraint if exists books_settle_day_check;
 alter table public.books add constraint books_settle_day_check check (settle_day between 1 and 28);
 alter table public.books drop constraint if exists books_default_ratio_check;
 alter table public.books add constraint books_default_ratio_check check (default_ratio between 0 and 10);
+alter table public.books drop constraint if exists books_currency_check;
+alter table public.books add constraint books_currency_check
+  check (currency in ('JPY', 'CNY', 'USD', 'KRW', 'TWD', 'HKD'));
 
 -- ───────── book_members ─────────
 create table if not exists public.book_members (
@@ -39,9 +44,14 @@ create table if not exists public.book_members (
   book_id uuid not null references public.books(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
   display_name text,
+  -- 性别由用户自己设定，用于记录列表的付款人底色（female 粉 / male 蓝）
+  gender text check (gender in ('female', 'male')),
   joined_at timestamptz not null default now(),
   unique (book_id, user_id)
 );
+
+alter table public.book_members
+  add column if not exists gender text check (gender in ('female', 'male'));
 
 -- 旧版 book_members 有 role 列，新版不再需要
 do $$
@@ -105,7 +115,10 @@ as $$
 $$;
 
 -- 创建账本：生成 6 位邀请码，并把自己加为成员
-create or replace function public.create_book(p_display_name text)
+drop function if exists public.create_book(text);
+drop function if exists public.join_book(text, text);
+
+create or replace function public.create_book(p_display_name text, p_gender text default null)
 returns setof public.books
 language plpgsql
 security definer
@@ -133,15 +146,15 @@ begin
     end;
   end loop;
 
-  insert into public.book_members (book_id, user_id, display_name)
-  values (v_book.id, auth.uid(), nullif(trim(p_display_name), ''));
+  insert into public.book_members (book_id, user_id, display_name, gender)
+  values (v_book.id, auth.uid(), nullif(trim(p_display_name), ''), p_gender);
 
   return query select * from public.books where id = v_book.id;
 end;
 $$;
 
 -- 通过邀请码加入：一个账本最多两人
-create or replace function public.join_book(p_invite_code text, p_display_name text)
+create or replace function public.join_book(p_invite_code text, p_display_name text, p_gender text default null)
 returns setof public.books
 language plpgsql
 security definer
@@ -169,8 +182,8 @@ begin
     raise exception '这个账本已经满两人了';
   end if;
 
-  insert into public.book_members (book_id, user_id, display_name)
-  values (v_book.id, auth.uid(), nullif(trim(p_display_name), ''));
+  insert into public.book_members (book_id, user_id, display_name, gender)
+  values (v_book.id, auth.uid(), nullif(trim(p_display_name), ''), p_gender);
 
   return query select * from public.books where id = v_book.id;
 end;
@@ -192,12 +205,12 @@ end;
 $$;
 
 revoke all on function public.is_book_member(uuid) from public;
-revoke all on function public.create_book(text) from public;
-revoke all on function public.join_book(text, text) from public;
+revoke all on function public.create_book(text, text) from public;
+revoke all on function public.join_book(text, text, text) from public;
 revoke all on function public.leave_book(uuid) from public;
 grant execute on function public.is_book_member(uuid) to authenticated;
-grant execute on function public.create_book(text) to authenticated;
-grant execute on function public.join_book(text, text) to authenticated;
+grant execute on function public.create_book(text, text) to authenticated;
+grant execute on function public.join_book(text, text, text) to authenticated;
 grant execute on function public.leave_book(uuid) to authenticated;
 
 -- ───────── RLS ─────────
@@ -222,6 +235,7 @@ create policy "book_members_update_self" on public.book_members
 
 drop policy if exists "records_select_members" on public.records;
 drop policy if exists "records_insert_members" on public.records;
+drop policy if exists "records_update_members" on public.records;
 drop policy if exists "records_delete_members" on public.records;
 create policy "records_select_members" on public.records
   for select to authenticated using (public.is_book_member(book_id));
@@ -230,3 +244,6 @@ create policy "records_insert_members" on public.records
   with check (public.is_book_member(book_id) and created_by = auth.uid());
 create policy "records_delete_members" on public.records
   for delete to authenticated using (public.is_book_member(book_id));
+create policy "records_update_members" on public.records
+  for update to authenticated
+  using (public.is_book_member(book_id)) with check (public.is_book_member(book_id));

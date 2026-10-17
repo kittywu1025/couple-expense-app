@@ -1,6 +1,8 @@
 import { computed, ref } from 'vue'
 import type { Session, User } from '@supabase/supabase-js'
 import { isSupabaseEnabled, supabase } from '../lib/supabase'
+import { demoUser, isDemoMode } from '../lib/demo'
+import type { Gender } from '../types'
 
 export const authUser = ref<User | null>(null)
 export const authSession = ref<Session | null>(null)
@@ -10,6 +12,12 @@ let authInitialized = false
 const initAuth = () => {
   if (authInitialized) return
   authInitialized = true
+
+  if (isDemoMode) {
+    authUser.value = demoUser as unknown as User
+    authLoading.value = false
+    return
+  }
 
   if (!supabase) {
     authLoading.value = false
@@ -47,6 +55,28 @@ export const authDisplayName = computed(() => {
   return String(meta.full_name || meta.name || user.email?.split('@')[0] || '我')
 })
 
+/** 注册时选择的性别，存在 Supabase 用户资料（user_metadata）里 */
+export const authGender = computed<Gender | null>(() => {
+  const g = authUser.value?.user_metadata?.gender
+  return g === 'female' || g === 'male' ? g : null
+})
+
+export const updateProfileGender = async (gender: Gender) => {
+  const user = authUser.value
+  if (!user) return { error: new Error('请先登录') }
+  if (isDemoMode || !supabase) {
+    authUser.value = { ...user, user_metadata: { ...user.user_metadata, gender } }
+    return { error: null }
+  }
+  const { data, error } = await supabase.auth.updateUser({ data: { gender } })
+  if (error) {
+    console.error('保存性别失败：', error)
+    return { error: new Error('保存失败，请稍后重试。') }
+  }
+  if (data.user) authUser.value = data.user
+  return { error: null }
+}
+
 export function useSupabaseAuth() {
   initAuth()
 
@@ -74,6 +104,8 @@ export function useSupabaseAuth() {
     authSession,
     authLoading,
     authDisplayName,
+    authGender,
+    updateProfileGender,
     isSupabaseEnabled,
     signInWithGoogle,
     signOut,

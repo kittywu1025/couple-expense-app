@@ -3,8 +3,10 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import TabBar from './components/TabBar.vue'
 import type { TabKey } from './types'
 import ToastViewport from './components/ToastViewport.vue'
+import ConfirmHost from './components/ConfirmHost.vue'
 import AuthPage from './pages/AuthPage.vue'
 import BookSetupPage from './pages/BookSetupPage.vue'
+import ProfileSetupPage from './pages/ProfileSetupPage.vue'
 import HomePage from './pages/HomePage.vue'
 import StatsPage from './pages/StatsPage.vue'
 import MePage from './pages/MePage.vue'
@@ -14,20 +16,26 @@ import { useBooks } from './composables/useBooks'
 import { useRecords } from './composables/useRecords'
 import { applyPwaUpdate, dismissPwaUpdate, usePwaUpdate } from './composables/usePwaUpdate'
 import { toast } from './composables/useToast'
+import { isDemoMode } from './lib/demo'
+import { addSheetOpen, closeAddSheet, editingRecord, openAddSheet } from './composables/useUi'
 
-const { authUser, authLoading, isSupabaseEnabled } = useSupabaseAuth()
-const { currentBook, booksLoading, loadBook } = useBooks()
+const { authUser, authLoading, authGender, isSupabaseEnabled } = useSupabaseAuth()
+const { currentBook, booksLoading, loadBook, me } = useBooks()
 const { loadRecords } = useRecords()
 const { updateAvailable, updateMessage } = usePwaUpdate()
 
 const activeTab = ref<TabKey>('home')
-const showAdd = ref(false)
+
+// 新注册（还没选性别）的用户先完善资料；老账本里已有性别的成员直接放行
+const needsProfile = computed(() => !authGender.value && !me.value?.gender)
 
 const screen = computed(() => {
+  if (isDemoMode) return !currentBook.value ? 'loading' : needsProfile.value ? 'profile' : 'app'
   if (!isSupabaseEnabled) return 'unconfigured'
   if (authLoading.value) return 'loading'
   if (!authUser.value) return 'auth'
   if (booksLoading.value && !currentBook.value) return 'loading'
+  if (needsProfile.value) return 'profile'
   if (!currentBook.value) return 'setup'
   return 'app'
 })
@@ -65,6 +73,7 @@ watch(updateAvailable, (visible) => {
 
 <template>
   <ToastViewport />
+  <ConfirmHost />
 
   <div v-if="screen === 'unconfigured'" class="center">
     <p>请在 <code>.env.local</code> 中配置 VITE_SUPABASE_URL 和 VITE_SUPABASE_ANON_KEY。</p>
@@ -73,6 +82,7 @@ watch(updateAvailable, (visible) => {
     <div class="spinner" />
   </div>
   <AuthPage v-else-if="screen === 'auth'" />
+  <ProfileSetupPage v-else-if="screen === 'profile'" />
   <BookSetupPage v-else-if="screen === 'setup'" />
 
   <template v-else>
@@ -81,9 +91,9 @@ watch(updateAvailable, (visible) => {
       <StatsPage v-else-if="activeTab === 'stats'" />
       <MePage v-else />
     </main>
-    <TabBar v-model="activeTab" @add="showAdd = true" />
+    <TabBar v-model="activeTab" @add="openAddSheet" />
     <transition name="slide-up">
-      <AddRecordPage v-if="showAdd" @close="showAdd = false" />
+      <AddRecordPage v-if="addSheetOpen" :key="editingRecord?.id ?? 'new'" :record="editingRecord" @close="closeAddSheet" />
     </transition>
   </template>
 </template>

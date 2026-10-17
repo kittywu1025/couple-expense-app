@@ -7,13 +7,22 @@
   --bg: #f5f5f7;
   --card: #ffffff;
   --radius: 16px;
+  /* 我 / 对方的标识色，登录后由 useBooks 按性别覆盖 */
   --me: #ff8fab;
+  --me-text: #d9577a;
+  --me-bg: #fff0f3;
   --partner: #74c0fc;
+  --partner-text: #2f86c9;
+  --partner-bg: #eff8ff;
   --text: #1c1c1e;
   --text-soft: #6e6e73;
   --text-faint: #aeaeb2;
   --line: rgba(0, 0, 0, 0.06);
   --danger: #ff3b30;
+  /* 支出绿、收入红 */
+  --expense: #2db87a;
+  --income: #ff3b30;
+  --success: #2db87a;
   --mono: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
   -webkit-tap-highlight-color: transparent;
 }

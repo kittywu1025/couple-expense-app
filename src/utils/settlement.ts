@@ -44,11 +44,3 @@ export const shiftMonth = (month: string, delta: number) => {
 
 export const inPeriod = (r: LedgerRecord, range: { start: string; end: string }) =>
   r.date >= range.start && r.date < range.end
-
-/** 从 uid 视角显示的比例标签，例如「AA 6:4」（我:对方） */
-export const ratioLabel = (r: LedgerRecord, uid: string) => {
-  if (r.type === 'personal') return '个人'
-  if (isTreat(r)) return '请客'
-  const mine = shareOf(r, uid)
-  return `AA ${mine}:${10 - mine}`
-}

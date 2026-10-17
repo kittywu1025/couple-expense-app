@@ -37,6 +37,13 @@ body,
   min-height: 100%;
 }
 
+/* 锁定缩放：禁止双击放大，配合 index.html 的 user-scalable=no */
+html {
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   color: var(--text);

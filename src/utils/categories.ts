@@ -1,5 +1,6 @@
-import type { RecordKind } from '../types'
-import type { IconName } from './icons'
+import { ref } from 'vue'
+import type { CustomCategory, RecordKind } from '../types'
+import { ICONS, type IconName } from './icons'
 
 export interface Category {
   key: string
@@ -7,6 +8,8 @@ export interface Category {
   icon: IconName
   color: string
   subs: { name: string; icon: IconName }[]
+  /** 用户自建的分类，可以删除 */
+  custom?: boolean
 }
 
 export const EXPENSE_CATEGORIES: Category[] = [
@@ -56,12 +59,32 @@ export const INCOME_CATEGORIES: Category[] = [
   { key: 'other-income', name: '其他', icon: 'sparkles', color: '#B0B3C0', subs: [] },
 ]
 
-export const categoriesFor = (kind: RecordKind) =>
-  kind === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES
+/** 当前账本的自定义分类（由 useBooks 同步） */
+export const customCategories = ref<CustomCategory[]>([])
 
-const allCategories = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES]
+const isIcon = (v: string): v is IconName => v in ICONS
 
-export const findCategory = (name: string) => allCategories.find((c) => c.name === name)
+const toCategory = (c: CustomCategory): Category => ({
+  key: c.key,
+  name: c.name,
+  icon: isIcon(c.icon) ? c.icon : 'sparkles',
+  color: c.color,
+  custom: true,
+  subs: c.subs.map((s) => ({ name: s.name, icon: isIcon(s.icon) ? s.icon : 'sparkles' })),
+})
+
+/** 默认分类在前，自定义分类接在后面 */
+export const categoriesFor = (kind: RecordKind): Category[] => [
+  ...(kind === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES),
+  ...customCategories.value.filter((c) => c.kind === kind).map(toCategory),
+]
+
+export const findCategory = (name: string) =>
+  [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES].find((c) => c.name === name) ??
+  customCategories.value.filter((c) => c.name === name).map(toCategory)[0]
+
+/** 新建分类时名字不能和已有分类（含默认）重复，避免账单归类混乱 */
+export const isCategoryNameTaken = (name: string) => !!findCategory(name.trim())
 
 export const recordIcon = (category: string, subCategory?: string | null): IconName => {
   const cat = findCategory(category)
@@ -70,3 +93,18 @@ export const recordIcon = (category: string, subCategory?: string | null): IconN
 }
 
 export const recordColor = (category: string) => findCategory(category)?.color ?? '#B0B3C0'
+
+/** 自定义分类可选的图标 */
+export const CATEGORY_ICON_CHOICES: IconName[] = [
+  'bowl', 'utensils', 'cart', 'coffee', 'home', 'building', 'utilities', 'phone',
+  'train', 'taxi', 'car', 'fuel', 'plane', 'ticket', 'gamepad', 'music',
+  'bag', 'shirt', 'package', 'store', 'book', 'cap', 'pencil', 'scissors',
+  'dumbbell', 'medical', 'pill', 'shield', 'paw', 'baby', 'heart', 'gift',
+  'briefcase', 'laptop', 'envelope', 'wallet', 'sparkles',
+]
+
+/** 自定义分类可选的颜色（和默认分类同一套色调） */
+export const CATEGORY_COLOR_CHOICES = [
+  '#FFB86B', '#FF7A7A', '#FF8FAB', '#9D8CFF', '#7A9CFF',
+  '#5CC8FF', '#4FD1C5', '#6CD4A4', '#F5C542', '#B0B3C0',
+]

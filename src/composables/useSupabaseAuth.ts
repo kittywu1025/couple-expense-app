@@ -2,7 +2,8 @@ import { computed, ref } from 'vue'
 import type { Session, User } from '@supabase/supabase-js'
 import { isSupabaseEnabled, supabase } from '../lib/supabase'
 import { demoUser, isDemoMode } from '../lib/demo'
-import type { Gender } from '../types'
+import type { Gender, MemberColor } from '../types'
+import { isMemberColor } from '../utils/palette'
 
 export const authUser = ref<User | null>(null)
 export const authSession = ref<Session | null>(null)
@@ -52,7 +53,8 @@ export const authDisplayName = computed(() => {
   const user = authUser.value
   if (!user) return ''
   const meta = user.user_metadata ?? {}
-  return String(meta.full_name || meta.name || user.email?.split('@')[0] || '我')
+  // 用户在个人资料里改过的昵称优先，其次是 Google 账号名
+  return String(meta.nickname || meta.full_name || meta.name || user.email?.split('@')[0] || '我')
 })
 
 /** 注册时选择的性别，存在 Supabase 用户资料（user_metadata）里 */
@@ -61,14 +63,20 @@ export const authGender = computed<Gender | null>(() => {
   return g === 'female' || g === 'male' ? g : null
 })
 
-export const updateProfileGender = async (gender: Gender) => {
+/** 注册时选的标识色，加入账本时作为首选（被对方占用会自动换） */
+export const authColor = computed<MemberColor | null>(() => {
+  const c = authUser.value?.user_metadata?.color
+  return isMemberColor(c) ? c : null
+})
+
+export const updateProfile = async (patch: { gender?: Gender; color?: MemberColor; nickname?: string }) => {
   const user = authUser.value
   if (!user) return { error: new Error('请先登录') }
   if (isDemoMode || !supabase) {
-    authUser.value = { ...user, user_metadata: { ...user.user_metadata, gender } }
+    authUser.value = { ...user, user_metadata: { ...user.user_metadata, ...patch } }
     return { error: null }
   }
-  const { data, error } = await supabase.auth.updateUser({ data: { gender } })
+  const { data, error } = await supabase.auth.updateUser({ data: patch })
   if (error) {
     console.error('保存性别失败：', error)
     return { error: new Error('保存失败，请稍后重试。') }
@@ -105,7 +113,8 @@ export function useSupabaseAuth() {
     authLoading,
     authDisplayName,
     authGender,
-    updateProfileGender,
+    authColor,
+    updateProfile,
     isSupabaseEnabled,
     signInWithGoogle,
     signOut,

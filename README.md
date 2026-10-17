@@ -21,12 +21,20 @@
 
 ## 初始化 Supabase
 
-1. 在 SQL Editor 执行 `supabase/migrations/20261017_rebuild_books_records.sql`（可重复执行；旧的 `expenses` 等表不受影响）
+1. 在 SQL Editor **按文件名顺序**执行 `supabase/migrations/` 下的新文件（都可重复执行；旧的 `expenses` 等表不受影响）：
+   - `20261017_rebuild_books_records.sql`
+   - `20261018_member_colors.sql`
+   - `20261019_custom_categories.sql`
 2. Authentication → Providers → 开启 **Google**，填入 Google Cloud 的 OAuth Client ID / Secret
-3. Authentication → URL Configuration → 把本地和线上地址（如 `http://localhost:5173`）加入 Redirect URLs
+3. Authentication → URL Configuration → Redirect URLs 加入 `http://localhost:5173/**`、`http://<本机局域网IP>:5173/**`；Site URL 填线上地址
 4. 复制 `.env.example` 为 `.env.local`，填写 `VITE_SUPABASE_URL` 和 `VITE_SUPABASE_ANON_KEY`
 
 ## 开发
+
+更新内容见 [CHANGELOG.md](CHANGELOG.md)。
+
+不登录预览界面（演示数据）：`VITE_DEMO_MODE=true npm run dev`
+
 
 ```bash
 npm install

@@ -55,6 +55,16 @@ export const ICONS = {
   gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8M12 8v13"/><path d="M12 8C10.5 5 7.5 4 7 6s2.5 2 5 2c2.5 0 5.5 0 5-2s-3.5-1-5 2Z"/>',
   envelope: '<rect x="5" y="2.5" width="14" height="19" rx="2"/><path d="M5 7.5c2 2 4.5 3 7 3s5-1 7-3"/><circle cx="12" cy="11" r="2"/>',
 
+  // ── 自定义分类可选 ──
+  coffee: '<path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9Z"/><path d="M16 10.5h1.5a2.5 2.5 0 0 1 0 5H16M8 3.5c0 1 1 1.5 1 2.5M12 3.5c0 1 1 1.5 1 2.5M4 21h12"/>',
+  paw: `${dot(5.5, 10, 1.8)}${dot(9, 5.8, 1.8)}${dot(15, 5.8, 1.8)}${dot(18.5, 10, 1.8)}<path d="M12 11c-3 0-5.5 3.5-5.5 6a2.5 2.5 0 0 0 3.5 2.3c1.3-.6 2.7-.6 4 0A2.5 2.5 0 0 0 17.5 17c0-2.5-2.5-6-5.5-6Z"/>`,
+  gamepad: `<path d="M6 8h12a4 4 0 0 1 4 4v2a3.5 3.5 0 0 1-6.3 2.1L14.5 15h-5l-1.2 1.1A3.5 3.5 0 0 1 2 14v-2a4 4 0 0 1 4-4Z"/><path d="M7 10.5v3M5.5 12h3"/>${dot(15.5, 11.2)}${dot(17.8, 13)}`,
+  dumbbell: '<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/>',
+  scissors: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.2 8.2 20 20M8.2 15.8 20 4"/>',
+  shirt: '<path d="M8 3 3.5 5.5 5 10l2-.8V21h10V9.2l2 .8 1.5-4.5L16 3a4 4 0 0 1-8 0Z"/>',
+  music: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+  baby: '<circle cx="12" cy="12" r="9"/><path d="M9 10h.01M15 10h.01M9.5 15a3.5 3.5 0 0 0 5 0M12 3c1.5 1 1.5 3 0 4"/>',
+
   // ── 界面 ──
   chart: '<path d="M21 12.5A9 9 0 1 1 11.5 3v9.5Z"/><path d="M15 3.3A9 9 0 0 1 20.7 9H15Z"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
@@ -62,6 +72,8 @@ export const ICONS = {
   minus: '<path d="M5 12h14"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7"/>',
+  chevronLeft: '<path d="m15 5-7 7 7 7"/>',
+  chevronRight: '<path d="m9 5 7 7-7 7"/>',
   lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   backspace: '<path d="M21 5H9l-6 7 6 7h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1Z"/><path d="m12 9 6 6M18 9l-6 6"/>',

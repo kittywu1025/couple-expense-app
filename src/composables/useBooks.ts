@@ -1,16 +1,37 @@
 import { computed, ref, watch, watchEffect } from 'vue'
 import { supabase } from '../lib/supabase'
 import { demoBook, demoMembers, isDemoMode } from '../lib/demo'
-import type { Book, BookMember, Gender } from '../types'
-import { authDisplayName, authUser } from './useSupabaseAuth'
+import type { Book, BookMember, CustomCategory, Gender, MemberColor } from '../types'
+import { customCategories } from '../utils/categories'
+import { authDisplayName, authGender, authUser } from './useSupabaseAuth'
+import { defaultColorFor, firstFreeColor, isMemberColor, swatchOf } from '../utils/palette'
 import { DEFAULT_CURRENCY, isCurrencyCode } from '../utils/currency'
 import { activeCurrency } from '../utils/format'
 import { setSyncWarning } from './useRuntimeStatus'
+import { toast } from './useToast'
 
 const currentBook = ref<Book | null>(null)
 const members = ref<BookMember[]>([])
 const booksLoading = ref(false)
 const bookActionLoading = ref(false)
+
+const normalizeCustomCategories = (raw: unknown): CustomCategory[] => {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object' && typeof c.name === 'string')
+    .map((c) => ({
+      key: String(c.key ?? c.name),
+      name: String(c.name),
+      icon: String(c.icon ?? 'sparkles'),
+      color: String(c.color ?? '#B0B3C0'),
+      kind: c.kind === 'income' ? ('income' as const) : ('expense' as const),
+      subs: Array.isArray(c.subs)
+        ? c.subs
+            .filter((s): s is Record<string, unknown> => !!s && typeof s === 'object' && typeof s.name === 'string')
+            .map((s) => ({ name: String(s.name), icon: String(s.icon ?? 'sparkles') }))
+        : [],
+    }))
+}
 
 const normalizeBook = (row: Record<string, unknown>): Book => ({
   id: String(row.id),
@@ -18,6 +39,7 @@ const normalizeBook = (row: Record<string, unknown>): Book => ({
   settleDay: Number(row.settle_day ?? 1),
   defaultRatio: Number(row.default_ratio ?? 5),
   currency: isCurrencyCode(row.currency) ? row.currency : DEFAULT_CURRENCY,
+  customCategories: normalizeCustomCategories(row.custom_categories),
   createdBy: String(row.created_by ?? ''),
   createdAt: String(row.created_at ?? ''),
 })
@@ -28,6 +50,7 @@ const normalizeMember = (row: Record<string, unknown>): BookMember => ({
   userId: String(row.user_id),
   displayName: String(row.display_name || '未命名'),
   gender: row.gender === 'female' || row.gender === 'male' ? row.gender : null,
+  color: isMemberColor(row.color) ? row.color : null,
   joinedAt: String(row.joined_at ?? ''),
 })
 
@@ -51,7 +74,8 @@ export const formatSupabaseError = (error: unknown, fallback: string) => {
     return '当前账号没有权限，请检查 Supabase RLS 策略。'
   }
   if (text.includes('network') || text.includes('fetch')) return '网络连接失败，请稍后重试。'
-  for (const known of ['演示模式下不能退出账本', '邀请码不存在', '你已经在这个账本中', '这个账本已经满两人了', '邀请码生成失败']) {
+  if (text.includes('idx_book_members_book_color')) return '这个颜色对方在用了'
+  for (const known of ['这个颜色对方在用了', '演示模式下不能退出账本', '邀请码不存在', '你已经在这个账本中', '这个账本已经满两人了', '邀请码生成失败']) {
     if (raw.includes(known)) return known
   }
   return fallback
@@ -61,7 +85,7 @@ const loadMembers = async (bookId: string) => {
   if (!supabase) return
   const { data, error } = await supabase
     .from('book_members')
-    .select('id, book_id, user_id, display_name, gender, joined_at')
+    .select('id, book_id, user_id, display_name, gender, color, joined_at')
     .eq('book_id', bookId)
     .order('joined_at', { ascending: true })
   if (error) throw error
@@ -84,7 +108,7 @@ const loadBook = async () => {
   try {
     const { data, error } = await supabase
       .from('book_members')
-      .select('book:books(id, invite_code, settle_day, default_ratio, currency, created_by, created_at)')
+      .select('book:books(id, invite_code, settle_day, default_ratio, currency, custom_categories, created_by, created_at)')
       .eq('user_id', authUser.value.id)
       .order('joined_at', { ascending: true })
       .limit(1)
@@ -121,27 +145,36 @@ const runBookAction = async (fn: () => Promise<void>, fallback: string) => {
   }
 }
 
-const createBook = (gender: Gender) =>
+const createBook = (gender: Gender, color: MemberColor) =>
   runBookAction(async () => {
     if (!supabase) throw new Error('当前未配置 Supabase。')
     const { error } = await supabase.rpc('create_book', {
       p_display_name: authDisplayName.value,
       p_gender: gender,
+      p_color: color,
     })
     if (error) throw error
     await loadBook()
   }, '创建账本失败，请稍后重试。')
 
-const joinBook = (inviteCode: string, gender: Gender) =>
+const joinBook = (inviteCode: string, gender: Gender, color: MemberColor) =>
   runBookAction(async () => {
     if (!supabase) throw new Error('当前未配置 Supabase。')
     const { error } = await supabase.rpc('join_book', {
       p_invite_code: inviteCode.trim().toUpperCase(),
       p_display_name: authDisplayName.value,
       p_gender: gender,
+      p_color: color,
     })
     if (error) throw error
     await loadBook()
+    // 想要的颜色被对方占了的话，服务器会自动换一个，这里提醒一下
+    const mine = members.value.find((m) => m.userId === authUser.value?.id)
+    if (mine?.color && mine.color !== color) {
+      toast.info(`你选的颜色 TA 已经在用了，已自动换成「${swatchOf(mine.color).name}」，可在「我的」里修改`, {
+        duration: 6000,
+      })
+    }
   }, '加入账本失败，请稍后重试。')
 
 const leaveBook = () =>
@@ -154,17 +187,18 @@ const leaveBook = () =>
     members.value = []
   }, '退出账本失败，请稍后重试。')
 
-const updateBookSettings = (patch: Partial<Pick<Book, 'settleDay' | 'defaultRatio' | 'currency'>>) =>
+const updateBookSettings = (patch: Partial<Pick<Book, 'settleDay' | 'defaultRatio' | 'currency' | 'customCategories'>>) =>
   runBookAction(async () => {
     if (isDemoMode && currentBook.value) {
       currentBook.value = { ...currentBook.value, ...patch }
       return
     }
     if (!supabase || !currentBook.value) return
-    const payload: Record<string, number | string> = {}
+    const payload: Record<string, unknown> = {}
     if (patch.settleDay !== undefined) payload.settle_day = patch.settleDay
     if (patch.defaultRatio !== undefined) payload.default_ratio = patch.defaultRatio
     if (patch.currency !== undefined) payload.currency = patch.currency
+    if (patch.customCategories !== undefined) payload.custom_categories = patch.customCategories
     const { data, error } = await supabase
       .from('books')
       .update(payload)
@@ -187,7 +221,38 @@ const updateMyGender = (gender: Gender) =>
     members.value = members.value.map((m) => (m.id === mine.id ? { ...m, gender } : m))
   }, '保存性别失败，请稍后重试。')
 
+const updateMyName = (displayName: string) =>
+  runBookAction(async () => {
+    const mine = members.value.find((m) => m.userId === authUser.value?.id)
+    if (!mine) return
+    if (!isDemoMode) {
+      if (!supabase) return
+      const { error } = await supabase.from('book_members').update({ display_name: displayName }).eq('id', mine.id)
+      if (error) throw error
+    }
+    members.value = members.value.map((m) => (m.id === mine.id ? { ...m, displayName } : m))
+  }, '保存昵称失败，请稍后重试。')
+
+const updateMyColor = (color: MemberColor) =>
+  runBookAction(async () => {
+    const mine = members.value.find((m) => m.userId === authUser.value?.id)
+    if (!mine) return
+    const theirs = members.value.find((m) => m.userId !== authUser.value?.id)
+    if (theirs?.color === color) throw new Error('这个颜色对方在用了')
+    if (!isDemoMode) {
+      if (!supabase) return
+      const { error } = await supabase.from('book_members').update({ color }).eq('id', mine.id)
+      if (error) throw error
+    }
+    members.value = members.value.map((m) => (m.id === mine.id ? { ...m, color } : m))
+  }, '保存颜色失败，请稍后重试。')
+
 watch(() => authUser.value?.id, loadBook, { immediate: true })
+watch(
+  () => currentBook.value?.customCategories,
+  (list) => (customCategories.value = list ?? []),
+  { immediate: true },
+)
 watch(
   () => currentBook.value?.currency,
   (code) => (activeCurrency.value = code ?? DEFAULT_CURRENCY),
@@ -199,23 +264,14 @@ const partner = computed(() => members.value.find((m) => m.userId !== authUser.v
 const myUid = computed(() => authUser.value?.id ?? '')
 const partnerUid = computed(() => partner.value?.userId ?? '')
 
-const PALETTE: Record<Gender, { color: string; text: string; bg: string }> = {
-  female: { color: '#FF8FAB', text: '#D9577A', bg: '#FFF0F3' },
-  male: { color: '#74C0FC', text: '#2F86C9', bg: '#EFF8FF' },
-}
-const opposite = (g: Gender): Gender => (g === 'female' ? 'male' : 'female')
-
 /**
- * 我和对方的标识色调：跟着性别走（女粉 / 男蓝）。
- * 只有一方设置了性别时，另一方取相反色；都没设或同性时回到「我粉、对方蓝」。
+ * 我和对方的标识色：用各自选的颜色，没选过的按性别给默认色（女粉 / 男蓝）。
+ * 万一撞色（老数据），对方自动换成下一个可用色，保证两人能区分。
  */
 const tones = computed(() => {
-  const mine = me.value?.gender ?? null
-  const theirs = partner.value?.gender ?? null
-  if (mine && theirs && mine !== theirs) return { me: mine, partner: theirs }
-  if (mine && !theirs) return { me: mine, partner: opposite(mine) }
-  if (!mine && theirs) return { me: opposite(theirs), partner: theirs }
-  return { me: 'female' as Gender, partner: 'male' as Gender }
+  const mine: MemberColor = me.value?.color ?? defaultColorFor(me.value?.gender ?? authGender.value)
+  const theirsWanted: MemberColor = partner.value?.color ?? defaultColorFor(partner.value?.gender ?? null)
+  return { me: mine, partner: firstFreeColor(theirsWanted, mine) }
 })
 
 // 写到 CSS 变量，页面里的 var(--me) / var(--partner) 等自动跟随
@@ -223,7 +279,7 @@ watchEffect(() => {
   if (typeof document === 'undefined') return
   const root = document.documentElement.style
   for (const who of ['me', 'partner'] as const) {
-    const p = PALETTE[tones.value[who]]
+    const p = swatchOf(tones.value[who])
     root.setProperty(`--${who}`, p.color)
     root.setProperty(`--${who}-text`, p.text)
     root.setProperty(`--${who}-bg`, p.bg)
@@ -259,5 +315,8 @@ export function useBooks() {
     leaveBook,
     updateBookSettings,
     updateMyGender,
+    updateMyColor,
+    updateMyName,
+    tones,
   }
 }

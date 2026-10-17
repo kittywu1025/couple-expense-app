@@ -3,14 +3,22 @@ import { computed } from 'vue'
 import { useBooks } from '../composables/useBooks'
 import { useSupabaseAuth } from '../composables/useSupabaseAuth'
 import { toast } from '../composables/useToast'
-import { confirmAction } from '../composables/useUi'
+import { confirmAction, openProfilePage } from '../composables/useUi'
 import AppIcon from '../components/AppIcon.vue'
-import GenderPicker from '../components/GenderPicker.vue'
 import type { Gender } from '../types'
 import { CURRENCIES, isCurrencyCode } from '../utils/currency'
 
-const { currentBook, members, me, partner, myUid, updateBookSettings, updateMyGender, leaveBook, bookActionLoading } = useBooks()
-const { authDisplayName, authUser, updateProfileGender, signOut } = useSupabaseAuth()
+const {
+  currentBook,
+  members,
+  me,
+  partner,
+  myUid,
+  updateBookSettings,
+  leaveBook,
+  bookActionLoading,
+} = useBooks()
+const { authDisplayName, authUser } = useSupabaseAuth()
 
 const myName = computed(() => me.value?.displayName || authDisplayName.value)
 const initial = computed(() => myName.value.slice(0, 1).toUpperCase())
@@ -30,18 +38,6 @@ const onSettleDay = async (e: Event) => {
   const { error } = await updateBookSettings({ settleDay: Number((e.target as HTMLSelectElement).value) })
   if (error) toast.error(error.message)
   else toast.success('结算日已更新，统计将按新周期计算')
-}
-
-const onGender = async (g: Gender) => {
-  if (g === me.value?.gender) return
-  const profile = await updateProfileGender(g)
-  if (profile.error) {
-    toast.error(profile.error.message)
-    return
-  }
-  const { error } = await updateMyGender(g)
-  if (error) toast.error(error.message)
-  else toast.success('已更新')
 }
 
 const genderLabel = (g: Gender | null) => (g === 'female' ? '女生' : g === 'male' ? '男生' : '未设置')
@@ -76,24 +72,19 @@ const onLeave = async () => {
   if (error) toast.error(error.message)
 }
 
-const onSignOut = async () => {
-  const ok = await confirmAction({ title: '退出登录？', message: '账单都保存在云端，重新登录即可看到。', confirmText: '退出登录' })
-  if (!ok) return
-  const { error } = await signOut()
-  if (error) toast.error('退出登录失败，请稍后重试')
-}
 </script>
 
 <template>
-  <section class="profile card">
+  <button class="profile card" aria-label="查看个人资料" @click="openProfilePage">
     <div class="avatar me">{{ initial }}</div>
-    <div>
+    <div class="profile-text">
       <h1>{{ myName }}</h1>
       <p v-if="partner">与 <b>{{ partner.displayName }}</b> 共同记账中</p>
       <p v-else>等待 TA 用邀请码加入</p>
       <p class="email">{{ authUser?.email }}</p>
     </div>
-  </section>
+    <span class="profile-more">个人资料<AppIcon name="chevronRight" :size="16" /></span>
+  </button>
 
   <h2 class="section-title">账本成员</h2>
   <section class="card group">
@@ -111,13 +102,6 @@ const onSignOut = async () => {
 
   <h2 class="section-title">账本设置</h2>
   <section class="card group">
-    <div class="row">
-      <span class="grow">
-        我的性别
-        <small class="hint">女生显示粉色，男生显示蓝色</small>
-      </span>
-      <GenderPicker :model-value="me?.gender ?? null" compact @update:model-value="onGender" />
-    </div>
     <label class="row">
       <span class="grow">结算日</span>
       <select :value="currentBook?.settleDay" :disabled="bookActionLoading" @change="onSettleDay">
@@ -145,7 +129,6 @@ const onSignOut = async () => {
 
   <section class="card group actions">
     <button class="row danger" :disabled="bookActionLoading" @click="onLeave">退出账本</button>
-    <button class="row" @click="onSignOut">退出登录</button>
   </section>
 </template>
 
@@ -155,6 +138,9 @@ const onSignOut = async () => {
   border-radius: var(--radius);
 }
 .profile {
+  width: 100%;
+  text-align: left;
+  position: relative;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -232,18 +218,32 @@ const onSignOut = async () => {
   font-size: 11px;
   color: var(--text-faint);
 }
+.profile:active {
+  background: #f7f7f9;
+}
+.profile-text {
+  flex: 1;
+  min-width: 0;
+}
+.profile-more {
+  position: absolute;
+  top: 16px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
 .gender {
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 999px;
 }
-.gender.female {
-  background: #fff0f3;
-  color: #d9577a;
-}
+.gender.female,
 .gender.male {
-  background: #eff8ff;
-  color: #2f86c9;
+  background: var(--bg);
+  color: var(--text-soft);
 }
 .gender.none {
   background: var(--bg);

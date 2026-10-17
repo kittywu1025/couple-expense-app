@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { LedgerRecord, NewRecord, RecordKind, RecordType } from '../types'
-import { categoriesFor } from '../utils/categories'
+import type { CustomCategory, LedgerRecord, NewRecord, RecordKind, RecordType } from '../types'
+import { categoriesFor, isCategoryNameTaken, type Category } from '../utils/categories'
+import CategoryEditorSheet from '../components/CategoryEditorSheet.vue'
+import type { IconName } from '../utils/icons'
 import { shareOf } from '../utils/settlement'
 import { activeCurrencyInfo, formatDateLabel, formatMoney, todayKey } from '../utils/format'
 import { useBooks } from '../composables/useBooks'
@@ -16,7 +18,7 @@ const emit = defineEmits<{ close: [] }>()
 /** 编辑模式：预填当前记录的值 */
 const editing = props.record ?? null
 
-const { currentBook, myUid, partner, nameOf } = useBooks()
+const { currentBook, myUid, partner, nameOf, updateBookSettings } = useBooks()
 const { addRecord, updateRecord } = useRecords()
 
 const partnerName = computed(() => partner.value?.displayName ?? 'TA')
@@ -26,8 +28,10 @@ const MAX_AMOUNT = 99_999_999
 const kind = ref<RecordKind>(editing?.kind ?? 'expense')
 const categories = computed(() => categoriesFor(kind.value))
 const initialCatIndex = editing ? categoriesFor(editing.kind).findIndex((c) => c.name === editing.category) : 0
-const catIndex = ref(initialCatIndex >= 0 ? initialCatIndex : categoriesFor(kind.value).length - 1)
-const category = computed(() => categories.value[catIndex.value])
+const catIndex = ref(
+  initialCatIndex >= 0 ? initialCatIndex : Math.max(0, categoriesFor(kind.value).findIndex((c) => c.name === '其他')),
+)
+const category = computed(() => categories.value[catIndex.value] ?? categories.value[0])
 const subName = ref<string | null>(
   editing && category.value.subs.some((s) => s.name === editing.subCategory)
     ? editing.subCategory
@@ -44,6 +48,121 @@ const pickCategory = (i: number) => {
 const pickSub = (name: string) => {
   if (name !== subName.value) haptic(6)
   subName.value = name
+}
+
+// ── 自定义分类 ──
+const editorMode = ref<'category' | 'sub' | null>(null)
+const savingCategory = ref(false)
+
+const validateCategoryName = (name: string) => {
+  if (editorMode.value === 'sub') return category.value.subs.some((s) => s.name === name) ? '这个子分类已经有了' : ''
+  return isCategoryNameTaken(name) ? '已经有同名分类了' : ''
+}
+
+const saveCustomList = async (list: CustomCategory[]) => {
+  savingCategory.value = true
+  const { error } = await updateBookSettings({ customCategories: list })
+  savingCategory.value = false
+  if (error) toast.error(error.message)
+  return !error
+}
+
+/** 保存后按 key 找回当前选中的大类（列表变了，下标可能会变） */
+const reselect = (key: string, sub?: string | null) => {
+  const i = categories.value.findIndex((c) => c.key === key)
+  catIndex.value = i >= 0 ? i : 0
+  subName.value = sub !== undefined ? sub : (category.value.subs[0]?.name ?? null)
+}
+
+const onEditorSave = async ({ name, icon, color }: { name: string; icon: IconName; color: string }) => {
+  const list = [...(currentBook.value?.customCategories ?? [])]
+  if (editorMode.value === 'category') {
+    const key = `c-${Date.now().toString(36)}`
+    list.push({ key, name, icon, color, kind: kind.value, subs: [] })
+    if (!(await saveCustomList(list))) return
+    editorMode.value = null
+    reselect(key, null)
+    popKey.value++
+    toast.success(`已添加分类「${name}」`)
+    return
+  }
+  const parentKey = category.value.key
+  const idx = list.findIndex((c) => c.key === parentKey)
+  if (idx < 0) return
+  list[idx] = { ...list[idx], subs: [...list[idx].subs, { name, icon }] }
+  if (!(await saveCustomList(list))) return
+  editorMode.value = null
+  reselect(parentKey, name)
+  toast.success(`已添加子分类「${name}」`)
+}
+
+// 长按删除：只有自定义分类可以删
+let pressTimer: ReturnType<typeof setTimeout> | undefined
+let longPressed = false
+const startPress = (fn: () => void) => {
+  longPressed = false
+  clearTimeout(pressTimer)
+  pressTimer = setTimeout(() => {
+    longPressed = true
+    haptic(20)
+    fn()
+  }, 550)
+}
+const cancelPress = () => clearTimeout(pressTimer)
+/** 长按触发后，松手时的那次 click 不算选择 */
+const consumeLongPress = () => {
+  if (!longPressed) return false
+  longPressed = false
+  return true
+}
+
+const onCatClick = (i: number) => {
+  if (!consumeLongPress()) pickCategory(i)
+}
+const onSubClick = (name: string) => {
+  if (!consumeLongPress()) pickSub(name)
+}
+
+const onCatLongPress = async (c: Category) => {
+  if (!c.custom) {
+    toast.info('默认分类不能删除')
+    return
+  }
+  const ok = await confirmAction({
+    title: `删除分类「${c.name}」？`,
+    message: '已经记过的账单不会被删除，只是记账时不再显示这个分类。',
+    confirmText: '删除',
+    danger: true,
+  })
+  if (!ok) return
+  const currentKey = category.value.key
+  const currentSub = subName.value
+  const list = (currentBook.value?.customCategories ?? []).filter((x) => x.key !== c.key)
+  if (!(await saveCustomList(list))) return
+  if (currentKey === c.key) pickCategory(0)
+  else reselect(currentKey, currentSub)
+  toast.success('已删除')
+}
+
+const onSubLongPress = async (name: string) => {
+  const parent = category.value
+  if (!parent.custom) {
+    toast.info('默认分类不能删除')
+    return
+  }
+  const ok = await confirmAction({
+    title: `删除子分类「${name}」？`,
+    message: '已经记过的账单不会被删除。',
+    confirmText: '删除',
+    danger: true,
+  })
+  if (!ok) return
+  const list = (currentBook.value?.customCategories ?? []).map((c) =>
+    c.key === parent.key ? { ...c, subs: c.subs.filter((s) => s.name !== name) } : c,
+  )
+  if (!(await saveCustomList(list))) return
+  reselect(parent.key, subName.value === name ? undefined : subName.value)
+  toast.success('已删除')
 }
 
 // ── 个人 / 共同 ──
@@ -89,6 +208,12 @@ const amount = computed(() => evaluate(expr.value))
 const hasOperator = computed(() => /[+-]/.test(expr.value.slice(1)))
 const lastNumber = computed(() => expr.value.split(/[+-]/).pop() ?? '')
 const isValidAmount = computed(() => amount.value > 0 && amount.value <= MAX_AMOUNT)
+/** 日元等无小数货币输入了小数时，提示会按整数保存 */
+const roundHint = computed(() =>
+  !activeCurrencyInfo.value.decimals && expr.value.includes('.') && isValidAmount.value
+    ? `按 ${formatMoney(amount.value)} 保存`
+    : '',
+)
 
 const amountText = computed(() => {
   if (!expr.value) return '0'
@@ -114,13 +239,14 @@ const press = (key: string) => {
     return
   }
   if (key === '.') {
-    if (!activeCurrencyInfo.value.decimals || lastNumber.value.includes('.')) return
+    if (lastNumber.value.includes('.')) return
     expr.value = s + (lastNumber.value === '' ? '0.' : '.')
     return
   }
   // 数字：限制小数位、整数位，避免前导 0
   const [intPart, decimals] = lastNumber.value.split('.')
-  if (decimals !== undefined && decimals.length >= activeCurrencyInfo.value.decimals) return
+  // 输入时最多两位小数；日元等无小数货币保存时再四舍五入
+  if (decimals !== undefined && decimals.length >= 2) return
   if (decimals === undefined && intPart.length >= 8) return
   if (lastNumber.value === '0') {
     expr.value = s.slice(0, -1) + key
@@ -277,7 +403,12 @@ const requestClose = async () => {
           :key="c.key"
           :class="['cat', { on: i === catIndex }]"
           :aria-pressed="i === catIndex"
-          @click="pickCategory(i)"
+          @click="onCatClick(i)"
+          @pointerdown="startPress(() => onCatLongPress(c))"
+          @pointerup="cancelPress"
+          @pointerleave="cancelPress"
+          @pointercancel="cancelPress"
+          @contextmenu.prevent
         >
           <span
             :key="i === catIndex ? popKey : -1"
@@ -292,75 +423,38 @@ const requestClose = async () => {
           </span>
           <span class="cat-name" :style="i === catIndex ? { color: c.color } : undefined">{{ c.name }}</span>
         </button>
+        <button class="cat add-cat" aria-label="添加分类" @click="editorMode = 'category'">
+          <span class="cat-icon dashed"><AppIcon name="plus" :size="20" :stroke="2" /></span>
+          <span class="cat-name">添加</span>
+        </button>
       </div>
+      <p v-if="categories.some((c) => c.custom)" class="custom-tip">长按自定义分类可删除</p>
 
       <transition name="sub" mode="out-in">
-        <div v-if="category.subs.length" :key="category.key" class="sub-card">
+        <div v-if="category.subs.length || category.custom" :key="category.key" class="sub-card">
           <button
             v-for="s in category.subs"
             :key="s.name"
             :class="['sub', { on: s.name === subName }]"
             :style="s.name === subName ? { background: category.color + '22', color: 'var(--text)' } : undefined"
-            @click="pickSub(s.name)"
+            @click="onSubClick(s.name)"
+            @pointerdown="startPress(() => onSubLongPress(s.name))"
+            @pointerup="cancelPress"
+            @pointerleave="cancelPress"
+            @pointercancel="cancelPress"
+            @contextmenu.prevent
           >
             <span class="sub-icon" :style="{ color: category.color }"><AppIcon :name="s.icon" :size="22" /></span>
             <span class="sub-name">{{ s.name }}</span>
             <span v-if="s.name === subName" class="check" :style="{ background: category.color }"><AppIcon name="check" :size="9" :stroke="3.5" /></span>
           </button>
+          <button v-if="category.custom" class="sub add-sub" @click="editorMode = 'sub'">
+            <span class="sub-icon"><AppIcon name="plus" :size="20" :stroke="2" /></span>
+            <span class="sub-name">添加子分类</span>
+          </button>
         </div>
       </transition>
 
-      <template v-if="kind === 'expense'">
-        <div class="type-switch">
-          <span class="thumb" :class="{ right: type === 'shared' }" />
-          <button :class="{ on: type === 'personal' }" @click="setType('personal')">个人</button>
-          <button :class="{ on: type === 'shared', locked: !partner }" @click="setType('shared')">
-            <span class="type-label">共同<AppIcon v-if="!partner" name="lock" :size="12" :stroke="2" /></span>
-          </button>
-        </div>
-
-        <transition name="sub">
-          <div v-if="type === 'shared'" class="shared-card">
-            <div class="payer-line">
-              <span class="hint">谁付的钱</span>
-              <div class="chips">
-                <button :class="['chip', 'me', { on: payerUid === myUid }]" @click="payerUid = myUid">
-                  <i class="dot" />{{ nameOf(myUid) }}
-                </button>
-                <button
-                  v-if="partner"
-                  :class="['chip', 'partner', { on: payerUid === partner.userId }]"
-                  @click="payerUid = partner.userId"
-                >
-                  <i class="dot" />{{ partner.displayName }}
-                </button>
-              </div>
-            </div>
-
-            <div class="ratio-head">
-              <span class="who me">我 <b class="mono">{{ myShare }}</b></span>
-              <span class="hint">AA 比例</span>
-              <span class="who partner"><b class="mono">{{ 10 - myShare }}</b> {{ partnerName }}</span>
-            </div>
-            <input
-              v-model.number="myShare"
-              type="range"
-              min="0"
-              max="10"
-              step="1"
-              class="slider"
-              :style="sliderStyle"
-              aria-label="AA 比例"
-            />
-            <div class="ticks">
-              <button :class="{ on: myShare === 10 }" @click="myShare = 10">我请客</button>
-              <button :class="{ on: myShare === 5 }" @click="myShare = 5">平摊</button>
-              <button :class="{ on: myShare === 0 }" @click="myShare = 0">TA请客</button>
-            </div>
-            <p class="share-text">{{ shareText }}</p>
-          </div>
-        </transition>
-      </template>
     </div>
 
     <!-- 计算器区 -->
@@ -369,11 +463,60 @@ const requestClose = async () => {
         <transition name="saved">
           <span v-if="justSaved" class="saved-badge"><AppIcon name="check" :size="12" :stroke="3" />已保存 · 本次 {{ savedCount }} 笔</span>
         </transition>
-        <span class="expr mono">{{ hasOperator ? expr : '' }}</span>
-        <span :class="['amount', 'mono', { empty: !isValidAmount, income: kind === 'income' }]">
-          <small>{{ activeCurrencyInfo.symbol }}</small>{{ amountText }}
+        <div v-if="kind === 'expense'" class="type-switch">
+          <span class="thumb" :class="{ right: type === 'shared' }" />
+          <button :class="{ on: type === 'personal' }" @click="setType('personal')">个人</button>
+          <button :class="{ on: type === 'shared', locked: !partner }" @click="setType('shared')">
+            <span class="type-label">共同<AppIcon v-if="!partner" name="lock" :size="11" :stroke="2" /></span>
+          </button>
+        </div>
+        <span class="amount-right">
+          <span class="expr mono">{{ hasOperator ? expr : roundHint }}</span>
+          <span :class="['amount', 'mono', { empty: !isValidAmount, income: kind === 'income' }]">
+            <small>{{ activeCurrencyInfo.symbol }}</small>{{ amountText }}
+          </span>
         </span>
       </div>
+
+      <transition name="expand">
+        <div v-if="kind === 'expense' && type === 'shared'" class="shared-panel">
+          <div class="ratio-head">
+            <span class="who me">我 <b class="mono">{{ myShare }}</b></span>
+            <span class="share-text">{{ shareText }}</span>
+            <span class="who partner"><b class="mono">{{ 10 - myShare }}</b> {{ partnerName }}</span>
+          </div>
+          <input
+            v-model.number="myShare"
+            type="range"
+            min="0"
+            max="10"
+            step="1"
+            class="slider"
+            :style="sliderStyle"
+            aria-label="AA 比例"
+          />
+          <div class="ticks">
+            <button :class="{ on: myShare === 10 }" @click="myShare = 10">我请客</button>
+            <button :class="{ on: myShare === 5 }" @click="myShare = 5">平摊</button>
+            <button :class="{ on: myShare === 0 }" @click="myShare = 0">TA请客</button>
+          </div>
+          <div class="payer-line">
+            <span class="hint">谁付的钱</span>
+            <div class="chips">
+              <button :class="['chip', 'me', { on: payerUid === myUid }]" @click="payerUid = myUid">
+                <i class="dot" />{{ nameOf(myUid) }}
+              </button>
+              <button
+                v-if="partner"
+                :class="['chip', 'partner', { on: payerUid === partner.userId }]"
+                @click="payerUid = partner.userId"
+              >
+                <i class="dot" />{{ partner.displayName }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </transition>
       <div class="meta">
         <label class="date">
           <span class="date-label"><AppIcon name="calendar" :size="15" :stroke="2" />{{ dateLabel }}</span>
@@ -387,7 +530,7 @@ const requestClose = async () => {
           :key="k"
           :class="[
             'key',
-            { op: ['+', '-', '=', '⌫'].includes(k), zero: k === '0', off: k === '.' && !activeCurrencyInfo.decimals },
+            { op: ['+', '-', '=', '⌫'].includes(k), zero: k === '0' },
           ]"
           @click="press(k)"
         >
@@ -403,6 +546,17 @@ const requestClose = async () => {
         </button>
       </div>
     </div>
+
+    <CategoryEditorSheet
+      :open="!!editorMode"
+      :mode="editorMode ?? 'category'"
+      :color="editorMode === 'sub' ? category.color : undefined"
+      :parent-name="category.name"
+      :validate-name="validateCategoryName"
+      :saving="savingCategory"
+      @close="editorMode = null"
+      @save="onEditorSave"
+    />
   </div>
 </template>
 
@@ -503,6 +657,28 @@ const requestClose = async () => {
     transform: scale(1);
   }
 }
+.cat,
+.sub {
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cat-icon.dashed {
+  background: transparent;
+  border: 1.5px dashed #c7c7cc;
+  color: #aeaeb2;
+  filter: none;
+}
+.custom-tip {
+  margin: -4px 0 8px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.add-sub {
+  color: var(--text-faint);
+  border: 1.5px dashed #d1d1d6;
+}
 .cat-name {
   font-size: 12px;
   color: var(--text-soft);
@@ -584,20 +760,20 @@ const requestClose = async () => {
 }
 .type-switch {
   position: relative;
+  flex-shrink: 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  width: 200px;
-  margin: 0 auto 10px;
+  width: 120px;
   background: rgba(0, 0, 0, 0.06);
   border-radius: 999px;
-  padding: 3px;
+  padding: 2px;
 }
 .type-switch .thumb {
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: calc(50% - 3px);
-  height: calc(100% - 6px);
+  top: 2px;
+  left: 2px;
+  width: calc(50% - 2px);
+  height: calc(100% - 4px);
   border-radius: 999px;
   background: var(--card);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
@@ -608,7 +784,8 @@ const requestClose = async () => {
 }
 .type-switch button {
   position: relative;
-  padding: 6px 0;
+  padding: 5px 0;
+  font-size: 13px;
 }
 .type-switch button.on {
   background: transparent !important;
@@ -616,11 +793,6 @@ const requestClose = async () => {
 }
 .type-switch button.locked {
   color: var(--text-faint);
-}
-.shared-card {
-  background: var(--card);
-  border-radius: var(--radius);
-  padding: 14px;
 }
 .payer-line {
   display: flex;
@@ -747,11 +919,49 @@ const requestClose = async () => {
 .amount-line {
   position: relative;
   display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 0 4px;
+  min-height: 44px;
+}
+.amount-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
   justify-content: flex-end;
   align-items: baseline;
-  gap: 10px;
-  padding: 0 6px;
-  min-height: 40px;
+  gap: 8px;
+}
+.shared-panel {
+  background: var(--bg);
+  border-radius: 14px;
+  padding: 10px 12px;
+  margin: 4px 0 6px;
+}
+.shared-panel .ratio-head {
+  margin-bottom: 2px;
+}
+.shared-panel .share-text {
+  margin: 0;
+  flex: 1;
+  text-align: center;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shared-panel .payer-line {
+  margin: 8px 0 0;
+}
+.expand-enter-active,
+.expand-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.expand-enter-from,
+.expand-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 .expr {
   font-size: 14px;
@@ -798,9 +1008,11 @@ const requestClose = async () => {
   align-items: center;
   gap: 4px;
   position: absolute;
-  left: 6px;
-  top: 50%;
-  transform: translateY(-50%);
+  left: 50%;
+  top: -22px;
+  transform: translateX(-50%);
+  z-index: 1;
+  white-space: nowrap;
   font-size: 12px;
   color: var(--success);
   background: rgba(45, 184, 122, 0.12);
@@ -814,7 +1026,7 @@ const requestClose = async () => {
 .saved-enter-from,
 .saved-leave-to {
   opacity: 0;
-  transform: translateY(-50%) scale(0.9);
+  transform: translateX(-50%) scale(0.9);
 }
 .mono {
   font-family: var(--mono);

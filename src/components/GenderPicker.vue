@@ -21,7 +21,7 @@ const options: { value: Gender; label: string }[] = [
       :class="['opt', o.value, { on: modelValue === o.value }]"
       @click="$emit('update:modelValue', o.value)"
     >
-      <i class="swatch" />{{ o.label }}
+      {{ o.label }}
     </button>
   </div>
 </template>
@@ -34,7 +34,12 @@ const options: { value: Gender; label: string }[] = [
 }
 .picker.compact {
   display: flex;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
   gap: 6px;
+}
+.compact .opt {
+  white-space: nowrap;
 }
 .opt {
   display: flex;
@@ -58,27 +63,10 @@ const options: { value: Gender; label: string }[] = [
 .opt:active {
   transform: scale(0.97);
 }
-.swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-.female .swatch {
-  background: #ff8fab;
-}
-.male .swatch {
-  background: #74c0fc;
-}
-.female.on {
-  border-color: #ff8fab;
-  background: #fff0f3;
-  color: #d9577a;
-  font-weight: 600;
-}
-.male.on {
-  border-color: #74c0fc;
-  background: #eff8ff;
-  color: #2f86c9;
+.opt.on {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
   font-weight: 600;
 }
 </style>

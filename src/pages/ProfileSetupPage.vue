@@ -1,21 +1,27 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import GenderPicker from '../components/GenderPicker.vue'
+import ColorPicker from '../components/ColorPicker.vue'
 import { useBooks } from '../composables/useBooks'
 import { authDisplayName, useSupabaseAuth } from '../composables/useSupabaseAuth'
 import { toast } from '../composables/useToast'
-import type { Gender } from '../types'
+import type { Gender, MemberColor } from '../types'
+import { defaultColorFor, firstFreeColor, swatchOf } from '../utils/palette'
 
-const { updateProfileGender, signOut } = useSupabaseAuth()
-const { me, updateMyGender } = useBooks()
+const { updateProfile, signOut } = useSupabaseAuth()
+const { me, partner, updateMyGender, updateMyColor } = useBooks()
 
 const gender = ref<Gender | null>(null)
+/** 没手动选过颜色时，跟着性别给默认色 */
+const pickedColor = ref<MemberColor | null>(null)
+const takenColor = computed(() => partner.value?.color ?? null)
+const color = computed<MemberColor>(
+  () => pickedColor.value ?? firstFreeColor(defaultColorFor(gender.value), takenColor.value),
+)
 const saving = ref(false)
 const initial = computed(() => authDisplayName.value.slice(0, 1).toUpperCase())
 
-const tone = computed(() =>
-  gender.value === 'male' ? { bg: '#74C0FC' } : gender.value === 'female' ? { bg: '#FF8FAB' } : { bg: '#C7C7CC' },
-)
+const tone = computed(() => ({ bg: gender.value || pickedColor.value ? swatchOf(color.value).color : '#C7C7CC' }))
 
 const submit = async () => {
   if (!gender.value) {
@@ -23,9 +29,12 @@ const submit = async () => {
     return
   }
   saving.value = true
-  const { error } = await updateProfileGender(gender.value)
+  const { error } = await updateProfile({ gender: gender.value, color: color.value })
   // 已经在账本里的话，顺便同步到成员信息
-  if (!error && me.value) await updateMyGender(gender.value)
+  if (!error && me.value) {
+    await updateMyGender(gender.value)
+    if (color.value !== takenColor.value) await updateMyColor(color.value)
+  }
   saving.value = false
   if (error) toast.error(error.message, { title: '注册失败' })
   else toast.success('注册完成')
@@ -48,8 +57,19 @@ const submit = async () => {
 
     <section class="card">
       <h2>性别 <small>必填</small></h2>
-      <p class="tip">付款人颜色跟着性别走：女生粉色，男生蓝色。之后可以在「我的」里修改。</p>
+      <p class="tip">之后可以在「我的」里修改。</p>
       <GenderPicker v-model="gender" />
+    </section>
+
+    <section class="card">
+      <h2>我的颜色 <span class="color-name" :style="{ color: swatchOf(color).text }">{{ swatchOf(color).name }}</span></h2>
+      <p class="tip">账单上用这个颜色标记你。默认女生粉、男生蓝，也可以随便换；两个人不能选同一个颜色。</p>
+      <ColorPicker
+        :model-value="color"
+        :taken="takenColor"
+        @update:model-value="pickedColor = $event"
+        @blocked="toast.info('这个颜色对方在用了，换一个吧')"
+      />
     </section>
 
     <button class="primary" :disabled="saving" @click="submit">{{ saving ? '保存中…' : '下一步' }}</button>
@@ -95,6 +115,11 @@ header p {
 }
 .card:first-of-type {
   text-align: center;
+}
+.color-name {
+  font-size: 13px;
+  font-weight: 600;
+  margin-left: 6px;
 }
 .avatar {
   width: 64px;

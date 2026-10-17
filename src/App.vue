@@ -7,6 +7,7 @@ import ConfirmHost from './components/ConfirmHost.vue'
 import AuthPage from './pages/AuthPage.vue'
 import BookSetupPage from './pages/BookSetupPage.vue'
 import ProfileSetupPage from './pages/ProfileSetupPage.vue'
+import ProfileDetailPage from './pages/ProfileDetailPage.vue'
 import HomePage from './pages/HomePage.vue'
 import StatsPage from './pages/StatsPage.vue'
 import MePage from './pages/MePage.vue'
@@ -17,7 +18,7 @@ import { useRecords } from './composables/useRecords'
 import { applyPwaUpdate, dismissPwaUpdate, usePwaUpdate } from './composables/usePwaUpdate'
 import { toast } from './composables/useToast'
 import { isDemoMode } from './lib/demo'
-import { addSheetOpen, closeAddSheet, editingRecord, openAddSheet } from './composables/useUi'
+import { addSheetOpen, closeAddSheet, editingRecord, openAddSheet, profilePageOpen } from './composables/useUi'
 
 const { authUser, authLoading, authGender, isSupabaseEnabled } = useSupabaseAuth()
 const { currentBook, booksLoading, loadBook, me } = useBooks()
@@ -92,6 +93,9 @@ watch(updateAvailable, (visible) => {
       <MePage v-else />
     </main>
     <TabBar v-model="activeTab" @add="openAddSheet" />
+    <transition name="push">
+      <ProfileDetailPage v-if="profilePageOpen" />
+    </transition>
     <transition name="slide-up">
       <AddRecordPage v-if="addSheetOpen" :key="editingRecord?.id ?? 'new'" :record="editingRecord" @close="closeAddSheet" />
     </transition>
@@ -124,6 +128,14 @@ watch(updateAvailable, (visible) => {
   to {
     transform: rotate(360deg);
   }
+}
+.push-enter-active,
+.push-leave-active {
+  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.push-enter-from,
+.push-leave-to {
+  transform: translateX(100%);
 }
 .slide-up-enter-active,
 .slide-up-leave-active {

@@ -19,6 +19,11 @@ export const closeAddSheet = () => {
   editingRecord.value = null
 }
 
+/** 个人资料详情页（从「我的」顶部卡片进入） */
+export const profilePageOpen = ref(false)
+export const openProfilePage = () => (profilePageOpen.value = true)
+export const closeProfilePage = () => (profilePageOpen.value = false)
+
 interface ConfirmOptions {
   title: string
   message?: string

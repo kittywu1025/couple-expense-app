@@ -22,13 +22,14 @@ export const demoBook: Book = {
   settleDay: 1,
   defaultRatio: 5,
   currency: 'JPY',
+  customCategories: [],
   createdBy: DEMO_MY_UID,
   createdAt: new Date().toISOString(),
 }
 
 export const demoMembers: BookMember[] = [
-  { id: 'm1', bookId: demoBook.id, userId: DEMO_MY_UID, displayName: '小吴', gender: null, joinedAt: '2026-10-01' },
-  { id: 'm2', bookId: demoBook.id, userId: DEMO_PARTNER_UID, displayName: '阿健', gender: null, joinedAt: '2026-10-02' },
+  { id: 'm1', bookId: demoBook.id, userId: DEMO_MY_UID, displayName: '小吴', gender: null, color: null, joinedAt: '2026-10-01' },
+  { id: 'm2', bookId: demoBook.id, userId: DEMO_PARTNER_UID, displayName: '阿健', gender: 'male', color: 'blue', joinedAt: '2026-10-02' },
 ]
 
 const daysAgo = (n: number) => {

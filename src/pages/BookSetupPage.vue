@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useBooks } from '../composables/useBooks'
-import { authDisplayName, authGender, useSupabaseAuth } from '../composables/useSupabaseAuth'
+import { authColor, authDisplayName, authGender, useSupabaseAuth } from '../composables/useSupabaseAuth'
+import { defaultColorFor } from '../utils/palette'
 import { toast } from '../composables/useToast'
 import AppIcon from '../components/AppIcon.vue'
 
@@ -19,7 +20,7 @@ const requireGender = () => {
 const onCreate = async () => {
   const g = requireGender()
   if (!g) return
-  const { error } = await createBook(g)
+  const { error } = await createBook(g, authColor.value ?? defaultColorFor(g))
   if (error) toast.error(error.message)
   else toast.success('账本已创建，把邀请码发给 TA 吧')
 }
@@ -31,7 +32,7 @@ const onJoin = async () => {
   }
   const g = requireGender()
   if (!g) return
-  const { error } = await joinBook(code.value, g)
+  const { error } = await joinBook(code.value, g, authColor.value ?? defaultColorFor(g))
   if (error) toast.error(error.message)
   else toast.success('已加入账本')
 }

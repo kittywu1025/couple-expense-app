@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { seedTestData } from '../dev/seed'
+import { previewRecap } from '../composables/useMonthRecap'
+import { AMOUNT_COLOR_OPTIONS, HOME_CARDS, amountColorsPref, homeCardPref } from '../composables/usePrefs'
 import { useBooks } from '../composables/useBooks'
 import { useSupabaseAuth } from '../composables/useSupabaseAuth'
 import { toast } from '../composables/useToast'
-import { confirmAction, openFixedPage, openProfilePage } from '../composables/useUi'
+import { aboutPageOpen, confirmAction, openFixedPage, openProfilePage } from '../composables/useUi'
 import { useFixedExpenses } from '../composables/useFixedExpenses'
 import { formatMoney } from '../utils/format'
 import AppIcon from '../components/AppIcon.vue'
@@ -25,7 +27,7 @@ const { authDisplayName, authUser } = useSupabaseAuth()
 
 const myName = computed(() => me.value?.displayName || authDisplayName.value)
 const initial = computed(() => myName.value.slice(0, 1).toUpperCase())
-const { items: fixedItems } = useFixedExpenses()
+const { visibleItems: fixedItems } = useFixedExpenses()
 const activeFixed = computed(() => fixedItems.value.filter((f) => !f.paused))
 const fixedSummary = computed(() =>
   activeFixed.value.length
@@ -138,6 +140,28 @@ const onLeave = async () => {
     </button>
   </section>
 
+  <h2 class="section-title">偏好设置 <small class="faint">只对这台手机生效</small></h2>
+  <section class="card group">
+    <label class="row">
+      <span class="grow">首页默认卡片</span>
+      <select v-model="homeCardPref">
+        <option v-for="c in HOME_CARDS" :key="c.key" :value="c.key">{{ c.label }}</option>
+      </select>
+    </label>
+    <label class="row">
+      <span class="grow">
+        金额颜色
+        <small class="hint">
+          <i class="swatch" style="background: var(--expense)" />支出
+          <i class="swatch" style="background: var(--income)" />收入
+        </small>
+      </span>
+      <select v-model="amountColorsPref">
+        <option v-for="o in AMOUNT_COLOR_OPTIONS" :key="o.key" :value="o.key">{{ o.label }}</option>
+      </select>
+    </label>
+  </section>
+
   <h2 class="section-title">账本设置</h2>
   <section class="card group">
     <label class="row">
@@ -169,10 +193,24 @@ const onLeave = async () => {
     <button class="row danger" :disabled="bookActionLoading" @click="onLeave">退出账本</button>
   </section>
 
+  <section class="card group about">
+    <button class="row" @click="aboutPageOpen = true">
+      <span class="row-icon"><AppIcon name="heart" :size="18" :stroke="2" /></span>
+      <span class="grow">关于应用</span>
+      <small class="faint">结算算法说明</small>
+      <AppIcon name="chevronRight" :size="16" class="chev" />
+    </button>
+  </section>
+
   <section v-if="isDev" class="card group dev">
     <button class="row" :disabled="seeding" @click="onSeed">
       <AppIcon name="sparkles" :size="18" />
       <span class="grow">{{ seeding ? '插入中…' : '插入测试数据' }}</span>
+      <small class="faint">仅开发模式</small>
+    </button>
+    <button class="row" @click="previewRecap">
+      <AppIcon name="gift" :size="18" />
+      <span class="grow">预览月末回顾</span>
       <small class="faint">仅开发模式</small>
     </button>
   </section>
@@ -352,6 +390,20 @@ select {
 }
 .chev {
   color: var(--text-faint);
+}
+.swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin: 0 3px 0 6px;
+  vertical-align: 0;
+}
+.swatch:first-child {
+  margin-left: 0;
+}
+.about {
+  margin-top: 12px;
 }
 .dev {
   margin-top: 12px;

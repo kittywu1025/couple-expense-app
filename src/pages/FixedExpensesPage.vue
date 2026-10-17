@@ -12,7 +12,7 @@ import type { FixedExpense, FixedExpenseInput } from '../types'
 import { recordColor, recordIcon } from '../utils/categories'
 import { formatDateLabel, formatMoney } from '../utils/format'
 
-const { items, add, update, setPaused, remove, generateDue } = useFixedExpenses()
+const { items, visibleItems, add, update, setPaused, remove, generateDue } = useFixedExpenses()
 const { myUid, nameOf } = useBooks()
 
 const editorOpen = ref(false)
@@ -20,7 +20,8 @@ const editing = ref<FixedExpense | null>(null)
 const saving = ref(false)
 
 const sorted = computed(() => [...items.value].sort((a, b) => Number(a.paused) - Number(b.paused) || a.dayOfMonth - b.dayOfMonth))
-const monthlyTotal = computed(() => items.value.filter((f) => !f.paused).reduce((s, f) => s + f.amount, 0))
+// 列表显示全部；汇总数字只算共同 + 自己的
+const monthlyTotal = computed(() => visibleItems.value.filter((f) => !f.paused).reduce((s, f) => s + f.amount, 0))
 
 const typeText = (f: FixedExpense) => {
   if (f.type === 'personal') return '个人'

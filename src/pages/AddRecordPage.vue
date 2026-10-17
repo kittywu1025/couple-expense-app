@@ -263,8 +263,8 @@ const shareText = computed(() => {
   if (!a) return base
   const debt =
     payerUid.value === myUid.value
-      ? `${partnerName.value} 需付我 ${formatMoney(theirs)}`
-      : `我需付 ${partnerName.value} ${formatMoney(mine)}`
+      ? `${partnerName.value}那份 ${formatMoney(theirs)} 我先垫`
+      : `我那份 ${formatMoney(mine)} ${partnerName.value}先垫`
   return `${base} · ${debt}`
 })
 
@@ -955,10 +955,10 @@ const requestClose = async () => {
   color: var(--income);
 }
 .amount.empty {
-  color: #9fdcc0;
+  color: var(--expense-soft);
 }
 .amount.income.empty {
-  color: #ffb3ae;
+  color: var(--income-soft);
 }
 .shake {
   animation: shake 0.36s ease;

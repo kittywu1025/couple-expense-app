@@ -1,4 +1,4 @@
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { supabase } from '../lib/supabase'
 import { createDemoRecords, isDemoMode } from '../lib/demo'
 import type { LedgerRecord, NewRecord } from '../types'
@@ -192,6 +192,13 @@ const deleteRecord = async (id: string) => {
 
 watch(() => currentBook.value?.id, loadRecords, { immediate: true })
 
+/**
+ * 隐私边界：共同记录两人都能看；个人记录（含收入）只有付款人自己能看。
+ * 列表、日历、详情、收入统计都用这个；「我们一共花了多少」这类总额才用全部记录。
+ */
+export const isVisibleTo = (r: LedgerRecord, uid: string) => r.type === 'shared' || r.payerUid === uid
+const visibleRecords = computed(() => records.value.filter((r) => isVisibleTo(r, authUser.value?.id ?? '')))
+
 export function useRecords() {
-  return { records, recordsLoading, loadRecords, addRecord, addRecordsBulk, updateRecord, deleteRecord }
+  return { records, visibleRecords, recordsLoading, loadRecords, addRecord, addRecordsBulk, updateRecord, deleteRecord }
 }

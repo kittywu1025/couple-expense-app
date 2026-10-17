@@ -35,7 +35,8 @@ const debtText = computed(() => {
   const debt = debtOf(rec)
   if (!debt) return ''
   const debtor = otherUid(rec.payerUid)
-  return `${nameOf(debtor)} 应付 ${nameOf(rec.payerUid)} ${formatMoney(debt)}`
+  // 不说「欠 / 应付」，只说各自那份由谁先垫
+  return `${nameOf(debtor)}的那份 ${formatMoney(debt)}，${nameOf(rec.payerUid)}先垫了`
 })
 
 const onEdit = () => {
@@ -86,7 +87,7 @@ const onDelete = async () => {
           <dd><i :class="['dot', r.payerUid === myUid ? 'me' : 'partner']" />{{ nameOf(r.payerUid) }}</dd>
         </div>
         <div><dt>类型</dt><dd>{{ splitText }}</dd></div>
-        <div v-if="debtText"><dt>结算</dt><dd>{{ debtText }}</dd></div>
+        <div v-if="debtText"><dt>分摊</dt><dd>{{ debtText }}</dd></div>
         <div v-if="r.note"><dt>备注</dt><dd class="note">{{ r.note }}</dd></div>
         <div><dt>记录人</dt><dd>{{ nameOf(r.createdBy) }}</dd></div>
       </dl>

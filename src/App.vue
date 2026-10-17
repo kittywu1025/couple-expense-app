@@ -9,7 +9,13 @@ import BookSetupPage from './pages/BookSetupPage.vue'
 import ProfileSetupPage from './pages/ProfileSetupPage.vue'
 import ProfileDetailPage from './pages/ProfileDetailPage.vue'
 import FixedExpensesPage from './pages/FixedExpensesPage.vue'
+import AboutPage from './pages/AboutPage.vue'
+import CalendarPage from './pages/CalendarPage.vue'
+import MonthRecap from './components/MonthRecap.vue'
+import SettlementRulesPage from './pages/SettlementRulesPage.vue'
 import { useFixedExpenses } from './composables/useFixedExpenses'
+// 本机偏好（金额配色等）在启动时就要生效
+import './composables/usePrefs'
 import HomePage from './pages/HomePage.vue'
 import StatsPage from './pages/StatsPage.vue'
 import MePage from './pages/MePage.vue'
@@ -20,7 +26,17 @@ import { useRecords } from './composables/useRecords'
 import { applyPwaUpdate, dismissPwaUpdate, usePwaUpdate } from './composables/usePwaUpdate'
 import { toast } from './composables/useToast'
 import { isDemoMode } from './lib/demo'
-import { addSheetOpen, closeAddSheet, editingRecord, fixedPageOpen, openAddSheet, profilePageOpen } from './composables/useUi'
+import {
+  aboutPageOpen,
+  addSheetOpen,
+  calendarPageOpen,
+  closeAddSheet,
+  editingRecord,
+  fixedPageOpen,
+  openAddSheet,
+  profilePageOpen,
+  rulesPageOpen,
+} from './composables/useUi'
 
 const { authUser, authLoading, authGender, isSupabaseEnabled } = useSupabaseAuth()
 const { currentBook, booksLoading, loadBook, me } = useBooks()
@@ -109,11 +125,21 @@ watch(updateAvailable, (visible) => {
       <MePage v-else />
     </main>
     <TabBar v-model="activeTab" @add="openAddSheet" />
+    <MonthRecap :show-trigger="activeTab === 'home'" />
     <transition name="push">
       <ProfileDetailPage v-if="profilePageOpen" />
     </transition>
     <transition name="push">
       <FixedExpensesPage v-if="fixedPageOpen" />
+    </transition>
+    <transition name="push">
+      <AboutPage v-if="aboutPageOpen" />
+    </transition>
+    <transition name="push">
+      <CalendarPage v-if="calendarPageOpen" />
+    </transition>
+    <transition name="push">
+      <SettlementRulesPage v-if="rulesPageOpen" />
     </transition>
     <transition name="slide-up">
       <AddRecordPage v-if="addSheetOpen" :key="editingRecord?.id ?? 'new'" :record="editingRecord" @close="closeAddSheet" />

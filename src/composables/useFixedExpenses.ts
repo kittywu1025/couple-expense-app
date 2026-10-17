@@ -1,4 +1,4 @@
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { supabase } from '../lib/supabase'
 import { isDemoMode } from '../lib/demo'
 import type { FixedExpense, FixedExpenseInput, NewRecord } from '../types'
@@ -203,6 +203,9 @@ watch(
   { immediate: true },
 )
 
+/** 隐私：对方的个人固定扣款不显示（共同的两人都能看） */
+const visibleItems = computed(() => items.value.filter((f) => f.type === 'shared' || f.payerUid === authUser.value?.id))
+
 export function useFixedExpenses() {
-  return { items, loading, load, generateDue, add, update, setPaused, remove }
+  return { items, visibleItems, loading, load, generateDue, add, update, setPaused, remove }
 }

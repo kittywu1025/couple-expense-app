@@ -22,6 +22,9 @@
   /* 支出绿、收入红 */
   --expense: #2db87a;
   --income: #ff3b30;
+  /* 金额为 0 时的浅色版本 */
+  --expense-soft: #9fdcc0;
+  --income-soft: #ffb3ae;
   --success: #2db87a;
   --mono: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
   -webkit-tap-highlight-color: transparent;

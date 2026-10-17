@@ -29,6 +29,13 @@ export const fixedPageOpen = ref(false)
 export const openFixedPage = () => (fixedPageOpen.value = true)
 export const closeFixedPage = () => (fixedPageOpen.value = false)
 
+/** 收支日历（首页右上角） */
+export const calendarPageOpen = ref(false)
+
+/** 关于应用 / 结算算法说明（从「我的」进入） */
+export const aboutPageOpen = ref(false)
+export const rulesPageOpen = ref(false)
+
 interface ConfirmOptions {
   title: string
   message?: string

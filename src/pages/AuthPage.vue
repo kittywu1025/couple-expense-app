@@ -22,7 +22,7 @@ const login = async () => {
     <div class="hero">
       <div class="logo"><AppIcon name="heart" :size="44" :stroke="2" /></div>
       <h1>两个人的账本</h1>
-      <p>一起记账，月底自动算清谁该转给谁</p>
+      <p>记下我们一起生活的每一笔</p>
     </div>
     <button class="google" :disabled="loading" @click="login">
       <span class="g">G</span>

@@ -7,6 +7,8 @@ import EmptyState from './EmptyState.vue'
 import AppIcon from './AppIcon.vue'
 import CategoryIcon from './CategoryIcon.vue'
 import type { IconName } from '../utils/icons'
+import { shareOf } from '../utils/settlement'
+import { useBooks } from '../composables/useBooks'
 
 const props = defineProps<{ records: LedgerRecord[] }>()
 
@@ -14,7 +16,35 @@ const kind = ref<RecordKind>('expense')
 const expanded = ref<string | null>(null)
 /** 列表显示方式：金额 / 占比 */
 const display = ref<'amount' | 'percent'>('amount')
-watch(kind, () => (expanded.value = null))
+/** 统计视角：全体 / 只看我（和金额/占比互相独立，可组合） */
+const scope = ref<'all' | 'me'>('all')
+
+const { myUid } = useBooks()
+
+/**
+ * 某笔记录在当前视角下计入的金额：
+ * - 收入：不管哪个视角都只算自己的
+ * - 对方的个人消费：不计入（只在列表里看得到）
+ * - 全体：共同全额 + 我的个人全额
+ * - 只看我：个人记录只算我付的（全额）；共同记录按我的 AA 份额
+ */
+const weightOf = (r: LedgerRecord) => {
+  // 收入只能看自己的
+  if (r.kind === 'income') return r.payerUid === myUid.value ? r.amount : 0
+  // 对方的个人消费不进统计（列表里照常能看到）
+  if (r.type === 'personal' && r.payerUid !== myUid.value) return 0
+  if (scope.value === 'all') return r.amount
+  if (r.type === 'personal') return r.amount
+  return (r.amount * shareOf(r, myUid.value)) / 10
+}
+
+const scoped = computed(() =>
+  props.records
+    .filter((r) => r.kind === kind.value)
+    .map((r) => ({ r, w: weightOf(r) }))
+    .filter((x) => x.w > 0),
+)
+watch([kind, scope], () => (expanded.value = null))
 
 interface SubRow {
   name: string
@@ -28,30 +58,27 @@ interface CatRow extends SubRow {
   subs: SubRow[]
 }
 
-const total = computed(() =>
-  props.records.filter((r) => r.kind === kind.value).reduce((s, r) => s + r.amount, 0),
-)
+const total = computed(() => scoped.value.reduce((s, x) => s + x.w, 0))
 
 const rows = computed<CatRow[]>(() => {
-  const map = new Map<string, LedgerRecord[]>()
-  for (const r of props.records) {
-    if (r.kind !== kind.value) continue
-    if (!map.has(r.category)) map.set(r.category, [])
-    map.get(r.category)!.push(r)
+  const map = new Map<string, { r: LedgerRecord; w: number }[]>()
+  for (const x of scoped.value) {
+    if (!map.has(x.r.category)) map.set(x.r.category, [])
+    map.get(x.r.category)!.push(x)
   }
   const sum = total.value || 1
   return [...map.entries()]
     .map(([name, list]) => {
-      const value = list.reduce((s, r) => s + r.amount, 0)
-      const subMap = new Map<string, LedgerRecord[]>()
-      for (const r of list) {
-        const key = r.subCategory || name
+      const value = list.reduce((s, x) => s + x.w, 0)
+      const subMap = new Map<string, { r: LedgerRecord; w: number }[]>()
+      for (const x of list) {
+        const key = x.r.subCategory || name
         if (!subMap.has(key)) subMap.set(key, [])
-        subMap.get(key)!.push(r)
+        subMap.get(key)!.push(x)
       }
       const subs = [...subMap.entries()]
         .map(([subName, items]) => {
-          const v = items.reduce((s, r) => s + r.amount, 0)
+          const v = items.reduce((s, x) => s + x.w, 0)
           return {
             name: subName,
             icon: recordIcon(name, subName),
@@ -120,7 +147,8 @@ const labels = computed(() =>
         x: x3 + (right ? 4 : -4),
         y: y2,
         anchor: right ? 'start' : 'end',
-        text: `${s.name} ${s.pct.toFixed(1)}%`,
+        // 金额模式显示各分类金额，占比模式显示百分比
+        text: display.value === 'amount' ? `${s.name} ${formatMoney(s.value)}` : `${s.name} ${s.pct.toFixed(1)}%`,
       }
     }),
 )
@@ -164,6 +192,12 @@ const toggleKind = () => (kind.value = kind.value === 'expense' ? 'income' : 'ex
         <text :x="CX" :y="CY + 16" text-anchor="middle" class="center-value">{{ formatMoney(total) }}</text>
       </g>
     </svg>
+
+    <div class="scope-switch" role="tablist" aria-label="统计视角">
+      <button :class="{ on: scope === 'all' }" @click="scope = 'all'">全体</button>
+      <button :class="{ on: scope === 'me' }" @click="scope = 'me'">只看我</button>
+    </div>
+    <p v-if="scope === 'me'" class="scope-hint">个人消费按全额，共同消费按我的 AA 份额</p>
 
     <div class="kind-switch">
       <button :class="{ on: kind === 'expense' }" @click="kind = 'expense'">支出</button>
@@ -224,6 +258,32 @@ const toggleKind = () => (kind.value = kind.value === 'expense' ? 'income' : 'ex
   justify-content: space-between;
   gap: 8px;
 }
+.scope-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 12px;
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 2px;
+}
+.scope-switch button {
+  padding: 6px 0;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+.scope-switch button.on {
+  background: var(--card);
+  color: var(--primary);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.scope-hint {
+  margin: 6px 2px 0;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+}
 .display-switch {
   display: flex;
   background: var(--bg);
@@ -260,6 +320,7 @@ const toggleKind = () => (kind.value = kind.value === 'expense' ? 'income' : 'ex
   place-items: center;
 }
 .donut {
+  overflow: visible;
   width: 100%;
   display: block;
   margin: 4px 0;

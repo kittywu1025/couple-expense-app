@@ -8,6 +8,8 @@ import AuthPage from './pages/AuthPage.vue'
 import BookSetupPage from './pages/BookSetupPage.vue'
 import ProfileSetupPage from './pages/ProfileSetupPage.vue'
 import ProfileDetailPage from './pages/ProfileDetailPage.vue'
+import FixedExpensesPage from './pages/FixedExpensesPage.vue'
+import { useFixedExpenses } from './composables/useFixedExpenses'
 import HomePage from './pages/HomePage.vue'
 import StatsPage from './pages/StatsPage.vue'
 import MePage from './pages/MePage.vue'
@@ -18,7 +20,7 @@ import { useRecords } from './composables/useRecords'
 import { applyPwaUpdate, dismissPwaUpdate, usePwaUpdate } from './composables/usePwaUpdate'
 import { toast } from './composables/useToast'
 import { isDemoMode } from './lib/demo'
-import { addSheetOpen, closeAddSheet, editingRecord, openAddSheet, profilePageOpen } from './composables/useUi'
+import { addSheetOpen, closeAddSheet, editingRecord, fixedPageOpen, openAddSheet, profilePageOpen } from './composables/useUi'
 
 const { authUser, authLoading, authGender, isSupabaseEnabled } = useSupabaseAuth()
 const { currentBook, booksLoading, loadBook, me } = useBooks()
@@ -41,10 +43,24 @@ const screen = computed(() => {
   return 'app'
 })
 
+// 进入账本、回到前台时检查到期的固定扣款，自动记账
+const { generateDue } = useFixedExpenses()
+const runFixedExpenses = async () => {
+  const count = await generateDue()
+  if (count) toast.success(`已自动记入 ${count} 笔固定扣款`)
+}
+watch(
+  () => (screen.value === 'app' ? currentBook.value?.id : null),
+  (id) => {
+    if (id) runFixedExpenses()
+  },
+  { immediate: true },
+)
+
 // 回到前台时刷新，拿到对方新记的账
 const refreshOnVisible = () => {
   if (document.visibilityState !== 'visible' || screen.value !== 'app') return
-  loadBook().then(loadRecords)
+  loadBook().then(loadRecords).then(runFixedExpenses)
 }
 onMounted(() => document.addEventListener('visibilitychange', refreshOnVisible))
 onBeforeUnmount(() => document.removeEventListener('visibilitychange', refreshOnVisible))
@@ -95,6 +111,9 @@ watch(updateAvailable, (visible) => {
     <TabBar v-model="activeTab" @add="openAddSheet" />
     <transition name="push">
       <ProfileDetailPage v-if="profilePageOpen" />
+    </transition>
+    <transition name="push">
+      <FixedExpensesPage v-if="fixedPageOpen" />
     </transition>
     <transition name="slide-up">
       <AddRecordPage v-if="addSheetOpen" :key="editingRecord?.id ?? 'new'" :record="editingRecord" @close="closeAddSheet" />

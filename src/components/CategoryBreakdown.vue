@@ -12,6 +12,8 @@ const props = defineProps<{ records: LedgerRecord[] }>()
 
 const kind = ref<RecordKind>('expense')
 const expanded = ref<string | null>(null)
+/** 列表显示方式：金额 / 占比 */
+const display = ref<'amount' | 'percent'>('amount')
 watch(kind, () => (expanded.value = null))
 
 interface SubRow {
@@ -129,7 +131,13 @@ const toggleKind = () => (kind.value = kind.value === 'expense' ? 'income' : 'ex
 
 <template>
   <section class="card">
-    <h2 class="title"><span class="badge"><AppIcon name="chart" :size="14" :stroke="2.2" /></span> 收支分类详情</h2>
+    <div class="head">
+      <h2 class="title"><span class="badge"><AppIcon name="chart" :size="14" :stroke="2.2" /></span> 收支分类详情</h2>
+      <div class="display-switch" role="tablist" aria-label="显示方式">
+        <button :class="{ on: display === 'amount' }" @click="display = 'amount'">金额</button>
+        <button :class="{ on: display === 'percent' }" @click="display = 'percent'">占比</button>
+      </div>
+    </div>
 
     <svg v-if="rows.length" viewBox="0 0 360 236" class="donut" role="img" :aria-label="`${kindLabel}分类占比`">
       <circle :cx="CX" :cy="CY" :r="R" fill="none" stroke="#F0F0F3" :stroke-width="STROKE" />
@@ -173,14 +181,21 @@ const toggleKind = () => (kind.value = kind.value === 'expense' ? 'income' : 'ex
       <button class="row" @click="expanded = expanded === row.name ? null : row.name">
         <CategoryIcon :name="row.icon" :color="row.color" :size="42" />
         <span class="main">
-          <span class="top">
-            <span class="name">{{ row.name }} <small>{{ row.pct.toFixed(2) }}%</small></span>
+          <!-- 金额模式：分类名 + 金额 -->
+          <span v-if="display === 'amount'" class="top">
+            <span class="name">{{ row.name }} <small>{{ row.count }} 笔</small></span>
             <span class="mono amount">{{ formatMoney(row.value) }}</span>
           </span>
-          <span class="bottom">
-            <span class="track"><span class="bar" :style="{ width: row.pct + '%', background: row.color }" /></span>
-            <span class="count">{{ row.count }} 笔</span>
-          </span>
+          <!-- 占比模式：分类名 + 百分比 + 进度条 -->
+          <template v-else>
+            <span class="top">
+              <span class="name">{{ row.name }}</span>
+              <span class="mono amount">{{ row.pct.toFixed(1) }}%</span>
+            </span>
+            <span class="bottom">
+              <span class="track"><span class="bar" :style="{ width: row.pct + '%', background: row.color }" /></span>
+            </span>
+          </template>
         </span>
         <span :class="['chev', { open: expanded === row.name }]">›</span>
       </button>
@@ -188,7 +203,7 @@ const toggleKind = () => (kind.value = kind.value === 'expense' ? 'income' : 'ex
         <div v-for="sub in row.subs" :key="sub.name" class="sub">
           <span class="sub-icon" :style="{ color: row.color }"><AppIcon :name="sub.icon" :size="20" /></span>
           <span class="sub-name">{{ sub.name }}</span>
-          <span class="mono sub-val">{{ formatMoney(sub.value) }}</span>
+          <span class="mono sub-val">{{ display === 'amount' ? formatMoney(sub.value) : `${sub.pct.toFixed(1)}%` }}</span>
           <span class="sub-meta">{{ sub.count }} 笔 / {{ sub.pct.toFixed(1) }}%</span>
         </div>
       </div>
@@ -202,6 +217,30 @@ const toggleKind = () => (kind.value = kind.value === 'expense' ? 'income' : 'ex
   border-radius: var(--radius);
   padding: 16px 16px 8px;
   margin-top: 20px;
+}
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.display-switch {
+  display: flex;
+  background: var(--bg);
+  border-radius: 999px;
+  padding: 2px;
+}
+.display-switch button {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.display-switch button.on {
+  background: var(--card);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 .title {
   margin: 0;

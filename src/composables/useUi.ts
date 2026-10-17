@@ -24,6 +24,11 @@ export const profilePageOpen = ref(false)
 export const openProfilePage = () => (profilePageOpen.value = true)
 export const closeProfilePage = () => (profilePageOpen.value = false)
 
+/** 固定扣款页（从「我的」进入） */
+export const fixedPageOpen = ref(false)
+export const openFixedPage = () => (fixedPageOpen.value = true)
+export const closeFixedPage = () => (fixedPageOpen.value = false)
+
 interface ConfirmOptions {
   title: string
   message?: string

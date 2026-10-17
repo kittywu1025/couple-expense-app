@@ -25,7 +25,7 @@ const begin = (y: number, target: EventTarget | null) => {
   const el = sheet.value
   if (!el) return
   // 输入框里滑动不算拖拽；内容滚动到中间时也交给滚动
-  if (target instanceof HTMLElement && target.closest('input, textarea, select')) return
+  if (target instanceof HTMLElement && target.closest('input, textarea, select, [data-no-sheet-drag]')) return
   if (el.scrollTop > 0) return
   startY = y
   tracking = true

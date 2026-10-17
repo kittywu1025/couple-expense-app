@@ -57,6 +57,30 @@ export interface LedgerRecord {
   createdAt: string
 }
 
+export interface FixedExpense {
+  id: string
+  bookId: string
+  name: string
+  amount: number
+  category: string
+  subCategory: string | null
+  /** 每月几号（1-31，超过当月天数按月底） */
+  dayOfMonth: number
+  payerUid: string
+  type: RecordType
+  /** 付款人承担的份额 0-10 */
+  ratio: number
+  paused: boolean
+  startDate: string
+  lastGeneratedDate: string | null
+  createdBy: string
+}
+
+export type FixedExpenseInput = Pick<
+  FixedExpense,
+  'name' | 'amount' | 'category' | 'subCategory' | 'dayOfMonth' | 'payerUid' | 'type' | 'ratio'
+>
+
 export type NewRecord = Omit<LedgerRecord, 'id' | 'bookId' | 'createdBy' | 'createdAt'>
 
 export type TabKey = 'home' | 'stats' | 'me'

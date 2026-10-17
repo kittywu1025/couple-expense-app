@@ -4,7 +4,9 @@ import { seedTestData } from '../dev/seed'
 import { useBooks } from '../composables/useBooks'
 import { useSupabaseAuth } from '../composables/useSupabaseAuth'
 import { toast } from '../composables/useToast'
-import { confirmAction, openProfilePage } from '../composables/useUi'
+import { confirmAction, openFixedPage, openProfilePage } from '../composables/useUi'
+import { useFixedExpenses } from '../composables/useFixedExpenses'
+import { formatMoney } from '../utils/format'
 import AppIcon from '../components/AppIcon.vue'
 import type { Gender } from '../types'
 import { CURRENCIES, isCurrencyCode } from '../utils/currency'
@@ -23,6 +25,14 @@ const { authDisplayName, authUser } = useSupabaseAuth()
 
 const myName = computed(() => me.value?.displayName || authDisplayName.value)
 const initial = computed(() => myName.value.slice(0, 1).toUpperCase())
+const { items: fixedItems } = useFixedExpenses()
+const activeFixed = computed(() => fixedItems.value.filter((f) => !f.paused))
+const fixedSummary = computed(() =>
+  activeFixed.value.length
+    ? `${activeFixed.value.length} 项 · 每月 ${formatMoney(activeFixed.value.reduce((s, f) => s + f.amount, 0))}`
+    : '未设置',
+)
+
 // 仅开发模式（npm run dev）显示，正式版不会出现
 const isDev = import.meta.env.DEV
 const seeding = ref(false)
@@ -115,6 +125,16 @@ const onLeave = async () => {
       <span class="avatar sm empty"><AppIcon name="plus" :size="18" /></span>
       <span class="grow">邀请码 <b class="mono code">{{ currentBook?.inviteCode }}</b></span>
       <small class="link">复制</small>
+    </button>
+  </section>
+
+  <h2 class="section-title">记账</h2>
+  <section class="card group">
+    <button class="row" @click="openFixedPage">
+      <span class="row-icon"><AppIcon name="calendar" :size="18" :stroke="2" /></span>
+      <span class="grow">固定扣款</span>
+      <small class="faint">{{ fixedSummary }}</small>
+      <AppIcon name="chevronRight" :size="16" class="chev" />
     </button>
   </section>
 
@@ -320,6 +340,18 @@ select {
 }
 .actions .row {
   justify-content: center;
+}
+.row-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  display: grid;
+  place-items: center;
+}
+.chev {
+  color: var(--text-faint);
 }
 .dev {
   margin-top: 12px;

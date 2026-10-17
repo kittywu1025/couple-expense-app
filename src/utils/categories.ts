@@ -19,7 +19,7 @@ export const EXPENSE_CATEGORIES: Category[] = [
   },
   {
     key: 'fixed', name: '固定开销', icon: 'home', color: '#9D8CFF',
-    subs: [{ name: '房租', icon: 'building' }, { name: '水电煤', icon: 'utilities' }, { name: '手机·网络', icon: 'phone' }],
+    subs: [{ name: '房租', icon: 'building' }, { name: '电费', icon: 'bolt' }, { name: '水费', icon: 'drop' }, { name: '煤气费', icon: 'flame' }, { name: '手机·网络', icon: 'phone' }],
   },
   {
     key: 'transport', name: '交通', icon: 'route', color: '#5CC8FF',
@@ -86,7 +86,11 @@ export const findCategory = (name: string) =>
 /** 新建分类时名字不能和已有分类（含默认）重复，避免账单归类混乱 */
 export const isCategoryNameTaken = (name: string) => !!findCategory(name.trim())
 
+/** 旧版合并的「水电煤」已拆成电费 / 水费 / 煤气费，老记录仍显示水电图标 */
+const LEGACY_SUB_ICONS: Record<string, IconName> = { 水电煤: 'utilities' }
+
 export const recordIcon = (category: string, subCategory?: string | null): IconName => {
+  if (subCategory && LEGACY_SUB_ICONS[subCategory]) return LEGACY_SUB_ICONS[subCategory]
   const cat = findCategory(category)
   if (!cat) return 'sparkles'
   return cat.subs.find((s) => s.name === subCategory)?.icon ?? cat.icon

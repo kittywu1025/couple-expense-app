@@ -3,29 +3,45 @@ import { computed, ref } from 'vue'
 import { useBooks } from '../composables/useBooks'
 import { useRecords } from '../composables/useRecords'
 import CategoryBreakdown from '../components/CategoryBreakdown.vue'
+import PeriodPickerSheet from '../components/PeriodPickerSheet.vue'
 import AppIcon from '../components/AppIcon.vue'
 import { formatMoney } from '../utils/format'
-import { currentPeriodMonth, debtOf, inPeriod, isTreat, periodRange, shiftMonth, treaterOf } from '../utils/settlement'
+import { debtOf, inPeriod, isTreat, treaterOf } from '../utils/settlement'
+import {
+  PERIOD_MODES,
+  initialPeriod,
+  isLatest,
+  rangeOf,
+  shiftPeriod,
+  subtitleOf,
+  titleOf,
+  type PeriodMode,
+  type PeriodState,
+} from '../utils/period'
 
 const { currentBook, myUid, otherUid, nameOf, partner } = useBooks()
 const { records } = useRecords()
 
 const settleDay = computed(() => currentBook.value?.settleDay ?? 1)
-const month = ref(currentPeriodMonth(settleDay.value))
-const range = computed(() => periodRange(month.value, settleDay.value))
+// 时间维度：周 / 月 / 年 / 自定义，默认月（按结算日划分）
+const period = ref<PeriodState>(initialPeriod(settleDay.value))
+const range = computed(() => rangeOf(period.value, settleDay.value))
+const title = computed(() => titleOf(period.value))
+const subtitle = computed(() => subtitleOf(period.value, settleDay.value))
+const atLatest = computed(() => isLatest(period.value, settleDay.value))
+const pickerOpen = ref(false)
 
-const monthLabel = computed(() => {
-  const [y, m] = month.value.split('-').map(Number)
-  return `${y}年${m}月`
-})
-const rangeLabel = computed(() => {
-  if (settleDay.value === 1) return ''
-  const fmt = (k: string) => k.slice(5).replace('-', '/')
-  const end = new Date(range.value.end)
-  end.setDate(end.getDate() - 1)
-  return `${fmt(range.value.start)} – ${end.getMonth() + 1}/${end.getDate()}`
-})
-const isCurrent = computed(() => month.value === currentPeriodMonth(settleDay.value))
+const setMode = (mode: PeriodMode) => {
+  if (mode === period.value.mode) return
+  period.value = { ...period.value, mode }
+  // 自定义第一次切过去就直接让用户选范围
+  if (mode === 'custom') pickerOpen.value = true
+}
+const shift = (dir: 1 | -1) => {
+  if (dir === 1 && atLatest.value) return
+  period.value = shiftPeriod(period.value, dir)
+}
+const settleTitle = computed(() => (period.value.mode === 'month' ? '月末结算明细' : '结算明细'))
 
 const periodRecords = computed(() => records.value.filter((r) => inPeriod(r, range.value)))
 const expenses = computed(() => periodRecords.value.filter((r) => r.kind === 'expense'))
@@ -55,14 +71,34 @@ const openPaid = ref(false)
 </script>
 
 <template>
-  <div class="month-bar">
-    <button class="arrow" @click="month = shiftMonth(month, -1)">‹</button>
-    <div class="pill">
-      {{ monthLabel }}
-      <small v-if="rangeLabel">{{ rangeLabel }}</small>
-    </div>
-    <button class="arrow" :disabled="isCurrent" @click="month = shiftMonth(month, 1)">›</button>
+  <div class="modes" role="tablist">
+    <button
+      v-for="m in PERIOD_MODES"
+      :key="m.key"
+      role="tab"
+      :aria-selected="period.mode === m.key"
+      :class="{ on: period.mode === m.key }"
+      @click="setMode(m.key)"
+    >
+      {{ m.label }}
+    </button>
   </div>
+
+  <div class="month-bar">
+    <button class="arrow" aria-label="上一个周期" @click="shift(-1)"><AppIcon name="chevronLeft" :size="18" :stroke="2.2" /></button>
+    <button class="pill" aria-label="选择时间" @click="pickerOpen = true">
+      <span class="pill-title">{{ title }}<AppIcon name="chevronRight" :size="12" :stroke="2.4" class="pill-caret" /></span>
+      <small v-if="subtitle">{{ subtitle }}</small>
+    </button>
+    <button class="arrow" aria-label="下一个周期" :disabled="atLatest" @click="shift(1)"><AppIcon name="chevronRight" :size="18" :stroke="2.2" /></button>
+  </div>
+
+  <PeriodPickerSheet
+    :open="pickerOpen"
+    :period="period"
+    @close="pickerOpen = false"
+    @apply="(p) => ((period = p), (pickerOpen = false))"
+  />
 
   <div class="two">
     <div class="card num">
@@ -92,7 +128,7 @@ const openPaid = ref(false)
 
   <div class="card fold">
     <button class="fold-head" @click="openSettle = !openSettle">
-      <span class="fold-title"><span class="fold-icon"><AppIcon name="transfer" :size="16" :stroke="2" /></span>月末结算明细</span>
+      <span class="fold-title"><span class="fold-icon"><AppIcon name="transfer" :size="16" :stroke="2" /></span>{{ settleTitle }}</span>
       <span :class="['chev', { open: openSettle }]">›</span>
     </button>
     <div v-if="openSettle" class="fold-body">
@@ -141,6 +177,36 @@ const openPaid = ref(false)
 </template>
 
 <style scoped>
+.modes {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 999px;
+  padding: 3px;
+  margin-bottom: 12px;
+}
+.modes button {
+  padding: 6px 0;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--text-soft);
+  transition: background 0.15s;
+}
+.modes button.on {
+  background: var(--card);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+.pill-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pill-caret {
+  transform: rotate(90deg);
+  color: var(--text-faint);
+}
 .month-bar {
   display: flex;
   align-items: center;
@@ -168,8 +234,8 @@ const openPaid = ref(false)
   height: 36px;
   border-radius: 50%;
   background: var(--card);
-  font-size: 22px;
-  line-height: 1;
+  display: grid;
+  place-items: center;
   color: var(--primary);
 }
 .arrow:disabled {

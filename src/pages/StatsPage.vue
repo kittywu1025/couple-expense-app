@@ -7,6 +7,7 @@ import CategoryBreakdown from '../components/CategoryBreakdown.vue'
 import PeriodPickerSheet from '../components/PeriodPickerSheet.vue'
 import SharedRecordList from '../components/SharedRecordList.vue'
 import AppIcon from '../components/AppIcon.vue'
+import SkeletonList from '../components/SkeletonList.vue'
 import { formatMoney } from '../utils/format'
 import { inPeriod } from '../utils/settlement'
 import { computeStats } from '../utils/stats'
@@ -23,7 +24,7 @@ import {
 } from '../utils/period'
 
 const { currentBook, myUid, otherUid, nameOf, partner } = useBooks()
-const { records } = useRecords()
+const { records, recordsLoading } = useRecords()
 
 const settleDay = computed(() => currentBook.value?.settleDay ?? 1)
 
@@ -104,7 +105,8 @@ const openShared = ref(false)
     @apply="(p) => ((period = p), (pickerOpen = false))"
   />
 
-  <CategoryBreakdown :records="periodRecords" class="breakdown" />
+  <SkeletonList v-if="recordsLoading && !records.length" class="breakdown" />
+  <CategoryBreakdown v-else :records="periodRecords" :period-word="periodWord" class="breakdown" />
 
   <section class="card fold">
     <button class="fold-head" :aria-expanded="openSettle" @click="openSettle = !openSettle">

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useTweened } from '../composables/useTweened'
 import WeekLineChart from '../components/WeekLineChart.vue'
 import RecordList from '../components/RecordList.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -11,11 +12,11 @@ import { calendarPageOpen, openAddSheet } from '../composables/useUi'
 import { HOME_CARDS, homeCardPref, type HomeCard } from '../composables/usePrefs'
 import { toast } from '../composables/useToast'
 import type { LedgerRecord } from '../types'
-import { formatMoney, toDateKey } from '../utils/format'
+import { formatMoney, formatMoneyShort, toDateKey } from '../utils/format'
 import { currentPeriodMonth, inPeriod, periodRange, shareOf } from '../utils/settlement'
 
 const { currentBook, partner, myUid } = useBooks()
-const { records, recordsLoading } = useRecords()
+const { records, recordsLoading, recordsError, loadRecords } = useRecords()
 
 const period = computed(() => {
   const settleDay = currentBook.value?.settleDay ?? 1
@@ -46,7 +47,7 @@ const cards = computed(() =>
     let sub = `本月 ${items.length} 笔`
     if (c.key === 'mine') {
       const own = items.filter((r) => r.type === 'personal').reduce((s, r) => s + r.amount, 0)
-      sub = `个人 ${formatMoney(own)} · 共同里我的那份 ${formatMoney(total - own)}`
+      sub = `个人 ${formatMoneyShort(own)} · 共同里我的那份 ${formatMoneyShort(total - own)}`
     }
     if (c.key === 'income') sub = items.length ? `本月 ${items.length} 笔，只统计你自己的收入` : '这个月还没有记收入'
     return { ...c, total, sub }
@@ -57,6 +58,12 @@ const cards = computed(() =>
 const track = ref<HTMLDivElement | null>(null)
 const active = ref(Math.max(0, HOME_CARDS.findIndex((c) => c.key === homeCardPref.value)))
 const activeCard = computed(() => HOME_CARDS[active.value].key)
+
+// 当前卡片的数字滚动到新值（切卡片、记账后都会有动画）
+const activeTotal = computed(() => cards.value[active.value]?.total ?? 0)
+const tweenedTotal = useTweened(activeTotal)
+const displayTotal = (i: number) => (i === active.value ? tweenedTotal.value : cards.value[i].total)
+
 
 onMounted(async () => {
   await nextTick()
@@ -94,6 +101,31 @@ const weekPoints = computed(() => {
 // 账单列表照常显示本月所有记录（包括对方的）；只是统计数字只算自己的
 const monthList = computed(() => records.value.filter((r) => inPeriod(r, period.value)))
 
+// 超过 20 条分页：滑到底自动再加载 20 条
+const PAGE = 20
+const shown = ref(PAGE)
+const pagedList = computed(() => monthList.value.slice(0, shown.value))
+const hasMore = computed(() => monthList.value.length > shown.value)
+const sentinel = ref<HTMLDivElement | null>(null)
+let observer: IntersectionObserver | null = null
+watch(sentinel, (el) => {
+  observer?.disconnect()
+  if (!el) return
+  observer = new IntersectionObserver((entries) => {
+    if (entries.some((e) => e.isIntersecting) && hasMore.value) shown.value += PAGE
+  })
+  observer.observe(el)
+})
+onBeforeUnmount(() => observer?.disconnect())
+
+const retrying = ref(false)
+const retry = async () => {
+  retrying.value = true
+  await loadRecords()
+  retrying.value = false
+  if (!recordsError.value) toast.success('已重新加载')
+}
+
 const copyInvite = async () => {
   const code = currentBook.value?.inviteCode
   if (!code) return
@@ -116,9 +148,9 @@ const copyInvite = async () => {
 
   <section class="hero">
     <div ref="track" class="track" @scroll.passive="onScroll">
-      <div v-for="c in cards" :key="c.key" class="slide">
+      <div v-for="(c, i) in cards" :key="c.key" class="slide">
         <p class="caption">{{ c.label }}</p>
-        <p :class="['total', { income: c.key === 'income' }]">{{ formatMoney(c.total) }}</p>
+        <p :class="['total', { income: c.key === 'income' }]">{{ formatMoney(displayTotal(i)) }}</p>
         <p class="sub">{{ c.sub }}</p>
       </div>
     </div>
@@ -151,16 +183,31 @@ const copyInvite = async () => {
   </div>
 
   <SkeletonList v-if="recordsLoading && !records.length" />
+  <div v-else-if="recordsError && !records.length" class="empty-card">
+    <EmptyState
+      icon="wifi"
+      title="账单没加载出来"
+      desc="可能是网络不太好，稍等一下再试试"
+      :action="retrying ? '加载中…' : '重新加载'"
+      @action="retry"
+    />
+  </div>
   <div v-else-if="!monthList.length" class="empty-card">
     <EmptyState
       icon="receipt"
-      title="这个月还没有记录"
+      title="还没有记录，今天吃了什么？"
       desc="一起吃的饭、一起买的菜，都可以记下来"
       action="记一笔"
       @action="openAddSheet"
     />
   </div>
-  <RecordList v-else :records="monthList" />
+  <template v-else>
+    <RecordList :records="pagedList" />
+    <div v-if="hasMore" ref="sentinel" class="more">
+      <span class="spinner" />再往下看看…
+    </div>
+    <p v-else-if="monthList.length > PAGE" class="end">本月的账单都在这里了</p>
+  </template>
 </template>
 
 <style scoped>
@@ -310,6 +357,29 @@ const copyInvite = async () => {
 .hint {
   font-size: 11px;
   color: var(--text-faint);
+}
+.more,
+.end {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 0 4px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--primary-soft);
+  border-top-color: var(--primary);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .empty-card {
   background: var(--card);

@@ -28,6 +28,7 @@
    - `20261020_registration_rules.sql`
    - `20261021_revoke_anon_rpc.sql`
    - `20261022_fixed_expenses.sql`
+   - `20261024_record_permissions.sql`
 2. Authentication → Providers → 开启 **Google**，填入 Google Cloud 的 OAuth Client ID / Secret
 3. Authentication → URL Configuration → Redirect URLs 加入 `http://localhost:5173/**`、`http://<本机局域网IP>:5173/**`；Site URL 填线上地址
 4. 复制 `.env.example` 为 `.env.local`，填写 `VITE_SUPABASE_URL` 和 `VITE_SUPABASE_ANON_KEY`

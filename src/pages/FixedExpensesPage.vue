@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
 import CategoryIcon from '../components/CategoryIcon.vue'
 import EmptyState from '../components/EmptyState.vue'
+import SkeletonList from '../components/SkeletonList.vue'
 import FixedExpenseEditorSheet from '../components/FixedExpenseEditorSheet.vue'
 import { nextDueDate, useFixedExpenses } from '../composables/useFixedExpenses'
 import { useBooks } from '../composables/useBooks'
@@ -12,7 +13,7 @@ import type { FixedExpense, FixedExpenseInput } from '../types'
 import { recordColor, recordIcon } from '../utils/categories'
 import { formatDateLabel, formatMoney } from '../utils/format'
 
-const { items, visibleItems, add, update, setPaused, remove, generateDue } = useFixedExpenses()
+const { items, visibleItems, loading, add, update, setPaused, remove, generateDue } = useFixedExpenses()
 const { myUid, nameOf } = useBooks()
 
 const editorOpen = ref(false)
@@ -97,7 +98,8 @@ const togglePause = async (f: FixedExpense) => {
         <small>到扣款日自动记一笔账，打开 App 时检查</small>
       </section>
 
-      <section v-if="!items.length" class="empty">
+      <SkeletonList v-if="loading && !items.length" />
+      <section v-else-if="!items.length" class="empty">
         <EmptyState
           icon="calendar"
           title="还没有固定扣款"

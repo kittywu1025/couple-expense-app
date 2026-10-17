@@ -7,7 +7,7 @@ import { recordColor, recordIcon } from '../utils/categories'
 import { formatFullDate, formatMoney } from '../utils/format'
 import { debtOf, isTreat, shareOf, treaterOf } from '../utils/settlement'
 import { useBooks } from '../composables/useBooks'
-import { useRecords } from '../composables/useRecords'
+import { canModify, useRecords } from '../composables/useRecords'
 import { confirmAction, haptic, openEditSheet } from '../composables/useUi'
 import AppIcon from './AppIcon.vue'
 import { toast } from '../composables/useToast'
@@ -18,6 +18,7 @@ const emit = defineEmits<{ close: [] }>()
 const { myUid, nameOf, otherUid } = useBooks()
 const { deleteRecord } = useRecords()
 const deleting = ref(false)
+const editable = computed(() => (r.value ? canModify(r.value, myUid.value) : false))
 
 const r = computed(() => props.record)
 
@@ -92,7 +93,8 @@ const onDelete = async () => {
         <div><dt>记录人</dt><dd>{{ nameOf(r.createdBy) }}</dd></div>
       </dl>
 
-      <div class="actions">
+      <p v-if="!editable" class="readonly">这是 {{ nameOf(r.payerUid) }} 的个人记录，只能看，不能修改</p>
+      <div v-else class="actions">
         <button class="delete" :disabled="deleting" @click="onDelete">
           <AppIcon name="close" :size="16" :stroke="2.2" />{{ deleting ? '删除中…' : '删除' }}
         </button>
@@ -166,6 +168,12 @@ dd {
 }
 .dot.partner {
   background: var(--partner);
+}
+.readonly {
+  margin: 14px 0 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-faint);
 }
 .actions {
   display: grid;

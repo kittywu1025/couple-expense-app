@@ -8,6 +8,26 @@ import { setSyncWarning } from './useRuntimeStatus'
 
 const records = ref<LedgerRecord[]>([])
 const recordsLoading = ref(false)
+/** 最近一次加载失败（有缓存时仍显示缓存，只在完全没数据时显示错误页） */
+const recordsError = ref(false)
+
+// ── 本地缓存：打开 App 先显示上次的数据，后台再拉最新的（stale-while-revalidate） ──
+const CACHE_PREFIX = 'couple-expense-records:'
+const readCache = (bookId: string): LedgerRecord[] | null => {
+  try {
+    const raw = localStorage.getItem(CACHE_PREFIX + bookId)
+    return raw ? (JSON.parse(raw) as LedgerRecord[]) : null
+  } catch {
+    return null
+  }
+}
+const writeCache = (bookId: string, list: LedgerRecord[]) => {
+  try {
+    localStorage.setItem(CACHE_PREFIX + bookId, JSON.stringify(list))
+  } catch {
+    // 空间不够或无痕模式就不缓存
+  }
+}
 
 const normalizeRecord = (row: Record<string, unknown>): LedgerRecord => ({
   id: String(row.id),
@@ -41,7 +61,14 @@ const loadRecords = async () => {
     return
   }
 
+  // 先用缓存把页面填起来，避免每次打开都是骨架屏
+  if (!records.value.length) {
+    const cached = readCache(bookId)
+    if (cached?.length) records.value = cached
+  }
+
   recordsLoading.value = true
+  recordsError.value = false
   try {
     const { data, error } = await supabase
       .from('records')
@@ -53,7 +80,8 @@ const loadRecords = async () => {
     records.value = (data ?? []).map(normalizeRecord)
   } catch (error) {
     console.error('加载账单失败：', error)
-    setSyncWarning(formatSupabaseError(error, '账单读取失败，请稍后重试。'))
+    recordsError.value = true
+    setSyncWarning(formatSupabaseError(error, '账单读取失败，请检查网络后再试。'))
   } finally {
     recordsLoading.value = false
   }
@@ -192,13 +220,21 @@ const deleteRecord = async (id: string) => {
 
 watch(() => currentBook.value?.id, loadRecords, { immediate: true })
 
+// 记录有变化就写缓存（演示模式不写）
+watch(records, (list) => {
+  const bookId = currentBook.value?.id
+  if (bookId && !isDemoMode) writeCache(bookId, list)
+})
+
 /**
  * 隐私边界：共同记录两人都能看；个人记录（含收入）只有付款人自己能看。
  * 列表、日历、详情、收入统计都用这个；「我们一共花了多少」这类总额才用全部记录。
  */
 export const isVisibleTo = (r: LedgerRecord, uid: string) => r.type === 'shared' || r.payerUid === uid
+/** 对方的个人记录只能看、不能改删（共同记录两人都能改） */
+export const canModify = (r: LedgerRecord, uid: string) => r.type === 'shared' || r.payerUid === uid || r.createdBy === uid
 const visibleRecords = computed(() => records.value.filter((r) => isVisibleTo(r, authUser.value?.id ?? '')))
 
 export function useRecords() {
-  return { records, visibleRecords, recordsLoading, loadRecords, addRecord, addRecordsBulk, updateRecord, deleteRecord }
+  return { records, visibleRecords, recordsLoading, recordsError, loadRecords, addRecord, addRecordsBulk, updateRecord, deleteRecord }
 }

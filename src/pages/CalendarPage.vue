@@ -5,7 +5,8 @@ import PushPage from '../components/PushPage.vue'
 import RecordList from '../components/RecordList.vue'
 import { useRecords } from '../composables/useRecords'
 import { calendarPageOpen } from '../composables/useUi'
-import { formatFullDate, formatMoney, todayKey, toDateKey } from '../utils/format'
+import { toast } from '../composables/useToast'
+import { formatMoney, todayKey, toDateKey } from '../utils/format'
 import { addDays, mondayOf, parseKey } from '../utils/period'
 
 // 日历只显示共同记录 + 自己的个人记录（对方的个人消费不可见）
@@ -13,7 +14,7 @@ const { visibleRecords } = useRecords()
 
 const today = todayKey()
 const month = ref(today.slice(0, 7))
-const selected = ref<string | null>(today)
+const selected = ref<string | null>(null)
 
 const title = computed(() => {
   const [y, m] = month.value.split('-').map(Number)
@@ -38,6 +39,9 @@ const byDay = computed(() => {
   }
   return map
 })
+// 打开时今天有记录就直接展开今天
+if (byDay.value.has(today)) selected.value = today
+
 const monthExpense = computed(() => [...byDay.value.values()].reduce((s, d) => s + d.expense, 0))
 const monthIncome = computed(() => [...byDay.value.values()].reduce((s, d) => s + d.income, 0))
 
@@ -60,6 +64,12 @@ const short = (n: number) => (n >= 10000 ? `${(n / 10000).toFixed(n >= 100000 ? 
 const dayRecords = computed(() => (selected.value ? monthRecords.value.filter((r) => r.date === selected.value) : []))
 const pick = (key: string) => {
   if (!key.startsWith(month.value)) return
+  // 没记录的日子不展开，只轻轻说一句
+  if (!byDay.value.has(key)) {
+    selected.value = null
+    toast.info(key > today ? '这天还没到呢' : '这天没有花钱，不错')
+    return
+  }
   selected.value = selected.value === key ? null : key
 }
 </script>
@@ -92,13 +102,12 @@ const pick = (key: string) => {
           <span v-else-if="d.startsWith(month) && byDay.get(d)?.income" class="amt inc mono">+{{ short(byDay.get(d)!.income) }}</span>
         </button>
       </div>
-      <p class="tip">显示共同记录和你自己的个人记录</p>
+      <p class="tip">点有金额的日子看当天账单 · 显示共同记录和你自己的记录</p>
     </section>
 
     <transition name="fade" mode="out-in">
       <div v-if="selected" :key="selected" class="day-list">
-        <RecordList v-if="dayRecords.length" :records="dayRecords" />
-        <p v-else class="none">{{ formatFullDate(selected) }}<br />这天没有记录，是平静的一天</p>
+        <RecordList :records="dayRecords" />
       </div>
     </transition>
   </PushPage>
@@ -200,15 +209,6 @@ const pick = (key: string) => {
 }
 .day-list {
   margin-top: 14px;
-}
-.none {
-  margin: 0;
-  padding: 24px;
-  border-radius: var(--radius);
-  background: var(--card);
-  text-align: center;
-  font-size: 13px;
-  color: var(--text-faint);
 }
 .fade-enter-active,
 .fade-leave-active {

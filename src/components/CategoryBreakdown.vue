@@ -2,7 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import type { LedgerRecord, RecordKind } from '../types'
 import { findCategory, recordIcon } from '../utils/categories'
-import { formatMoney } from '../utils/format'
+import { formatMoney, formatMoneyShort } from '../utils/format'
+import { useTweened } from '../composables/useTweened'
 import EmptyState from './EmptyState.vue'
 import AppIcon from './AppIcon.vue'
 import CategoryIcon from './CategoryIcon.vue'
@@ -10,7 +11,7 @@ import type { IconName } from '../utils/icons'
 import { shareOf } from '../utils/settlement'
 import { useBooks } from '../composables/useBooks'
 
-const props = defineProps<{ records: LedgerRecord[] }>()
+const props = defineProps<{ records: LedgerRecord[]; periodWord?: string }>()
 
 const kind = ref<RecordKind>('expense')
 const expanded = ref<string | null>(null)
@@ -59,6 +60,7 @@ interface CatRow extends SubRow {
 }
 
 const total = computed(() => scoped.value.reduce((s, x) => s + x.w, 0))
+const tweenedTotal = useTweened(total)
 
 const rows = computed<CatRow[]>(() => {
   const map = new Map<string, { r: LedgerRecord; w: number }[]>()
@@ -148,7 +150,7 @@ const labels = computed(() =>
         y: y2,
         anchor: right ? 'start' : 'end',
         // 金额模式显示各分类金额，占比模式显示百分比
-        text: display.value === 'amount' ? `${s.name} ${formatMoney(s.value)}` : `${s.name} ${s.pct.toFixed(1)}%`,
+        text: display.value === 'amount' ? `${s.name} ${formatMoneyShort(s.value)}` : `${s.name} ${s.pct.toFixed(1)}%`,
       }
     }),
 )
@@ -189,7 +191,7 @@ const toggleKind = () => (kind.value = kind.value === 'expense' ? 'income' : 'ex
       <g class="center" @click="toggleKind">
         <circle :cx="CX" :cy="CY" :r="R - STROKE / 2 - 2" fill="transparent" />
         <text :x="CX" :y="CY - 8" text-anchor="middle" class="center-caption">总{{ kindLabel }} ⇆</text>
-        <text :x="CX" :y="CY + 16" text-anchor="middle" class="center-value">{{ formatMoney(total) }}</text>
+        <text :x="CX" :y="CY + 16" text-anchor="middle" class="center-value">{{ formatMoney(tweenedTotal) }}</text>
       </g>
     </svg>
 
@@ -207,8 +209,12 @@ const toggleKind = () => (kind.value = kind.value === 'expense' ? 'income' : 'ex
     <EmptyState
       v-if="!rows.length"
       :icon="kind === 'expense' ? 'chart' : 'wallet'"
-      :title="`这个周期还没有${kindLabel}`"
-      desc="记账后会在这里按分类汇总占比"
+      :title="
+        kind === 'expense'
+          ? `${periodWord ?? '这个月'}还没有记录，出去玩了记得记一下～`
+          : `${periodWord ?? '这个月'}还没有记收入`
+      "
+      :desc="kind === 'expense' ? '记账后会在这里按分类汇总' : '收入只统计你自己的'"
     />
 
     <div v-for="row in rows" :key="row.name" class="row-wrap">

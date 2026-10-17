@@ -101,6 +101,14 @@ export function useSupabaseAuth() {
     if (!supabase) return { error: null }
     const { error } = await supabase.auth.signOut()
     if (!error) {
+      // 退出登录时清掉本机的账单缓存，换人登录不会看到上一个人的数据
+      try {
+        Object.keys(localStorage)
+          .filter((k) => k.startsWith('couple-expense-records:'))
+          .forEach((k) => localStorage.removeItem(k))
+      } catch {
+        // ignore
+      }
       authUser.value = null
       authSession.value = null
     }

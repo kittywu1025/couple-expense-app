@@ -4,7 +4,10 @@ import RecordDetailSheet from './RecordDetailSheet.vue'
 import CategoryIcon from './CategoryIcon.vue'
 import type { LedgerRecord } from '../types'
 import { recordColor, recordIcon } from '../utils/categories'
-import { formatDateLabel, formatMoney, formatWeekday } from '../utils/format'
+import { formatDateLabel, formatMoney, formatMoneyShort, formatWeekday } from '../utils/format'
+import { canModify, useRecords } from '../composables/useRecords'
+import { confirmAction, haptic } from '../composables/useUi'
+import { toast } from '../composables/useToast'
 import { isTreat, shareOf, treaterOf } from '../utils/settlement'
 import { useBooks } from '../composables/useBooks'
 
@@ -12,6 +15,41 @@ const props = defineProps<{ records: LedgerRecord[] }>()
 
 const { myUid, otherUid } = useBooks()
 const selectedId = ref<string | null>(null)
+const { deleteRecord } = useRecords()
+
+// 长按快速删除（对方的个人记录不能删）；长按后松手那次点击不打开详情
+let pressTimer: ReturnType<typeof setTimeout> | undefined
+let longPressed = false
+const startPress = (r: LedgerRecord) => {
+  longPressed = false
+  clearTimeout(pressTimer)
+  pressTimer = setTimeout(async () => {
+    longPressed = true
+    haptic(20)
+    if (!canModify(r, myUid.value)) {
+      toast.info('这是 TA 的个人记录，不能删除')
+      return
+    }
+    const ok = await confirmAction({
+      title: '删除这笔账单？',
+      message: `${r.subCategory || r.category} ${formatMoney(r.amount)}，删除后两个人都看不到，且无法恢复。`,
+      confirmText: '删除',
+      danger: true,
+    })
+    if (!ok) return
+    const { error } = await deleteRecord(r.id)
+    if (error) toast.error(error.message, { title: '删除失败' })
+    else toast.success('已删除')
+  }, 550)
+}
+const cancelPress = () => clearTimeout(pressTimer)
+const open = (r: LedgerRecord) => {
+  if (longPressed) {
+    longPressed = false
+    return
+  }
+  selectedId.value = r.id
+}
 const selected = computed(() => props.records.find((r) => r.id === selectedId.value) ?? null)
 
 const groups = computed(() => {
@@ -44,8 +82,8 @@ const tag = (r: LedgerRecord) => {
     <div class="group-head">
       <span class="day">{{ formatDateLabel(g.date) }}<small>{{ formatWeekday(g.date) }}</small></span>
       <span class="sum mono">
-        <template v-if="g.income">收 {{ formatMoney(g.income) }}　</template>
-        <template v-if="g.expense">支 {{ formatMoney(g.expense) }}</template>
+        <template v-if="g.income">收 {{ formatMoneyShort(g.income) }}　</template>
+        <template v-if="g.expense">支 {{ formatMoneyShort(g.expense) }}</template>
       </span>
     </div>
     <div class="card">
@@ -53,7 +91,12 @@ const tag = (r: LedgerRecord) => {
         v-for="r in g.items"
         :key="r.id"
         class="row"
-        @click="selectedId = r.id"
+        @click="open(r)"
+        @pointerdown="startPress(r)"
+        @pointerup="cancelPress"
+        @pointerleave="cancelPress"
+        @pointercancel="cancelPress"
+        @contextmenu.prevent
       >
         <CategoryIcon :name="recordIcon(r.category, r.subCategory)" :color="recordColor(r.category)" :size="38" />
         <span class="info">
@@ -126,6 +169,11 @@ const tag = (r: LedgerRecord) => {
   left: 64px;
   right: 0;
   border-top: 1px solid var(--line);
+}
+.row {
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .row:active {
   background: #f2f2f5;

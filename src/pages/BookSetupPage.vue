@@ -80,7 +80,7 @@ const confirmRetry = async () => {
       <div class="emoji"><AppIcon name="book" :size="22" /></div>
       <h2>创建新账本</h2>
       <p>创建后会生成 6 位邀请码，发给 TA 即可加入</p>
-      <button class="primary" :disabled="bookActionLoading" @click="onCreate">创建账本</button>
+      <button class="primary" :disabled="bookActionLoading" @click="onCreate">{{ bookActionLoading ? '请稍候…' : '创建账本' }}</button>
     </section>
 
     <section class="card">
@@ -94,7 +94,7 @@ const confirmRetry = async () => {
         autocapitalize="characters"
         @keyup.enter="onJoin"
       />
-      <button class="outline" :disabled="bookActionLoading" @click="onJoin">加入</button>
+      <button class="outline" :disabled="bookActionLoading" @click="onJoin">{{ bookActionLoading ? '请稍候…' : '加入' }}</button>
     </section>
 
     <button class="logout" @click="signOut">退出登录</button>

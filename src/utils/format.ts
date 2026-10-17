@@ -26,14 +26,31 @@ export const toDateKey = (d: Date) => {
 
 export const todayKey = () => toDateKey(new Date())
 
+/** 智能日期：今天 / 昨天 / 前天 / 10月15日 / 跨年时 2025年12月31日 */
 export const formatDateLabel = (key: string) => {
-  const today = todayKey()
-  const y = new Date()
-  y.setDate(y.getDate() - 1)
-  if (key === today) return '今天'
-  if (key === toDateKey(y)) return '昨天'
-  const [, m, d] = key.split('-')
-  return `${Number(m)}月${Number(d)}日`
+  const daysAgo = (n: number) => {
+    const d = new Date()
+    d.setDate(d.getDate() - n)
+    return toDateKey(d)
+  }
+  if (key === daysAgo(0)) return '今天'
+  if (key === daysAgo(1)) return '昨天'
+  if (key === daysAgo(2)) return '前天'
+  const [y, m, d] = key.split('-').map(Number)
+  return y === new Date().getFullYear() ? `${m}月${d}日` : `${y}年${m}月${d}日`
+}
+
+/**
+ * 紧凑金额：≥ 1 万显示成「¥1.2万」，用在格子、标注、小计这类地方；
+ * 单笔账单和结算金额仍用 formatMoney 显示完整数字。
+ */
+export const formatMoneyShort = (value: number) => {
+  const abs = Math.abs(value)
+  if (abs < 10000) return formatMoney(value)
+  const { symbol } = activeCurrencyInfo.value
+  const wan = abs / 10000
+  const text = wan >= 100 ? Math.round(wan).toString() : wan.toFixed(1).replace(/\.0$/, '')
+  return `${value < 0 ? '-' : ''}${symbol}${text}万`
 }
 
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']

@@ -59,6 +59,18 @@ const screen = computed(() => {
   return 'app'
 })
 
+// 离开主界面（退出账本 / 退出登录）时把二级页、弹窗都收起，重新进来不会停在半路
+watch(screen, (next) => {
+  if (next === 'app') return
+  profilePageOpen.value = false
+  fixedPageOpen.value = false
+  aboutPageOpen.value = false
+  rulesPageOpen.value = false
+  calendarPageOpen.value = false
+  closeAddSheet()
+  activeTab.value = 'home'
+})
+
 // 进入账本、回到前台时检查到期的固定扣款，自动记账
 const { generateDue } = useFixedExpenses()
 const runFixedExpenses = async () => {
@@ -120,9 +132,14 @@ watch(updateAvailable, (visible) => {
 
   <template v-else>
     <main class="main">
-      <HomePage v-if="activeTab === 'home'" />
-      <StatsPage v-else-if="activeTab === 'stats'" />
-      <MePage v-else />
+      <!-- 页面有多个根节点，Transition 需要包一层单根元素 -->
+      <transition name="tab" mode="out-in">
+        <div :key="activeTab">
+          <HomePage v-if="activeTab === 'home'" />
+          <StatsPage v-else-if="activeTab === 'stats'" />
+          <MePage v-else />
+        </div>
+      </transition>
     </main>
     <TabBar v-model="activeTab" @add="openAddSheet" />
     <MonthRecap :show-trigger="activeTab === 'home'" />
@@ -173,6 +190,17 @@ watch(updateAvailable, (visible) => {
   to {
     transform: rotate(360deg);
   }
+}
+.tab-enter-active,
+.tab-leave-active {
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.tab-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.tab-leave-to {
+  opacity: 0;
 }
 .push-enter-active,
 .push-leave-active {

@@ -67,48 +67,59 @@ const submit = async () => {
 
 <template>
   <div class="profile">
-    <div class="steps"><span class="on" /><span /></div>
-    <header>
+    <div class="content">
+      <div class="steps"><span class="on" /><span /></div>
       <h1>完善资料</h1>
-      <p>填好后就可以创建或加入账本了</p>
-    </header>
+      <p class="lead">填好后就可以创建或加入账本了</p>
 
-    <section class="card center">
-      <div class="avatar" :style="{ background: tone.bg }">{{ initial }}</div>
-      <p class="from">已用 Google 账号登录</p>
-    </section>
+      <section>
+        <p class="label">昵称<i>*</i></p>
+        <div class="name-row">
+          <div class="avatar" :style="{ background: tone.bg }">{{ initial }}</div>
+          <input
+            v-model="nickname"
+            :class="{ invalid: tried && !!nameError }"
+            :maxlength="NAME_MAX + 4"
+            placeholder="输入昵称"
+            enterkeyhint="done"
+          />
+        </div>
+        <p class="hint">
+          <span :class="{ err: (tried || nickname.length > 0) && !!nameError }">
+            {{ (tried || nickname.length > 0) && nameError ? nameError : '对方看到的名字，之后可在「我的」修改' }}
+          </span>
+          <span>{{ nickname.trim().length }}/{{ NAME_MAX }}</span>
+        </p>
+      </section>
 
-    <section class="card">
-      <h2>昵称 <small>必填</small></h2>
-      <p class="tip">对方在账单和结算里看到的名字，之后可以在「我的」里修改。</p>
-      <div :class="['field', { invalid: tried && !!nameError }]">
-        <input v-model="nickname" :maxlength="NAME_MAX + 4" placeholder="输入昵称" enterkeyhint="next" />
-      </div>
-      <p class="counter">
-        <span class="err">{{ tried || nickname.length ? nameError : '' }}</span>
-        <span>{{ nickname.trim().length }}/{{ NAME_MAX }}</span>
-      </p>
-    </section>
+      <section>
+        <p class="label">性别<i>*</i></p>
+        <GenderPicker v-model="gender" />
+        <p class="hint">提交后不可修改</p>
+      </section>
 
-    <section class="card">
-      <h2>性别 <small>必填</small></h2>
-      <p class="tip warn">提交后不可修改，请确认后再选。</p>
-      <GenderPicker v-model="gender" />
-    </section>
+      <section>
+        <div class="color-row">
+          <p class="label">我的颜色</p>
+          <ColorPicker
+            class="swatches"
+            :model-value="color"
+            :taken="takenColor"
+            @update:model-value="pickedColor = $event"
+            @blocked="toast.info('对方已选择该颜色，请重新选择')"
+          />
+        </div>
+        <p class="hint">
+          已选 <b :style="{ color: swatchOf(color).text }">{{ swatchOf(color).name }}</b>
+          <template v-if="!pickedColor">· 按性别默认，点色块可更换</template>
+        </p>
+      </section>
+    </div>
 
-    <section class="card">
-      <h2>我的颜色 <span class="color-name" :style="{ color: swatchOf(color).text }">{{ swatchOf(color).name }}</span></h2>
-      <p class="tip">账单上用这个颜色标记你。选性别后自动给默认色，可以换成其他颜色；两个人不能选同一个颜色。</p>
-      <ColorPicker
-        :model-value="color"
-        :taken="takenColor"
-        @update:model-value="pickedColor = $event"
-        @blocked="toast.info('对方已选择该颜色，请重新选择')"
-      />
-    </section>
-
-    <button class="primary" :disabled="saving" @click="submit">{{ saving ? '保存中…' : '下一步' }}</button>
-    <button class="logout" @click="signOut">换个账号登录</button>
+    <footer class="footer">
+      <button class="primary" :disabled="saving" @click="submit">{{ saving ? '保存中…' : '下一步' }}</button>
+      <button class="logout" @click="signOut">换个账号登录</button>
+    </footer>
   </div>
 </template>
 
@@ -117,10 +128,10 @@ const submit = async () => {
   max-width: 440px;
   margin: 0 auto;
   min-height: 100vh;
-  padding: calc(40px + env(safe-area-inset-top, 0px)) 20px 32px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  min-height: 100dvh;
+}
+.content {
+  padding: calc(20px + env(safe-area-inset-top, 0px)) 20px calc(130px + env(safe-area-inset-bottom, 0px));
 }
 .steps {
   display: flex;
@@ -136,92 +147,104 @@ const submit = async () => {
   background: var(--primary);
 }
 h1 {
-  margin: 8px 0 4px;
-  font-size: 26px;
+  margin: 14px 0 2px;
+  font-size: 24px;
 }
-header p {
-  margin: 0;
+.lead {
+  margin: 0 0 20px;
+  font-size: 13px;
   color: var(--text-soft);
 }
-.card {
-  background: var(--card);
-  border-radius: var(--radius);
-  padding: 20px;
+section {
+  margin-bottom: 20px;
 }
-.card.center {
-  text-align: center;
-}
-.field input {
-  width: 100%;
-  height: 46px;
-  border-radius: 12px;
-  border: 1.5px solid transparent;
-  background: var(--bg);
-  padding: 0 14px;
-  font-size: 16px;
-  outline: none;
-}
-.field input:focus {
-  border-color: var(--primary);
-}
-.field.invalid input {
-  border-color: var(--danger);
-}
-.counter {
-  display: flex;
-  justify-content: space-between;
-  margin: 6px 2px 0;
-  font-size: 12px;
-  color: var(--text-faint);
-}
-.err {
-  color: var(--danger);
-}
-.tip.warn {
-  color: #e8590c;
-}
-.color-name {
-  font-size: 13px;
+.label {
+  margin: 0 0 8px;
+  font-size: 14px;
   font-weight: 600;
-  margin-left: 6px;
+}
+.label i {
+  font-style: normal;
+  color: var(--danger);
+  margin-left: 2px;
+}
+.name-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 .avatar {
-  width: 64px;
-  height: 64px;
-  margin: 0 auto 10px;
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
   border-radius: 50%;
   display: grid;
   place-items: center;
   color: #fff;
-  font-size: 28px;
+  font-size: 20px;
   font-weight: 700;
   transition: background 0.2s;
 }
-.name {
-  margin: 0;
-  font-weight: 600;
-  font-size: 17px;
+.name-row input {
+  flex: 1;
+  min-width: 0;
+  height: 46px;
+  border-radius: 12px;
+  border: 1.5px solid transparent;
+  background: var(--card);
+  padding: 0 14px;
+  font-size: 16px;
+  outline: none;
 }
-.from {
-  margin: 2px 0 0;
+.name-row input:focus {
+  border-color: var(--primary);
+}
+.name-row input.invalid {
+  border-color: var(--danger);
+}
+.hint {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 2px 0;
   font-size: 12px;
   color: var(--text-faint);
 }
-h2 {
-  margin: 0;
-  font-size: 16px;
+.hint b {
+  font-weight: 600;
+  margin: 0 2px;
 }
-h2 small {
-  font-size: 11px;
-  font-weight: 500;
+.hint .err {
   color: var(--danger);
-  margin-left: 4px;
 }
-.tip {
-  margin: 6px 0 14px;
-  font-size: 13px;
-  color: var(--text-soft);
-  line-height: 1.6;
+.color-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.color-row .label {
+  margin: 0;
+  flex-shrink: 0;
+}
+.swatches {
+  flex: 1;
+  min-width: 0;
+}
+.color-row + .hint {
+  justify-content: flex-start;
+}
+.footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 10px 20px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(to top, var(--bg) 75%, rgba(245, 245, 247, 0));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .primary {
   height: 50px;
@@ -234,9 +257,12 @@ h2 small {
 .primary:disabled {
   opacity: 0.6;
 }
+.primary:active {
+  transform: scale(0.99);
+}
 .logout {
   color: var(--text-faint);
-  font-size: 14px;
+  font-size: 13px;
   padding: 8px;
 }
 </style>

@@ -8,7 +8,6 @@ import { defaultColorFor, firstFreeColor, isMemberColor, swatchOf } from '../uti
 import { DEFAULT_CURRENCY, isCurrencyCode } from '../utils/currency'
 import { activeCurrency } from '../utils/format'
 import { setSyncWarning } from './useRuntimeStatus'
-import { toast } from './useToast'
 
 const currentBook = ref<Book | null>(null)
 const members = ref<BookMember[]>([])
@@ -74,8 +73,8 @@ export const formatSupabaseError = (error: unknown, fallback: string) => {
     return '当前账号没有权限，请检查 Supabase RLS 策略。'
   }
   if (text.includes('network') || text.includes('fetch')) return '网络连接失败，请稍后重试。'
-  if (text.includes('idx_book_members_book_color')) return '这个颜色对方在用了'
-  for (const known of ['这个颜色对方在用了', '演示模式下不能退出账本', '邀请码不存在', '你已经在这个账本中', '这个账本已经满两人了', '邀请码生成失败']) {
+  if (text.includes('idx_book_members_book_color')) return '对方已选择该颜色，请重新选择'
+  for (const known of ['对方已选择该颜色，请重新选择', '性别注册后不可修改', '这个颜色对方在用了', '演示模式下不能退出账本', '邀请码不存在', '你已经在这个账本中', '这个账本已经满两人了', '邀请码生成失败']) {
     if (raw.includes(known)) return known
   }
   return fallback
@@ -168,14 +167,18 @@ const joinBook = (inviteCode: string, gender: Gender, color: MemberColor) =>
     })
     if (error) throw error
     await loadBook()
-    // 想要的颜色被对方占了的话，服务器会自动换一个，这里提醒一下
-    const mine = members.value.find((m) => m.userId === authUser.value?.id)
-    if (mine?.color && mine.color !== color) {
-      toast.info(`你选的颜色 TA 已经在用了，已自动换成「${swatchOf(mine.color).name}」，可在「我的」里修改`, {
-        duration: 6000,
-      })
-    }
   }, '加入账本失败，请稍后重试。')
+
+/** 加入前查看对方已经选了的颜色（撞色时让用户重选） */
+const takenColorsForInvite = async (inviteCode: string): Promise<MemberColor[]> => {
+  if (!supabase) return []
+  const { data, error } = await supabase.rpc('invite_taken_colors', { p_invite_code: inviteCode.trim().toUpperCase() })
+  if (error) {
+    console.error('读取对方颜色失败：', error)
+    return []
+  }
+  return ((data ?? []) as unknown[]).filter(isMemberColor)
+}
 
 const leaveBook = () =>
   runBookAction(async () => {
@@ -209,10 +212,12 @@ const updateBookSettings = (patch: Partial<Pick<Book, 'settleDay' | 'defaultRati
     currentBook.value = normalizeBook(data)
   }, '保存设置失败，请稍后重试。')
 
+/** 性别注册后不可修改：只有还没设置过时才写入 */
 const updateMyGender = (gender: Gender) =>
   runBookAction(async () => {
     const mine = members.value.find((m) => m.userId === authUser.value?.id)
     if (!mine) return
+    if (mine.gender && mine.gender !== gender) throw new Error('性别注册后不可修改')
     if (!isDemoMode) {
       if (!supabase) return
       const { error } = await supabase.from('book_members').update({ gender }).eq('id', mine.id)
@@ -238,7 +243,7 @@ const updateMyColor = (color: MemberColor) =>
     const mine = members.value.find((m) => m.userId === authUser.value?.id)
     if (!mine) return
     const theirs = members.value.find((m) => m.userId !== authUser.value?.id)
-    if (theirs?.color === color) throw new Error('这个颜色对方在用了')
+    if (theirs?.color === color) throw new Error('对方已选择该颜色，请重新选择')
     if (!isDemoMode) {
       if (!supabase) return
       const { error } = await supabase.from('book_members').update({ color }).eq('id', mine.id)
@@ -317,6 +322,7 @@ export function useBooks() {
     updateMyGender,
     updateMyColor,
     updateMyName,
+    takenColorsForInvite,
     tones,
   }
 }

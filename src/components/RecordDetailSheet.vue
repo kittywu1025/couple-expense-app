@@ -188,8 +188,8 @@ dd {
   opacity: 0.6;
 }
 .delete {
-  background: rgba(255, 59, 48, 0.08);
-  color: var(--danger);
+  background: #fff0f3;
+  color: #f0547a;
 }
 .edit {
   background: var(--primary);

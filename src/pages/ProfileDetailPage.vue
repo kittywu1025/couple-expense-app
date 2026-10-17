@@ -3,16 +3,15 @@ import { computed, nextTick, ref } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
 import BottomSheet from '../components/BottomSheet.vue'
 import ColorPicker from '../components/ColorPicker.vue'
-import GenderPicker from '../components/GenderPicker.vue'
 import { useBooks } from '../composables/useBooks'
 import { useSupabaseAuth } from '../composables/useSupabaseAuth'
 import { closeProfilePage, confirmAction } from '../composables/useUi'
 import { toast } from '../composables/useToast'
-import type { Gender, MemberColor } from '../types'
+import type { MemberColor } from '../types'
 import { swatchOf } from '../utils/palette'
 
-const { me, partner, tones, updateMyGender, updateMyColor, updateMyName } = useBooks()
-const { authUser, authDisplayName, updateProfile, signOut } = useSupabaseAuth()
+const { me, partner, tones, updateMyColor, updateMyName } = useBooks()
+const { authUser, authDisplayName, authGender, updateProfile, signOut } = useSupabaseAuth()
 
 const myName = computed(() => me.value?.displayName || authDisplayName.value)
 const initial = computed(() => myName.value.slice(0, 1).toUpperCase())
@@ -65,14 +64,7 @@ const saveName = async () => {
   toast.success('昵称已更新')
 }
 
-// ── 性别 ──
-const onGender = async (g: Gender) => {
-  if (g === me.value?.gender) return
-  const profile = await updateProfile({ gender: g })
-  const { error } = profile.error ? profile : await updateMyGender(g)
-  if (error) toast.error(error.message)
-  else toast.success('已更新')
-}
+const genderLabel = computed(() => (me.value?.gender ?? authGender.value) === 'male' ? '男生' : (me.value?.gender ?? authGender.value) === 'female' ? '女生' : '未设置')
 
 // ── 标识颜色 ──
 const colorOpen = ref(false)
@@ -127,7 +119,8 @@ const onSignOut = async () => {
         <div class="row">
           <span class="label">性别</span>
           <span class="value">
-            <GenderPicker :model-value="me?.gender ?? null" compact @update:model-value="onGender" />
+            {{ genderLabel }}
+            <small class="locked"><AppIcon name="lock" :size="11" :stroke="2" />不可修改</small>
           </span>
         </div>
         <button class="row" :aria-expanded="colorOpen" @click="colorOpen = !colorOpen">
@@ -144,7 +137,7 @@ const onSignOut = async () => {
               :taken="partner ? tones.partner : null"
               :taken-label="partner?.displayName"
               @update:model-value="onColor"
-              @blocked="toast.info(`这个颜色 ${partnerName} 在用了，换一个吧`)"
+              @blocked="toast.info('对方已选择该颜色，请重新选择')"
             />
             <p class="hint">账单圆点、头像、AA 滑条都会用这个颜色，不能和 {{ partnerName }} 一样。</p>
           </div>
@@ -342,6 +335,16 @@ button.row:active {
 }
 .chev.open {
   transform: rotate(90deg);
+}
+.locked {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--text-faint);
+  background: var(--bg);
+  padding: 2px 6px;
+  border-radius: 999px;
 }
 .swatch {
   width: 12px;

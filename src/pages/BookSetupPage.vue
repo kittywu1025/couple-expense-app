@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import BottomSheet from '../components/BottomSheet.vue'
+import ColorPicker from '../components/ColorPicker.vue'
+import type { MemberColor } from '../types'
 import { useBooks } from '../composables/useBooks'
 import { authColor, authDisplayName, authGender, useSupabaseAuth } from '../composables/useSupabaseAuth'
-import { defaultColorFor } from '../utils/palette'
+import { MEMBER_COLORS, defaultColorFor, swatchOf } from '../utils/palette'
 import { toast } from '../composables/useToast'
 import AppIcon from '../components/AppIcon.vue'
 
-const { createBook, joinBook, bookActionLoading } = useBooks()
-const { signOut } = useSupabaseAuth()
+const { createBook, joinBook, takenColorsForInvite, bookActionLoading } = useBooks()
+const { signOut, updateProfile } = useSupabaseAuth()
 const code = ref('')
 
 // 性别在注册时已选好（ProfileSetupPage），这里直接带上
@@ -32,9 +35,37 @@ const onJoin = async () => {
   }
   const g = requireGender()
   if (!g) return
-  const { error } = await joinBook(code.value, g, authColor.value ?? defaultColorFor(g))
-  if (error) toast.error(error.message)
-  else toast.success('已加入账本')
+  await tryJoin(authColor.value ?? defaultColorFor(g))
+}
+
+// ── 撞色：先加入的人优先，后加入的人重选 ──
+const conflictOpen = ref(false)
+const takenColor = ref<MemberColor | null>(null)
+const retryColor = ref<MemberColor | null>(null)
+
+const tryJoin = async (color: MemberColor) => {
+  const g = authGender.value
+  if (!g) return
+  const { error } = await joinBook(code.value, g, color)
+  if (!error) {
+    conflictOpen.value = false
+    toast.success('已加入账本')
+    return
+  }
+  if (error.message.includes('对方已选择该颜色')) {
+    const taken = await takenColorsForInvite(code.value)
+    takenColor.value = taken[0] ?? color
+    retryColor.value = MEMBER_COLORS.find((c) => !taken.includes(c.key))?.key ?? null
+    conflictOpen.value = true
+    return
+  }
+  toast.error(error.message)
+}
+
+const confirmRetry = async () => {
+  if (!retryColor.value) return
+  await updateProfile({ color: retryColor.value })
+  await tryJoin(retryColor.value)
 }
 </script>
 
@@ -67,6 +98,22 @@ const onJoin = async () => {
     </section>
 
     <button class="logout" @click="signOut">退出登录</button>
+
+    <BottomSheet :open="conflictOpen" @close="conflictOpen = false">
+      <h3 class="sheet-title">对方已选择该颜色，请重新选择</h3>
+      <p class="sheet-tip">
+        TA 先加入，已经用了「{{ takenColor ? swatchOf(takenColor).name : '' }}」。换一个颜色就能加入，之后也可以在「我的」里改。
+      </p>
+      <ColorPicker
+        :model-value="retryColor"
+        :taken="takenColor"
+        @update:model-value="retryColor = $event"
+        @blocked="toast.info('对方已选择该颜色，请重新选择')"
+      />
+      <button class="primary sheet-btn" :disabled="!retryColor || bookActionLoading" @click="confirmRetry">
+        用「{{ retryColor ? swatchOf(retryColor).name : '' }}」加入
+      </button>
+    </BottomSheet>
   </div>
 </template>
 
@@ -151,5 +198,21 @@ button:disabled {
   color: var(--text-faint);
   font-size: 14px;
   padding: 12px;
+}
+.sheet-title {
+  margin: 0;
+  text-align: center;
+  font-size: 16px;
+}
+.sheet-tip {
+  margin: 6px 0 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+.sheet-btn {
+  width: 100%;
+  margin-top: 18px;
 }
 </style>

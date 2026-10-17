@@ -12,14 +12,14 @@ export interface ColorSwatch {
 }
 
 export const MEMBER_COLORS: ColorSwatch[] = [
-  { key: 'pink', name: '樱花粉', color: '#FF8FAB', text: '#D9577A', bg: '#FFF0F3' },
-  { key: 'blue', name: '天空蓝', color: '#74C0FC', text: '#2F86C9', bg: '#EFF8FF' },
-  { key: 'purple', name: '薰衣草', color: '#B197FC', text: '#7950F2', bg: '#F3F0FF' },
-  { key: 'green', name: '薄荷绿', color: '#63E6BE', text: '#0CA678', bg: '#E6FCF5' },
-  { key: 'orange', name: '橘子橙', color: '#FFA94D', text: '#E8590C', bg: '#FFF4E6' },
-  { key: 'teal', name: '湖水青', color: '#66D9E8', text: '#1098AD', bg: '#E3FAFC' },
-  { key: 'yellow', name: '柠檬黄', color: '#FFD43B', text: '#E67700', bg: '#FFF9DB' },
-  { key: 'red', name: '番茄红', color: '#FF8787', text: '#E03131', bg: '#FFF5F5' },
+  { key: 'pink', name: '樱花粉', color: '#FFB7C5', text: '#D6336C', bg: '#FFF0F3' },
+  { key: 'blue', name: '天空蓝', color: '#74C0FC', text: '#1C7ED6', bg: '#E7F5FF' },
+  { key: 'purple', name: '薰衣草紫', color: '#6C63FF', text: '#5146E0', bg: '#EFEEFF' },
+  { key: 'green', name: '薄荷绿', color: '#2DB87A', text: '#1E8C5B', bg: '#E6F8EF' },
+  { key: 'orange', name: '橙色', color: '#F59F00', text: '#C77C02', bg: '#FFF4E0' },
+  { key: 'teal', name: '青色', color: '#22B8CF', text: '#0C8599', bg: '#E3FAFC' },
+  { key: 'yellow', name: '鹅黄', color: '#FAB005', text: '#B07A00', bg: '#FFF9DB' },
+  { key: 'red', name: '珊瑚红', color: '#FF6B6B', text: '#E03131', bg: '#FFF0F0' },
 ]
 
 export const isMemberColor = (v: unknown): v is MemberColor => MEMBER_COLORS.some((c) => c.key === v)

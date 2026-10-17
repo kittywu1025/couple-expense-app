@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { seedTestData } from '../dev/seed'
 import { useBooks } from '../composables/useBooks'
 import { useSupabaseAuth } from '../composables/useSupabaseAuth'
 import { toast } from '../composables/useToast'
@@ -22,6 +23,23 @@ const { authDisplayName, authUser } = useSupabaseAuth()
 
 const myName = computed(() => me.value?.displayName || authDisplayName.value)
 const initial = computed(() => myName.value.slice(0, 1).toUpperCase())
+// 仅开发模式（npm run dev）显示，正式版不会出现
+const isDev = import.meta.env.DEV
+const seeding = ref(false)
+const onSeed = async () => {
+  const ok = await confirmAction({
+    title: '插入测试数据？',
+    message: '会生成 yuri（女生 · 樱花粉）和 remo（男生 · 天空蓝）最近 30 天约 20 笔记录。连真实账本时会写进数据库。',
+    confirmText: '插入',
+  })
+  if (!ok) return
+  seeding.value = true
+  const { error } = await seedTestData()
+  seeding.value = false
+  if (error) toast.error(error.message)
+  else toast.success('已插入测试数据')
+}
+
 const settleDays = Array.from({ length: 28 }, (_, i) => i + 1)
 
 const copyCode = async () => {
@@ -129,6 +147,14 @@ const onLeave = async () => {
 
   <section class="card group actions">
     <button class="row danger" :disabled="bookActionLoading" @click="onLeave">退出账本</button>
+  </section>
+
+  <section v-if="isDev" class="card group dev">
+    <button class="row" :disabled="seeding" @click="onSeed">
+      <AppIcon name="sparkles" :size="18" />
+      <span class="grow">{{ seeding ? '插入中…' : '插入测试数据' }}</span>
+      <small class="faint">仅开发模式</small>
+    </button>
   </section>
 </template>
 
@@ -294,6 +320,14 @@ select {
 }
 .actions .row {
   justify-content: center;
+}
+.dev {
+  margin-top: 12px;
+  border: 1.5px dashed #d1d1d6;
+  background: transparent;
+}
+.dev .row {
+  color: var(--primary);
 }
 .danger {
   color: var(--danger);

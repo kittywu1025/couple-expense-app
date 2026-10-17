@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { CustomCategory, LedgerRecord, NewRecord, RecordKind, RecordType } from '../types'
-import { categoriesFor, isCategoryNameTaken, type Category } from '../utils/categories'
+import { categoriesFor, isCategoryNameTaken } from '../utils/categories'
 import CategoryEditorSheet from '../components/CategoryEditorSheet.vue'
+import CategoryDetailSheet from '../components/CategoryDetailSheet.vue'
 import type { IconName } from '../utils/icons'
 import { shareOf } from '../utils/settlement'
 import { activeCurrencyInfo, formatDateLabel, formatMoney, todayKey } from '../utils/format'
@@ -83,6 +84,8 @@ const onEditorSave = async ({ name, icon, color }: { name: string; icon: IconNam
     editorMode.value = null
     reselect(key, null)
     popKey.value++
+    // 新建后直接进入详情，方便接着加子分类
+    detailOpen.value = true
     toast.success(`已添加分类「${name}」`)
     return
   }
@@ -96,60 +99,40 @@ const onEditorSave = async ({ name, icon, color }: { name: string; icon: IconNam
   toast.success(`已添加子分类「${name}」`)
 }
 
-// 长按删除：只有自定义分类可以删
-let pressTimer: ReturnType<typeof setTimeout> | undefined
-let longPressed = false
-const startPress = (fn: () => void) => {
-  longPressed = false
-  clearTimeout(pressTimer)
-  pressTimer = setTimeout(() => {
-    longPressed = true
-    haptic(20)
-    fn()
-  }, 550)
-}
-const cancelPress = () => clearTimeout(pressTimer)
-/** 长按触发后，松手时的那次 click 不算选择 */
-const consumeLongPress = () => {
-  if (!longPressed) return false
-  longPressed = false
-  return true
-}
+// 自定义大类详情：加子分类、长按删子分类、删整个大类（默认分类没有删除入口）
+const detailOpen = ref(false)
 
 const onCatClick = (i: number) => {
-  if (!consumeLongPress()) pickCategory(i)
-}
-const onSubClick = (name: string) => {
-  if (!consumeLongPress()) pickSub(name)
+  const target = categories.value[i]
+  if (i !== catIndex.value) pickCategory(i)
+  if (target?.custom) detailOpen.value = true
 }
 
-const onCatLongPress = async (c: Category) => {
-  if (!c.custom) {
-    toast.info('默认分类不能删除')
-    return
-  }
+const onDetailPickSub = (name: string) => {
+  pickSub(name)
+  detailOpen.value = false
+}
+
+const deleteCustomCategory = async () => {
+  const c = category.value
+  if (!c.custom) return
   const ok = await confirmAction({
-    title: `删除分类「${c.name}」？`,
-    message: '已经记过的账单不会被删除，只是记账时不再显示这个分类。',
-    confirmText: '删除',
+    title: `删除大类「${c.name}」？`,
+    message: `会连同 ${c.subs.length} 个子分类一起删除。已经记过的账单不会被删除。`,
+    confirmText: '删除大类',
     danger: true,
   })
   if (!ok) return
-  const currentKey = category.value.key
-  const currentSub = subName.value
   const list = (currentBook.value?.customCategories ?? []).filter((x) => x.key !== c.key)
   if (!(await saveCustomList(list))) return
-  if (currentKey === c.key) pickCategory(0)
-  else reselect(currentKey, currentSub)
-  toast.success('已删除')
+  detailOpen.value = false
+  pickCategory(0)
+  toast.success(`已删除「${c.name}」`)
 }
 
-const onSubLongPress = async (name: string) => {
+const deleteCustomSub = async (name: string) => {
   const parent = category.value
-  if (!parent.custom) {
-    toast.info('默认分类不能删除')
-    return
-  }
+  if (!parent.custom) return
   const ok = await confirmAction({
     title: `删除子分类「${name}」？`,
     message: '已经记过的账单不会被删除。',
@@ -162,7 +145,7 @@ const onSubLongPress = async (name: string) => {
   )
   if (!(await saveCustomList(list))) return
   reselect(parent.key, subName.value === name ? undefined : subName.value)
-  toast.success('已删除')
+  toast.success(`已删除「${name}」`)
 }
 
 // ── 个人 / 共同 ──
@@ -201,19 +184,13 @@ const MAX_LEN = 24
 const evaluate = (s: string) => {
   const tokens = s.match(/[+-]?[^+-]+/g) ?? []
   const sum = tokens.reduce((acc, t) => acc + (Number.parseFloat(t) || 0), 0)
-  const factor = 10 ** activeCurrencyInfo.value.decimals
-  return Math.round(sum * factor) / factor
+  // 输入多少记多少：只去掉浮点误差，保留最多两位小数
+  return Math.round(sum * 100) / 100
 }
 const amount = computed(() => evaluate(expr.value))
 const hasOperator = computed(() => /[+-]/.test(expr.value.slice(1)))
 const lastNumber = computed(() => expr.value.split(/[+-]/).pop() ?? '')
 const isValidAmount = computed(() => amount.value > 0 && amount.value <= MAX_AMOUNT)
-/** 日元等无小数货币输入了小数时，提示会按整数保存 */
-const roundHint = computed(() =>
-  !activeCurrencyInfo.value.decimals && expr.value.includes('.') && isValidAmount.value
-    ? `按 ${formatMoney(amount.value)} 保存`
-    : '',
-)
 
 const amountText = computed(() => {
   if (!expr.value) return '0'
@@ -245,7 +222,7 @@ const press = (key: string) => {
   }
   // 数字：限制小数位、整数位，避免前导 0
   const [intPart, decimals] = lastNumber.value.split('.')
-  // 输入时最多两位小数；日元等无小数货币保存时再四舍五入
+  // 输入时最多两位小数
   if (decimals !== undefined && decimals.length >= 2) return
   if (decimals === undefined && intPart.length >= 8) return
   if (lastNumber.value === '0') {
@@ -302,7 +279,7 @@ const rejectAmount = async (message: string) => {
   await nextTick()
   shake.value = true
   haptic(30)
-  toast.warning(message, { duration: 1800 })
+  toast.warning(message)
 }
 
 const buildPayload = (): NewRecord => {
@@ -346,7 +323,7 @@ const save = async (closeAfter: boolean) => {
   const { error } = editing ? await updateRecord(editing.id, payload) : await addRecord(payload)
   saving.value = false
   if (error) {
-    toast.error(error.message, { title: '保存失败', duration: 4000 })
+    toast.error(error.message, { title: '保存失败' })
     return
   }
   haptic(12)
@@ -404,11 +381,6 @@ const requestClose = async () => {
           :class="['cat', { on: i === catIndex }]"
           :aria-pressed="i === catIndex"
           @click="onCatClick(i)"
-          @pointerdown="startPress(() => onCatLongPress(c))"
-          @pointerup="cancelPress"
-          @pointerleave="cancelPress"
-          @pointercancel="cancelPress"
-          @contextmenu.prevent
         >
           <span
             :key="i === catIndex ? popKey : -1"
@@ -428,7 +400,6 @@ const requestClose = async () => {
           <span class="cat-name">添加</span>
         </button>
       </div>
-      <p v-if="categories.some((c) => c.custom)" class="custom-tip">长按自定义分类可删除</p>
 
       <transition name="sub" mode="out-in">
         <div v-if="category.subs.length || category.custom" :key="category.key" class="sub-card">
@@ -437,20 +408,15 @@ const requestClose = async () => {
             :key="s.name"
             :class="['sub', { on: s.name === subName }]"
             :style="s.name === subName ? { background: category.color + '22', color: 'var(--text)' } : undefined"
-            @click="onSubClick(s.name)"
-            @pointerdown="startPress(() => onSubLongPress(s.name))"
-            @pointerup="cancelPress"
-            @pointerleave="cancelPress"
-            @pointercancel="cancelPress"
-            @contextmenu.prevent
+            @click="pickSub(s.name)"
           >
             <span class="sub-icon" :style="{ color: category.color }"><AppIcon :name="s.icon" :size="22" /></span>
             <span class="sub-name">{{ s.name }}</span>
             <span v-if="s.name === subName" class="check" :style="{ background: category.color }"><AppIcon name="check" :size="9" :stroke="3.5" /></span>
           </button>
-          <button v-if="category.custom" class="sub add-sub" @click="editorMode = 'sub'">
-            <span class="sub-icon"><AppIcon name="plus" :size="20" :stroke="2" /></span>
-            <span class="sub-name">添加子分类</span>
+          <button v-if="category.custom" class="sub add-sub" @click="detailOpen = true">
+            <span class="sub-icon"><AppIcon name="chevronRight" :size="20" :stroke="2" /></span>
+            <span class="sub-name">管理分类</span>
           </button>
         </div>
       </transition>
@@ -471,7 +437,7 @@ const requestClose = async () => {
           </button>
         </div>
         <span class="amount-right">
-          <span class="expr mono">{{ hasOperator ? expr : roundHint }}</span>
+          <span class="expr mono">{{ hasOperator ? expr : '' }}</span>
           <span :class="['amount', 'mono', { empty: !isValidAmount, income: kind === 'income' }]">
             <small>{{ activeCurrencyInfo.symbol }}</small>{{ amountText }}
           </span>
@@ -547,6 +513,16 @@ const requestClose = async () => {
       </div>
     </div>
 
+    <CategoryDetailSheet
+      :open="detailOpen && !!category.custom"
+      :category="category.custom ? category : null"
+      :selected-sub="subName"
+      @close="detailOpen = false"
+      @pick-sub="onDetailPickSub"
+      @add-sub="editorMode = 'sub'"
+      @delete-sub="deleteCustomSub"
+      @delete-category="deleteCustomCategory"
+    />
     <CategoryEditorSheet
       :open="!!editorMode"
       :mode="editorMode ?? 'category'"
@@ -668,12 +644,6 @@ const requestClose = async () => {
   border: 1.5px dashed #c7c7cc;
   color: #aeaeb2;
   filter: none;
-}
-.custom-tip {
-  margin: -4px 0 8px;
-  text-align: center;
-  font-size: 11px;
-  color: var(--text-faint);
 }
 .add-sub {
   color: var(--text-faint);

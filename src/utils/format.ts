@@ -8,9 +8,11 @@ export const activeCurrencyInfo = computed(() => currencyInfo(activeCurrency.val
 
 export const formatMoney = (value: number) => {
   const { symbol, decimals } = activeCurrencyInfo.value
+  // 日元等通常不带小数，但用户输入了小数就照实显示（最多两位）
+  const hasFraction = Math.abs(value - Math.round(value)) > 0.004
   const text = value.toLocaleString('ja-JP', {
     minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
+    maximumFractionDigits: hasFraction ? Math.max(decimals, 2) : decimals,
   })
   return `${symbol}${text}`
 }

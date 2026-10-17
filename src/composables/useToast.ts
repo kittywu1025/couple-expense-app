@@ -27,7 +27,7 @@ interface ToastOptions {
   actions?: ToastAction[]
 }
 
-const DEFAULT_DURATION = 2800
+const DEFAULT_DURATION = 3000
 
 const toasts = ref<ToastItem[]>([])
 const toastTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -56,8 +56,13 @@ const scheduleToastDismiss = (toast: ToastItem) => {
   )
 }
 
+/**
+ * 同一时间只显示一个 toast：新的出现前清掉旧的；
+ * 每次触发（包括重复点击同一条）都重新计时 3 秒。
+ */
 export const showToast = (type: ToastType, message: string, options: ToastOptions = {}) => {
-  const id = options.id || crypto.randomUUID()
+  const same = toasts.value.find((t) => t.type === type && t.message === message)
+  const id = options.id || same?.id || crypto.randomUUID()
   const nextToast: ToastItem = {
     id,
     type,
@@ -68,12 +73,10 @@ export const showToast = (type: ToastType, message: string, options: ToastOption
     actions: options.actions ?? [],
   }
 
-  const existingIndex = toasts.value.findIndex((toast) => toast.id === id)
-  if (existingIndex >= 0) {
-    toasts.value.splice(existingIndex, 1, nextToast)
-  } else {
-    toasts.value = [...toasts.value, nextToast]
+  for (const old of toasts.value) {
+    if (old.id !== id) clearToastTimer(old.id)
   }
+  toasts.value = [nextToast]
 
   if (typeof window !== 'undefined') {
     scheduleToastDismiss(nextToast)

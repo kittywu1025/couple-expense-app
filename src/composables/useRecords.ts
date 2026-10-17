@@ -101,6 +101,49 @@ const addRecord = async (input: NewRecord) => {
   return { error: null }
 }
 
+/** 批量插入（测试数据用） */
+const addRecordsBulk = async (inputs: NewRecord[]) => {
+  const bookId = currentBook.value?.id
+  const uid = authUser.value?.id
+  if (!bookId || !uid) return { error: new Error('还没有加入账本。') }
+  if (isDemoMode || !supabase) {
+    const now = Date.now()
+    const local = inputs.map((input, i) => ({
+      ...input,
+      id: crypto.randomUUID(),
+      bookId,
+      createdBy: uid,
+      createdAt: new Date(now - i * 1000).toISOString(),
+    }))
+    records.value = sortRecords([...local, ...records.value])
+    return { error: null }
+  }
+  const { data, error } = await supabase
+    .from('records')
+    .insert(
+      inputs.map((input) => ({
+        book_id: bookId,
+        amount: input.amount,
+        kind: input.kind,
+        type: input.type,
+        payer_uid: input.payerUid,
+        ratio: input.ratio,
+        category: input.category,
+        sub_category: input.subCategory,
+        note: input.note,
+        date: input.date,
+        created_by: uid,
+      })),
+    )
+    .select()
+  if (error) {
+    console.error('批量插入失败：', error)
+    return { error: new Error(formatSupabaseError(error, '插入测试数据失败。')) }
+  }
+  records.value = sortRecords([...(data ?? []).map(normalizeRecord), ...records.value])
+  return { error: null }
+}
+
 const updateRecord = async (id: string, input: NewRecord) => {
   if (isDemoMode || !supabase) {
     records.value = sortRecords(records.value.map((r) => (r.id === id ? { ...r, ...input } : r)))
@@ -150,5 +193,5 @@ const deleteRecord = async (id: string) => {
 watch(() => currentBook.value?.id, loadRecords, { immediate: true })
 
 export function useRecords() {
-  return { records, recordsLoading, loadRecords, addRecord, updateRecord, deleteRecord }
+  return { records, recordsLoading, loadRecords, addRecord, addRecordsBulk, updateRecord, deleteRecord }
 }

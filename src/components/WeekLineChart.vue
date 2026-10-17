@@ -32,20 +32,8 @@ const coords = computed(() => {
   }))
 })
 
-// 平滑曲线（Catmull-Rom 转 Bezier）
-const linePath = computed(() => {
-  const c = coords.value
-  if (!c.length) return ''
-  let d = `M${c[0].x},${c[0].y}`
-  for (let i = 0; i < c.length - 1; i++) {
-    const p0 = c[i - 1] ?? c[i]
-    const p1 = c[i]
-    const p2 = c[i + 1]
-    const p3 = c[i + 2] ?? p2
-    d += ` C${p1.x + (p2.x - p0.x) / 6},${p1.y + (p2.y - p0.y) / 6} ${p2.x - (p3.x - p1.x) / 6},${p2.y - (p3.y - p1.y) / 6} ${p2.x},${p2.y}`
-  }
-  return d
-})
+// 线性插值：点与点之间直线连接，0 值稳稳落在底线上，不会因为平滑曲线冲到负数区域
+const linePath = computed(() => coords.value.map((p, i) => `${i ? 'L' : 'M'}${p.x},${p.y}`).join(' '))
 
 const areaPath = computed(() => {
   const c = coords.value
@@ -139,7 +127,7 @@ const tipStyle = computed(() => {
         :y2="H - PAD_BOTTOM"
         class="guide"
       />
-      <path :d="linePath" fill="none" stroke="#6C63FF" stroke-width="2.5" stroke-linecap="round" />
+      <path :d="linePath" fill="none" stroke="#6C63FF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
       <g v-for="(p, i) in coords" :key="i">
         <circle
           :cx="p.x"

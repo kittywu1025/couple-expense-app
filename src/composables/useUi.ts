@@ -29,6 +29,9 @@ export const fixedPageOpen = ref(false)
 export const openFixedPage = () => (fixedPageOpen.value = true)
 export const closeFixedPage = () => (fixedPageOpen.value = false)
 
+/** 账本设置（「我的」二级菜单） */
+export const bookSettingsOpen = ref(false)
+
 /** 收支日历（首页右上角） */
 export const calendarPageOpen = ref(false)
 

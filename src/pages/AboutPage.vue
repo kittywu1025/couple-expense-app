@@ -4,10 +4,12 @@ import PushPage from '../components/PushPage.vue'
 import { aboutPageOpen, rulesPageOpen } from '../composables/useUi'
 
 const appVersion = __APP_VERSION__.split('-')[0]
+/** 反馈渠道：项目的 GitHub Issues（以后可换成表单或邮箱） */
+const FEEDBACK_URL = 'https://github.com/kittywu1025/couple-expense-app/issues'
 </script>
 
 <template>
-  <PushPage title="关于应用" back-label="我的" @back="aboutPageOpen = false">
+  <PushPage title="关于" back-label="我的" @back="aboutPageOpen = false">
     <section class="hero">
       <div class="logo"><AppIcon name="heart" :size="36" :stroke="2" /></div>
       <p class="name">两个人的账本</p>
@@ -20,6 +22,17 @@ const appVersion = __APP_VERSION__.split('-')[0]
         <span class="grow">结算算法说明</span>
         <AppIcon name="chevronRight" :size="16" class="chev" />
       </button>
+      <a class="row" :href="FEEDBACK_URL" target="_blank" rel="noopener">
+        <span class="icon"><AppIcon name="mail" :size="18" :stroke="2" /></span>
+        <span class="grow">反馈 / 联系</span>
+        <small class="faint">说说哪里不好用</small>
+        <AppIcon name="chevronRight" :size="16" class="chev" />
+      </a>
+      <div class="row">
+        <span class="icon"><AppIcon name="sparkles" :size="18" :stroke="2" /></span>
+        <span class="grow">版本</span>
+        <small class="faint mono">v{{ appVersion }}</small>
+      </div>
     </section>
 
     <p class="foot">为在日本生活的情侣设计 · 默认日元 · 数据保存在 Supabase 云端</p>
@@ -66,6 +79,26 @@ const appVersion = __APP_VERSION__.split('-')[0]
   padding: 12px 16px;
   font-size: 15px;
   text-align: left;
+}
+.row {
+  color: inherit;
+  text-decoration: none;
+  position: relative;
+}
+.row + .row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 58px;
+  right: 0;
+  border-top: 1px solid var(--line);
+}
+.faint {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.mono {
+  font-family: var(--mono);
 }
 .row:active {
   background: #f2f2f5;

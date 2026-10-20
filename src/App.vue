@@ -11,6 +11,7 @@ import ProfileDetailPage from './pages/ProfileDetailPage.vue'
 import FixedExpensesPage from './pages/FixedExpensesPage.vue'
 import AboutPage from './pages/AboutPage.vue'
 import CalendarPage from './pages/CalendarPage.vue'
+import BookSettingsPage from './pages/BookSettingsPage.vue'
 import MonthRecap from './components/MonthRecap.vue'
 import SettlementRulesPage from './pages/SettlementRulesPage.vue'
 import { useFixedExpenses } from './composables/useFixedExpenses'
@@ -29,6 +30,7 @@ import { isDemoMode } from './lib/demo'
 import {
   aboutPageOpen,
   addSheetOpen,
+  bookSettingsOpen,
   calendarPageOpen,
   closeAddSheet,
   editingRecord,
@@ -67,6 +69,7 @@ watch(screen, (next) => {
   aboutPageOpen.value = false
   rulesPageOpen.value = false
   calendarPageOpen.value = false
+  bookSettingsOpen.value = false
   closeAddSheet()
   activeTab.value = 'home'
 })
@@ -154,6 +157,9 @@ watch(updateAvailable, (visible) => {
     </transition>
     <transition name="push">
       <CalendarPage v-if="calendarPageOpen" />
+    </transition>
+    <transition name="push">
+      <BookSettingsPage v-if="bookSettingsOpen" />
     </transition>
     <transition name="push">
       <SettlementRulesPage v-if="rulesPageOpen" />

@@ -93,12 +93,13 @@ const onDelete = async () => {
         <div><dt>记录人</dt><dd>{{ nameOf(r.createdBy) }}</dd></div>
       </dl>
 
-      <p v-if="!editable" class="readonly">这是 {{ nameOf(r.payerUid) }} 的个人记录，只能看，不能修改</p>
-      <div v-else class="actions">
-        <button class="delete" :disabled="deleting" @click="onDelete">
+      <!-- 底部固定：删除（左）/ 编辑（右），内容再长也不会被挤到看不见 -->
+      <div class="actions">
+        <p v-if="!editable" class="readonly">这是 {{ nameOf(r.payerUid) }} 的个人记录，只能看，不能修改</p>
+        <button class="delete" :disabled="deleting || !editable" @click="onDelete">
           <AppIcon name="close" :size="16" :stroke="2.2" />{{ deleting ? '删除中…' : '删除' }}
         </button>
-        <button class="edit" :disabled="deleting" @click="onEdit">
+        <button class="edit" :disabled="deleting || !editable" @click="onEdit">
           <AppIcon name="pencil" :size="16" :stroke="2" />编辑
         </button>
       </div>
@@ -170,16 +171,23 @@ dd {
   background: var(--partner);
 }
 .readonly {
-  margin: 14px 0 0;
+  grid-column: 1 / -1;
+  margin: 0;
   text-align: center;
   font-size: 12px;
   color: var(--text-faint);
 }
 .actions {
+  position: sticky;
+  bottom: calc(-16px - env(safe-area-inset-bottom, 0px));
+  z-index: 1;
   display: grid;
-  grid-template-columns: 1fr 2fr;
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
-  margin-top: 14px;
+  margin: 14px -16px calc(-16px - env(safe-area-inset-bottom, 0px));
+  padding: 12px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  background: var(--card);
+  box-shadow: 0 -8px 16px -12px rgba(0, 0, 0, 0.15);
 }
 .actions button {
   height: 48px;
@@ -194,7 +202,7 @@ dd {
   transform: scale(0.98);
 }
 .actions button:disabled {
-  opacity: 0.6;
+  opacity: 0.45;
 }
 .delete {
   background: #fff0f3;

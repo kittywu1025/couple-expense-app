@@ -4,7 +4,8 @@ import AppIcon from './AppIcon.vue'
 import BottomSheet from './BottomSheet.vue'
 import type { FixedExpense, FixedExpenseInput, RecordType } from '../types'
 import { categoriesFor } from '../utils/categories'
-import { activeCurrencyInfo } from '../utils/format'
+import { activeCurrencyInfo, formatFullDate, todayKey } from '../utils/format'
+import { intervalLabel, nextDueDate } from '../composables/useFixedExpenses'
 import { useBooks } from '../composables/useBooks'
 
 const props = defineProps<{ open: boolean; item: FixedExpense | null; saving?: boolean }>()
@@ -18,6 +19,9 @@ const name = ref('')
 const amountText = ref('')
 const categoryValue = ref('')
 const day = ref(1)
+/** 每几个月扣一次 */
+const interval = ref(1)
+const INTERVALS = [1, 2, 3, 4, 6, 12]
 const type = ref<RecordType>('personal')
 const payerUid = ref('')
 /** 我承担的份额（滑条左边是我） */
@@ -42,6 +46,7 @@ watch(
     amountText.value = f ? String(f.amount) : ''
     categoryValue.value = f ? `${f.category}||${f.subCategory ?? ''}` : '固定开销||房租'
     day.value = f?.dayOfMonth ?? 1
+    interval.value = f?.intervalMonths ?? 1
     type.value = f?.type ?? 'personal'
     payerUid.value = f?.payerUid ?? myUid.value
     myShare.value =
@@ -62,6 +67,16 @@ const errors = computed(() => {
   if (type.value === 'shared' && !partner.value) e.type = 'TA 加入后才能设共同扣款'
   return e
 })
+
+/** 预览下一次扣款（编辑时从原来的开始日算，新加的从今天算） */
+const nextDue = computed(() =>
+  nextDueDate({
+    startDate: props.item?.startDate ?? todayKey(),
+    lastGeneratedDate: props.item?.lastGeneratedDate ?? null,
+    dayOfMonth: day.value,
+    intervalMonths: interval.value,
+  }),
+)
 
 const sliderStyle = computed(() => {
   const pct = myShare.value * 10
@@ -85,6 +100,7 @@ const submit = () => {
     category,
     subCategory: sub || null,
     dayOfMonth: day.value,
+    intervalMonths: interval.value,
     payerUid: payerUid.value,
     type: type.value,
     // 存「付款人份额」，和账单一致
@@ -122,12 +138,25 @@ const submit = () => {
       </label>
 
       <label class="field">
-        <span>扣款日</span>
-        <select v-model.number="day">
-          <option v-for="d in 31" :key="d" :value="d">每月 {{ d }} 号</option>
+        <span>周期</span>
+        <select v-model.number="interval">
+          <option v-for="n in INTERVALS" :key="n" :value="n">{{ intervalLabel(n) }}</option>
+          <optgroup label="自定义">
+            <option v-for="n in [5, 7, 8, 9, 10, 11]" :key="n" :value="n">{{ intervalLabel(n) }}</option>
+          </optgroup>
         </select>
       </label>
-      <p v-if="day > 28" class="hint">没有 {{ day }} 号的月份按月底扣款</p>
+
+      <label class="field">
+        <span>扣款日</span>
+        <select v-model.number="day">
+          <option v-for="d in 31" :key="d" :value="d">{{ d }} 号</option>
+        </select>
+      </label>
+      <p class="hint">
+        下次扣款：{{ formatFullDate(nextDue) }}<template v-if="interval > 1">，之后{{ intervalLabel(interval) }}一次</template>
+        <template v-if="day > 28">；没有 {{ day }} 号的月份按月底扣款</template>
+      </p>
 
       <div class="field">
         <span>类型</span>

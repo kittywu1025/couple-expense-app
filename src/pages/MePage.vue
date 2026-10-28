@@ -6,7 +6,20 @@ import { HOME_CARDS, homeCardPref } from '../composables/usePrefs'
 import { useBooks } from '../composables/useBooks'
 import { useSupabaseAuth } from '../composables/useSupabaseAuth'
 import { toast } from '../composables/useToast'
-import { aboutPageOpen, bookSettingsOpen, confirmAction, inviteSheetOpen, openFixedPage, openProfilePage } from '../composables/useUi'
+import {
+  aboutPageOpen,
+  bookSettingsOpen,
+  confirmAction,
+  inviteSheetOpen,
+  loansPageOpen,
+  openFixedPage,
+  openProfilePage,
+  settlePageOpen,
+} from '../composables/useUi'
+import { useRecords } from '../composables/useRecords'
+import { isAgreed, isTreat } from '../utils/settlement'
+import { useLoans } from '../composables/useLoans'
+import { waitingForMe } from '../utils/confirm'
 import { useFixedExpenses } from '../composables/useFixedExpenses'
 import { formatMoneyShort } from '../utils/format'
 import AppIcon from '../components/AppIcon.vue'
@@ -21,10 +34,33 @@ const { visibleItems: fixedItems } = useFixedExpenses()
 const activeFixed = computed(() => fixedItems.value.filter((f) => !f.paused))
 const fixedSummary = computed(() =>
   activeFixed.value.length
-    ? `${activeFixed.value.length} 项 · 每月 ${formatMoneyShort(activeFixed.value.reduce((s, f) => s + f.amount, 0))}`
+    ? `${activeFixed.value.length} 项 · 月均 ${formatMoneyShort(activeFixed.value.reduce((s, f) => s + f.amount / f.intervalMonths, 0))}`
     : '未设置',
 )
 
+// 结清：TA 那份还没给我的合计（我先垫的 AA）
+const { records } = useRecords()
+const settleSummary = computed(() => {
+  const open = records.value.filter(
+    (r) => r.kind === 'expense' && r.type === 'shared' && isAgreed(r) && !isTreat(r) && !r.settledOnSpot,
+  )
+  const part = (mine: boolean) =>
+    open.filter((r) => (r.payerUid === myUid.value) === mine).reduce((s, r) => s + (r.amount * (10 - r.ratio)) / 10, 0)
+  const receive = part(true)
+  const pay = part(false)
+  if (receive) return `待收 ${formatMoneyShort(receive)}`
+  if (pay) return `待给${partner.value?.displayName ?? 'TA'} ${formatMoneyShort(pay)}`
+  return '都结清了'
+})
+
+// 借款：有等我确认的就提示，否则显示没还清的笔数
+const { loans, repayments, progress } = useLoans()
+const loanSummary = computed(() => {
+  const waiting = [...loans.value, ...repayments.value].filter((x) => waitingForMe(x, myUid.value)).length
+  if (waiting) return `${waiting} 笔等你确认`
+  const open = loans.value.filter((l) => !progress.value.get(l.id)?.settled).length
+  return open ? `${open} 笔没还清` : loans.value.length ? '都还清了' : '未记录'
+})
 
 const onLeave = async () => {
   const ok = await confirmAction({
@@ -93,6 +129,22 @@ const onSeed = async () => {
         <AppIcon name="plus" :size="14" :stroke="2.4" />邀请 TA
       </button>
     </span>
+  </section>
+
+  <!-- 一级：两个人之间的钱 -->
+  <section class="card group">
+    <button class="row" @click="settlePageOpen = true">
+      <span class="row-icon"><AppIcon name="transfer" :size="18" :stroke="2" /></span>
+      <span class="grow">结清</span>
+      <small class="faint">{{ settleSummary }}</small>
+      <AppIcon name="chevronRight" :size="16" class="chev" />
+    </button>
+    <button class="row" @click="loansPageOpen = true">
+      <span class="row-icon"><AppIcon name="wallet" :size="18" :stroke="2" /></span>
+      <span class="grow">借款</span>
+      <small class="faint">{{ loanSummary }}</small>
+      <AppIcon name="chevronRight" :size="16" class="chev" />
+    </button>
   </section>
 
   <!-- 一级：常用 -->

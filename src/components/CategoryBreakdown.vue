@@ -8,7 +8,7 @@ import EmptyState from './EmptyState.vue'
 import AppIcon from './AppIcon.vue'
 import CategoryIcon from './CategoryIcon.vue'
 import type { IconName } from '../utils/icons'
-import { shareOf } from '../utils/settlement'
+import { bearOf } from '../utils/settlement'
 import { useBooks } from '../composables/useBooks'
 
 const props = defineProps<{ records: LedgerRecord[]; periodWord?: string }>()
@@ -36,7 +36,7 @@ const weightOf = (r: LedgerRecord) => {
   if (r.type === 'personal' && r.payerUid !== myUid.value) return 0
   if (scope.value === 'all') return r.amount
   if (r.type === 'personal') return r.amount
-  return (r.amount * shareOf(r, myUid.value)) / 10
+  return (r.amount * bearOf(r, myUid.value)) / 10
 }
 
 const scoped = computed(() =>
@@ -199,7 +199,10 @@ const toggleKind = () => (kind.value = kind.value === 'expense' ? 'income' : 'ex
       <button :class="{ on: scope === 'all' }" @click="scope = 'all'">全体</button>
       <button :class="{ on: scope === 'me' }" @click="scope = 'me'">只看我</button>
     </div>
-    <p v-if="scope === 'me'" class="scope-hint">个人消费按全额，共同消费按我的 AA 份额</p>
+    <!-- 两种视角都有一行说明，切换时下面的内容不会跳 -->
+    <p class="scope-hint">
+      {{ scope === 'me' ? '个人消费按全额，共同消费按我的 AA 份额' : '共同消费按全额，个人消费只算我自己的' }}
+    </p>
 
     <div class="kind-switch">
       <button :class="{ on: kind === 'expense' }" @click="kind = 'expense'">支出</button>
@@ -243,8 +246,8 @@ const toggleKind = () => (kind.value = kind.value === 'expense' ? 'income' : 'ex
         <div v-for="sub in row.subs" :key="sub.name" class="sub">
           <span class="sub-icon" :style="{ color: row.color }"><AppIcon :name="sub.icon" :size="20" /></span>
           <span class="sub-name">{{ sub.name }}</span>
+          <span class="sub-meta">{{ sub.count }} 笔<template v-if="display === 'amount'"> · {{ sub.pct.toFixed(1) }}%</template></span>
           <span class="mono sub-val">{{ display === 'amount' ? formatMoney(sub.value) : `${sub.pct.toFixed(1)}%` }}</span>
-          <span class="sub-meta">{{ sub.count }} 笔 / {{ sub.pct.toFixed(1) }}%</span>
         </div>
       </div>
     </div>
@@ -285,7 +288,7 @@ const toggleKind = () => (kind.value = kind.value === 'expense' ? 'income' : 'ex
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 .scope-hint {
-  margin: 6px 2px 0;
+  margin: 6px 2px 12px;
   font-size: 11px;
   color: var(--text-faint);
   text-align: center;
@@ -443,17 +446,16 @@ const toggleKind = () => (kind.value = kind.value === 'expense' ? 'income' : 'ex
 }
 .sub {
   display: grid;
-  grid-template-columns: 24px 1fr auto;
-  grid-template-rows: auto auto;
+  grid-template-columns: 24px 1fr auto auto;
   column-gap: 8px;
   align-items: center;
-  padding: 8px 0;
+  padding: 9px 0;
 }
 .sub + .sub {
   border-top: 1px solid var(--line);
 }
 .sub-icon {
-  grid-row: span 2;
+  display: grid;
 }
 .sub-name {
   font-size: 14px;
@@ -463,7 +465,6 @@ const toggleKind = () => (kind.value = kind.value === 'expense' ? 'income' : 'ex
   text-align: right;
 }
 .sub-meta {
-  grid-column: 2 / 4;
   font-size: 11px;
   color: var(--text-faint);
   text-align: right;

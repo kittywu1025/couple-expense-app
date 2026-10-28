@@ -84,6 +84,7 @@ export const ICONS = {
   receipt: '<path d="M5 3h14v18l-2.5-1.8L14 21l-2-1.8L10 21l-2.5-1.8L5 21V3Z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
   wallet: `<path d="M18 7V5.5A1.5 1.5 0 0 0 16.5 4H6a2 2 0 0 0 0 4"/><path d="M4 6v12a2 2 0 0 0 2 2h14V8H6"/>${dot(16, 14, 1.3)}`,
   transfer: '<path d="M4 8h15l-3.5-3.5M20 16H5l3.5 3.5"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15Z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7.5 9 6 9-6"/>',
   heart: '<path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7a4.3 4.3 0 0 1 7.5 2.8C19.5 15.4 12 20 12 20Z"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',

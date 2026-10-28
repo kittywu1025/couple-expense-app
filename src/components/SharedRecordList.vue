@@ -5,7 +5,7 @@ import type { LedgerRecord } from '../types'
 import { useBooks } from '../composables/useBooks'
 import { recordColor, recordIcon } from '../utils/categories'
 import { formatDateLabel, formatMoney } from '../utils/format'
-import { isTreat, shareOf, treaterOf } from '../utils/settlement'
+import { isAgreed, isTreat, shareOf, treaterOf } from '../utils/settlement'
 import { owedBy } from '../utils/stats'
 
 /** 共同消费清单：日期、分类、金额、付款人、AA 比例、两人各自承担多少 */
@@ -42,9 +42,13 @@ const ratioText = (r: LedgerRecord) => {
         <span class="payer"><i :class="['dot', r.payerUid === myUid ? 'me' : 'partner']" />{{ nameOf(r.payerUid) }}付</span>
         <span :class="['tag', { treat: isTreat(r) }]">{{ ratioText(r) }}</span>
       </div>
-      <div v-if="!isTreat(r)" class="owed">
+      <div v-if="!isAgreed(r)" class="owed">
+        <span>还没确认，先全算 {{ nameOf(r.payerUid) }} 的</span>
+      </div>
+      <div v-else-if="!isTreat(r)" class="owed">
         <span><i class="dot me" />{{ nameOf(myUid) }} {{ formatMoney(owedBy(r, myUid)) }}</span>
         <span><i class="dot partner" />{{ partnerName }} {{ formatMoney(owedBy(r, partnerUid)) }}</span>
+        <span v-if="r.settledOnSpot">已结清</span>
       </div>
     </div>
   </div>

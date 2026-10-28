@@ -20,6 +20,7 @@ const normalize = (row: Record<string, unknown>): FixedExpense => ({
   category: String(row.category),
   subCategory: row.sub_category ? String(row.sub_category) : null,
   dayOfMonth: Number(row.day_of_month),
+  intervalMonths: Number(row.interval_months ?? 1) || 1,
   payerUid: String(row.payer_uid),
   type: row.type === 'shared' ? 'shared' : 'personal',
   ratio: Number(row.ratio ?? 10),
@@ -35,6 +36,7 @@ const toRow = (input: FixedExpenseInput) => ({
   category: input.category,
   sub_category: input.subCategory,
   day_of_month: input.dayOfMonth,
+  interval_months: input.intervalMonths,
   payer_uid: input.payerUid,
   type: input.type,
   ratio: input.ratio,
@@ -46,15 +48,32 @@ export const dueDateIn = (year: number, monthIndex: number, day: number) => {
   return toDateKey(new Date(year, monthIndex, Math.min(day, lastDay)))
 }
 
-/** 下一次扣款日期（含今天） */
-export const nextDueDate = (f: FixedExpense, today = todayKey()) => {
-  const base = new Date()
-  for (let i = 0; i < 3; i++) {
-    const due = dueDateIn(base.getFullYear(), base.getMonth() + i, f.dayOfMonth)
-    if (due >= today && due >= f.startDate && (!f.lastGeneratedDate || due > f.lastGeneratedDate)) return due
+/**
+ * 依次给出扣款日期（和数据库 generate_fixed_expenses 同一套算法）：
+ * start_date 起第一个到期的扣款日是第一次，之后每隔 intervalMonths 个月一次。
+ */
+export function* dueDates(f: Pick<FixedExpense, 'startDate' | 'dayOfMonth' | 'intervalMonths'>) {
+  let y = Number(f.startDate.slice(0, 4))
+  let m = Number(f.startDate.slice(5, 7)) - 1
+  if (dueDateIn(y, m, f.dayOfMonth) < f.startDate) m += 1
+  for (let guard = 0; guard < 240; guard++) {
+    yield dueDateIn(y, m, f.dayOfMonth)
+    m += Math.max(1, f.intervalMonths)
+    y += Math.floor(m / 12)
+    m %= 12
   }
-  return dueDateIn(base.getFullYear(), base.getMonth() + 1, f.dayOfMonth)
 }
+
+/** 下一次扣款日期（含今天） */
+export const nextDueDate = (f: Pick<FixedExpense, 'startDate' | 'dayOfMonth' | 'intervalMonths' | 'lastGeneratedDate'>, today = todayKey()) => {
+  for (const due of dueDates(f)) {
+    if (due >= today && (!f.lastGeneratedDate || due > f.lastGeneratedDate)) return due
+  }
+  return today
+}
+
+export const intervalLabel = (n: number) =>
+  n === 1 ? '每月' : n === 3 ? '每季度' : n === 6 ? '每半年' : n === 12 ? '每年' : `每 ${n} 个月`
 
 /** 演示模式下在本地模拟服务器端的生成逻辑 */
 const generateLocally = (today: string) => {
@@ -62,26 +81,21 @@ const generateLocally = (today: string) => {
   items.value = items.value.map((f) => {
     if (f.paused) return f
     let last = f.lastGeneratedDate
-    const from = last && last >= f.startDate ? last : f.startDate
-    const cursor = new Date(Number(from.slice(0, 4)), Number(from.slice(5, 7)) - 1, 1)
-    for (let guard = 0; guard < 24; guard++) {
-      const due = dueDateIn(cursor.getFullYear(), cursor.getMonth(), f.dayOfMonth)
+    for (const due of dueDates(f)) {
       if (due > today) break
-      if (due >= f.startDate && (!last || due > last)) {
-        created.push({
-          amount: f.amount,
-          kind: 'expense',
-          type: f.type,
-          payerUid: f.payerUid,
-          ratio: f.ratio,
-          category: f.category,
-          subCategory: f.subCategory,
-          note: `${f.name}（固定扣款）`,
-          date: due,
-        })
-        last = due
-      }
-      cursor.setMonth(cursor.getMonth() + 1)
+      if (last && due <= last) continue
+      created.push({
+        amount: f.amount,
+        kind: 'expense',
+        type: f.type,
+        payerUid: f.payerUid,
+        ratio: f.ratio,
+        category: f.category,
+        subCategory: f.subCategory,
+        note: `${f.name}（固定扣款）`,
+        date: due,
+      })
+      last = due
     }
     return { ...f, lastGeneratedDate: last }
   })

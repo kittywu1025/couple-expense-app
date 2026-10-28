@@ -69,15 +69,23 @@ export const formatSupabaseError = (error: unknown, fallback: string) => {
   if (text.includes('relation') && text.includes('does not exist')) {
     return '数据表还没有创建，请先在 Supabase 执行 SQL。'
   }
+  // 前端已更新、数据库还没执行对应的 SQL（缺列 / 缺函数）
+  if (
+    (text.includes('column') && (text.includes('does not exist') || text.includes('schema cache'))) ||
+    (text.includes('function') && text.includes('does not exist'))
+  ) {
+    return '数据库还没更新，请在 Supabase 按顺序执行 supabase/migrations 里最新的 SQL。'
+  }
   if (text.includes('permission denied') || text.includes('row-level security')) {
     return '当前账号没有权限，请检查 Supabase RLS 策略。'
   }
   if (text.includes('network') || text.includes('fetch')) return '网络连接失败，请稍后重试。'
   if (text.includes('idx_book_members_book_color')) return '对方已选择该颜色，请重新选择'
-  for (const known of ['对方已选择该颜色，请重新选择', '性别注册后不可修改', '这个颜色对方在用了', '演示模式下不能退出账本', '邀请码不存在', '你已经在这个账本中', '这个账本已经满两人了', '邀请码生成失败']) {
+  for (const known of ['对方已选择该颜色，请重新选择', '性别注册后不可修改', '这个颜色对方在用了', '演示模式下不能退出账本', '邀请码不存在', '你已经在这个账本中', '这个账本已经满两人了', '邀请码生成失败', '自己记的账要等 TA 确认', '只有 TA 能确认这笔借款', '只有借出的人能确认还款', '只有先垫钱的人能标记已收到']) {
     if (raw.includes(known)) return known
   }
-  return fallback
+  // 不认识的错误把原文带上一小段，方便截图反馈
+  return `${fallback}（${raw.slice(0, 80)}）`
 }
 
 const loadMembers = async (bookId: string) => {

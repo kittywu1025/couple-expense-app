@@ -51,7 +51,13 @@ import { rulesPageOpen } from '../composables/useUi'
     </section>
 
     <section class="card">
-      <h2>5. 首页的三张卡片</h2>
+      <h2>5. 对方确认、结清</h2>
+      <p>共同记录要另一个人点过「确认」才分摊。还没确认、或者对方「有疑问」的，先<b>全算付款人自己的</b>：不算 AA、不算请客、不进差额，确认后才按比例分。</p>
+      <p>AA 的那份给了之后，先垫钱的人在「我的 → 结清」里勾「已收到」（像报销一样，可以一次勾好几笔）：两人各自承担多少照常算，但这些<b>不再进月末差额</b>。</p>
+    </section>
+
+    <section class="card">
+      <h2>6. 首页的三张卡片</h2>
       <p class="formula">我们这个月花了 = 两个人全部支出之和</p>
       <p class="formula">我这个月花了 = 我的个人支出 + 共同支出里我承担的那份</p>
       <p class="formula">我这个月收入 = 只算自己的收入</p>

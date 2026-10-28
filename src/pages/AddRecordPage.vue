@@ -292,6 +292,8 @@ const buildPayload = (): NewRecord => {
     payerUid: payer,
     // 存「付款人份额」
     ratio: shared ? (payer === myUid.value ? myShare.value : 10 - myShare.value) : 10,
+    // 结清在「结清」页由先垫钱的人标记，这里只保留原来的状态
+    settledOnSpot: !!editing?.settledOnSpot,
     category: category.value.name,
     subCategory: subName.value,
     note: note.value.trim() || null,
@@ -481,6 +483,7 @@ const requestClose = async () => {
               </button>
             </div>
           </div>
+          <p class="confirm-note">保存后会请 {{ partnerName }} 确认，确认了才算两个人的</p>
         </div>
       </transition>
       <div class="meta">
@@ -923,6 +926,12 @@ const requestClose = async () => {
 }
 .shared-panel .payer-line {
   margin: 8px 0 0;
+}
+.confirm-note {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
 }
 .expand-enter-active,
 .expand-leave-active {

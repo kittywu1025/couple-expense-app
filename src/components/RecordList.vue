@@ -10,6 +10,7 @@ import { confirmAction, haptic } from '../composables/useUi'
 import { toast } from '../composables/useToast'
 import { isTreat, shareOf, treaterOf } from '../utils/settlement'
 import { useBooks } from '../composables/useBooks'
+import { confirmLabel } from '../utils/confirm'
 
 const props = defineProps<{ records: LedgerRecord[] }>()
 
@@ -111,7 +112,10 @@ const tag = (r: LedgerRecord) => {
               <i :class="['dot', r.payerUid === myUid ? 'me' : 'partner']" />
               <span v-if="r.note" class="note">{{ r.note }}</span>
             </span>
-            <span :class="['tag', tag(r).cls]">{{ tag(r).text }}</span>
+            <span class="tags">
+              <span v-if="r.confirmStatus !== 'confirmed'" :class="['tag', r.confirmStatus]">{{ confirmLabel(r, myUid) }}</span>
+              <span :class="['tag', tag(r).cls]">{{ tag(r).text }}</span>
+            </span>
           </span>
         </span>
       </button>
@@ -245,6 +249,19 @@ const tag = (r: LedgerRecord) => {
 .tag.shared {
   background: var(--primary-soft);
   color: var(--primary);
+}
+.tags {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.tag.pending {
+  background: rgba(255, 149, 0, 0.14);
+  color: #d97800;
+}
+.tag.disputed {
+  background: rgba(255, 59, 48, 0.12);
+  color: var(--danger);
 }
 .tag.treat {
   background: rgba(255, 143, 171, 0.22);

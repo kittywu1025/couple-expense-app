@@ -9,6 +9,9 @@ import BookSetupPage from './pages/BookSetupPage.vue'
 import ProfileSetupPage from './pages/ProfileSetupPage.vue'
 import ProfileDetailPage from './pages/ProfileDetailPage.vue'
 import FixedExpensesPage from './pages/FixedExpensesPage.vue'
+import LoansPage from './pages/LoansPage.vue'
+import SettlePage from './pages/SettlePage.vue'
+import { useLoans } from './composables/useLoans'
 import AboutPage from './pages/AboutPage.vue'
 import CalendarPage from './pages/CalendarPage.vue'
 import BookSettingsPage from './pages/BookSettingsPage.vue'
@@ -39,7 +42,9 @@ import {
   closeAddSheet,
   editingRecord,
   fixedPageOpen,
+  loansPageOpen,
   openAddSheet,
+  settlePageOpen,
   profilePageOpen,
   rulesPageOpen,
 } from './composables/useUi'
@@ -47,6 +52,7 @@ import {
 const { authUser, authLoading, authGender, isSupabaseEnabled } = useSupabaseAuth()
 const { currentBook, booksLoading, loadBook, me } = useBooks()
 const { loadRecords } = useRecords()
+const { load: loadLoans } = useLoans()
 const { updateAvailable, updateMessage } = usePwaUpdate()
 
 const activeTab = ref<TabKey>('home')
@@ -70,6 +76,8 @@ watch(screen, (next) => {
   if (next === 'app') return
   profilePageOpen.value = false
   fixedPageOpen.value = false
+  loansPageOpen.value = false
+  settlePageOpen.value = false
   aboutPageOpen.value = false
   rulesPageOpen.value = false
   calendarPageOpen.value = false
@@ -106,7 +114,7 @@ watch(
 // 回到前台时刷新，拿到对方新记的账
 const refreshOnVisible = () => {
   if (document.visibilityState !== 'visible' || screen.value !== 'app') return
-  loadBook().then(loadRecords).then(runFixedExpenses)
+  loadBook().then(() => Promise.all([loadRecords(), loadLoans()])).then(runFixedExpenses)
 }
 onMounted(() => document.addEventListener('visibilitychange', refreshOnVisible))
 
@@ -114,7 +122,7 @@ onMounted(() => document.addEventListener('visibilitychange', refreshOnVisible))
 const pullEnabled = computed(() => screen.value === 'app' && activeTab.value !== 'me')
 const pull = usePullToRefresh(pullEnabled, async () => {
   await loadBook()
-  await loadRecords()
+  await Promise.all([loadRecords(), loadLoans()])
   await runFixedExpenses()
   toast.success('已经是最新的了')
 })
@@ -199,6 +207,12 @@ watch(updateAvailable, (visible) => {
     </transition>
     <transition name="push">
       <FixedExpensesPage v-if="fixedPageOpen" />
+    </transition>
+    <transition name="push">
+      <LoansPage v-if="loansPageOpen" />
+    </transition>
+    <transition name="push">
+      <SettlePage v-if="settlePageOpen" />
     </transition>
     <transition name="push">
       <AboutPage v-if="aboutPageOpen" />

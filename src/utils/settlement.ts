@@ -14,9 +14,18 @@ export const shareOf = (r: LedgerRecord, uid: string) => {
   return r.payerUid === uid ? r.ratio : 10 - r.ratio
 }
 
-/** 非付款人需要付给付款人的金额 */
+/**
+ * 共同记录要两个人都确认过才分摊；确认之前（等确认 / 有疑问）先全算付款人自己的。
+ * 显示比例时仍用记的 ratio（shareOf / isTreat），算钱时用 bearOf / debtOf。
+ */
+export const isAgreed = (r: LedgerRecord) => r.type !== 'shared' || r.confirmStatus === 'confirmed'
+
+/** 算钱用：某用户实际承担的份额 0-10（没确认的共同记录全算付款人的） */
+export const bearOf = (r: LedgerRecord, uid: string) => (isAgreed(r) ? shareOf(r, uid) : r.payerUid === uid ? 10 : 0)
+
+/** 非付款人需要付给付款人的金额（没确认的、已经结清的都不算） */
 export const debtOf = (r: LedgerRecord) =>
-  r.type !== 'shared' || isTreat(r) ? 0 : (r.amount * (10 - r.ratio)) / 10
+  r.type !== 'shared' || !isAgreed(r) || r.settledOnSpot || isTreat(r) ? 0 : (r.amount * (10 - r.ratio)) / 10
 
 /**
  * 结算周期：以 settleDay 为起点。month 为 'YYYY-MM'，

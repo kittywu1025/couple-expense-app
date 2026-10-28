@@ -29,6 +29,12 @@ export const fixedPageOpen = ref(false)
 export const openFixedPage = () => (fixedPageOpen.value = true)
 export const closeFixedPage = () => (fixedPageOpen.value = false)
 
+/** 借款页（从「我的」或首页待确认进入） */
+export const loansPageOpen = ref(false)
+
+/** 结清页（AA 那份给了之后勾「已收到」，从「我的」和统计页进入） */
+export const settlePageOpen = ref(false)
+
 /** 邀请 TA 的弹窗（链接 + 邀请码） */
 export const inviteSheetOpen = ref(false)
 

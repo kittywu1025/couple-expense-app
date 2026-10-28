@@ -5,7 +5,7 @@ import CategoryIcon from '../components/CategoryIcon.vue'
 import EmptyState from '../components/EmptyState.vue'
 import SkeletonList from '../components/SkeletonList.vue'
 import FixedExpenseEditorSheet from '../components/FixedExpenseEditorSheet.vue'
-import { nextDueDate, useFixedExpenses } from '../composables/useFixedExpenses'
+import { intervalLabel, nextDueDate, useFixedExpenses } from '../composables/useFixedExpenses'
 import { useBooks } from '../composables/useBooks'
 import { closeFixedPage, confirmAction } from '../composables/useUi'
 import { toast } from '../composables/useToast'
@@ -21,8 +21,10 @@ const editing = ref<FixedExpense | null>(null)
 const saving = ref(false)
 
 const sorted = computed(() => [...items.value].sort((a, b) => Number(a.paused) - Number(b.paused) || a.dayOfMonth - b.dayOfMonth))
-// 列表显示全部；汇总数字只算共同 + 自己的
-const monthlyTotal = computed(() => visibleItems.value.filter((f) => !f.paused).reduce((s, f) => s + f.amount, 0))
+// 列表显示全部；汇总数字只算共同 + 自己的。不是每月扣的按月平均（每两月 ¥6,000 = 每月 ¥3,000）
+const monthlyTotal = computed(() =>
+  visibleItems.value.filter((f) => !f.paused).reduce((s, f) => s + f.amount / f.intervalMonths, 0),
+)
 
 const typeText = (f: FixedExpense) => {
   if (f.type === 'personal') return '个人'
@@ -93,7 +95,7 @@ const togglePause = async (f: FixedExpense) => {
 
     <div class="body">
       <section v-if="items.length" class="summary">
-        <span>每月固定支出</span>
+        <span>平均每月固定支出</span>
         <b class="mono">{{ formatMoney(monthlyTotal) }}</b>
         <small>到扣款日自动记一笔账，打开 App 时检查</small>
       </section>
@@ -103,7 +105,7 @@ const togglePause = async (f: FixedExpense) => {
         <EmptyState
           icon="calendar"
           title="还没有固定扣款"
-          desc="房租、话费这类每月固定的支出，设置一次就会按日期自动记账"
+          desc="房租、话费、保险这类定期的支出，设置一次就会按日期自动记账"
           action="添加固定扣款"
           @action="openNew"
         />
@@ -120,7 +122,7 @@ const togglePause = async (f: FixedExpense) => {
               </span>
               <span class="meta">
                 <i :class="['dot', f.payerUid === myUid ? 'me' : 'partner']" />
-                每月 {{ f.dayOfMonth }} 号 · {{ typeText(f) }} · {{ nameOf(f.payerUid) }}付
+                {{ intervalLabel(f.intervalMonths) }} {{ f.dayOfMonth }} 号 · {{ typeText(f) }} · {{ nameOf(f.payerUid) }}付
               </span>
               <span class="next">{{ f.paused ? '已暂停' : `下次 ${formatDateLabel(nextDueDate(f))}` }}</span>
             </span>

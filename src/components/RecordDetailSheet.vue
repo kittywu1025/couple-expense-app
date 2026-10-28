@@ -2,21 +2,24 @@
 import { computed, ref } from 'vue'
 import BottomSheet from './BottomSheet.vue'
 import CategoryIcon from './CategoryIcon.vue'
+import DiscussionThread from './DiscussionThread.vue'
+import DisputeSheet from './DisputeSheet.vue'
 import type { LedgerRecord } from '../types'
 import { recordColor, recordIcon } from '../utils/categories'
 import { formatFullDate, formatMoney } from '../utils/format'
-import { debtOf, isTreat, shareOf, treaterOf } from '../utils/settlement'
+import { isTreat, shareOf, treaterOf } from '../utils/settlement'
 import { useBooks } from '../composables/useBooks'
 import { canModify, useRecords } from '../composables/useRecords'
 import { confirmAction, haptic, openEditSheet } from '../composables/useUi'
 import AppIcon from './AppIcon.vue'
 import { toast } from '../composables/useToast'
+import { canRespond, confirmLabel, disputedByPartner, pendingProposal } from '../utils/confirm'
 
 const props = defineProps<{ record: LedgerRecord | null }>()
 const emit = defineEmits<{ close: [] }>()
 
 const { myUid, nameOf, otherUid } = useBooks()
-const { deleteRecord } = useRecords()
+const { deleteRecord, respondRecords, replyRecord, updateRecord } = useRecords()
 const deleting = ref(false)
 const editable = computed(() => (r.value ? canModify(r.value, myUid.value) : false))
 
@@ -27,18 +30,64 @@ const splitText = computed(() => {
   if (!rec || rec.type === 'personal') return '个人'
   if (isTreat(rec)) return `${nameOf(treaterOf(rec, otherUid))} 请客`
   const mine = shareOf(rec, myUid.value)
-  return `AA ${mine}:${10 - mine}（我:TA）`
+  return `AA ${mine}:${10 - mine}（我:TA）${rec.settledOnSpot ? ' · 已结清' : ''}`
 })
 
-const debtText = computed(() => {
+const responding = ref(false)
+const onConfirm = async () => {
   const rec = r.value
-  if (!rec || rec.kind !== 'expense') return ''
-  const debt = debtOf(rec)
-  if (!debt) return ''
-  const debtor = otherUid(rec.payerUid)
-  // 不说「欠 / 应付」，只说各自那份由谁先垫
-  return `${nameOf(debtor)}的那份 ${formatMoney(debt)}，${nameOf(rec.payerUid)}先垫了`
+  if (!rec) return
+  responding.value = true
+  const { error } = await respondRecords([rec.id], 'confirmed')
+  responding.value = false
+  if (error) {
+    toast.error(error.message)
+    return
+  }
+  haptic()
+  toast.success('已确认')
+}
+
+// ── 有疑问 / 回复：弹窗写留言（有疑问时还能提议比例） ──
+const sheetMode = ref<'dispute' | 'reply' | null>(null)
+const onSubmitMessage = async (msg: { text: string; ratio: number | null }) => {
+  const rec = r.value
+  if (!rec || !sheetMode.value) return
+  responding.value = true
+  const { error } =
+    sheetMode.value === 'dispute' ? await respondRecords([rec.id], 'disputed', msg) : await replyRecord(rec.id, msg.text)
+  responding.value = false
+  if (error) {
+    toast.error(error.message)
+    return
+  }
+  haptic()
+  toast.success(sheetMode.value === 'dispute' ? '已经告诉 TA 了' : '已回复，等 TA 再确认')
+  sheetMode.value = null
+}
+
+/** 对方有疑问并提议了比例：记账人可以一键按这个比例改，改完直接算确认 */
+const proposal = computed(() => (r.value ? pendingProposal(r.value, myUid.value) : null))
+const proposalText = computed(() => {
+  const rec = r.value
+  if (!rec || proposal.value === null) return ''
+  const mine = rec.payerUid === myUid.value ? proposal.value : 10 - proposal.value
+  return mine === 10 ? '我全出' : mine === 0 ? 'TA 全出' : `${mine}:${10 - mine}`
 })
+const acceptProposal = async () => {
+  const rec = r.value
+  if (!rec || proposal.value === null) return
+  responding.value = true
+  const { amount, kind, type, payerUid, category, subCategory, note, date } = rec
+  const { error } = await updateRecord(rec.id, { amount, kind, type, payerUid, ratio: proposal.value, category, subCategory, note, date })
+  responding.value = false
+  if (error) {
+    toast.error(error.message)
+    return
+  }
+  haptic()
+  toast.success('已按 TA 说的改好了')
+}
 
 const onEdit = () => {
   const rec = r.value
@@ -88,13 +137,38 @@ const onDelete = async () => {
           <dd><i :class="['dot', r.payerUid === myUid ? 'me' : 'partner']" />{{ nameOf(r.payerUid) }}</dd>
         </div>
         <div><dt>类型</dt><dd>{{ splitText }}</dd></div>
-        <div v-if="debtText"><dt>分摊</dt><dd>{{ debtText }}</dd></div>
+        <div v-if="r.type === 'shared'">
+          <dt>确认</dt>
+          <dd :class="['confirm', r.confirmStatus]">
+            {{ confirmLabel(r, myUid) }}
+            <small v-if="r.confirmStatus !== 'confirmed'">确认前先全算 {{ nameOf(r.payerUid) }} 的</small>
+          </dd>
+        </div>
         <div v-if="r.note"><dt>备注</dt><dd class="note">{{ r.note }}</dd></div>
         <div><dt>记录人</dt><dd>{{ nameOf(r.createdBy) }}</dd></div>
       </dl>
 
+      <section v-if="r.discussion.length" class="talk">
+        <h4>{{ disputedByPartner(r, myUid) ? 'TA 有疑问' : '沟通记录' }}</h4>
+        <DiscussionThread :entries="r.discussion" :record="r" />
+        <div v-if="disputedByPartner(r, myUid)" class="talk-actions">
+          <button v-if="proposal !== null" class="accept" :disabled="responding" @click="acceptProposal">
+            按 TA 说的改成 {{ proposalText }}
+          </button>
+          <button class="reply" :disabled="responding" @click="sheetMode = 'reply'">回复 TA</button>
+        </div>
+        <p v-if="disputedByPartner(r, myUid)" class="talk-hint">也可以直接「编辑」改，改完会再请 TA 确认</p>
+      </section>
+
       <!-- 底部固定：删除（左）/ 编辑（右），内容再长也不会被挤到看不见 -->
       <div class="actions">
+        <template v-if="canRespond(r, myUid)">
+          <p class="readonly">{{ nameOf(r.lastEditedBy) }} 把这笔记成了共同的，确认后才算两个人的</p>
+          <button class="ask" :disabled="responding" @click="sheetMode = 'dispute'">有疑问</button>
+          <button class="confirm-btn" :disabled="responding" @click="onConfirm">
+            <AppIcon name="check" :size="16" :stroke="2.4" />确认
+          </button>
+        </template>
         <p v-if="!editable" class="readonly">这是 {{ nameOf(r.payerUid) }} 的个人记录，只能看，不能修改</p>
         <button class="delete" :disabled="deleting || !editable" @click="onDelete">
           <AppIcon name="close" :size="16" :stroke="2.2" />{{ deleting ? '删除中…' : '删除' }}
@@ -105,6 +179,18 @@ const onDelete = async () => {
       </div>
     </template>
   </BottomSheet>
+
+  <DisputeSheet
+    :open="!!r && !!sheetMode"
+    :mode="sheetMode ?? 'dispute'"
+    :label="r ? r.note || r.subCategory || r.category : ''"
+    :amount="r?.amount ?? 0"
+    :record="r"
+    :discussion="sheetMode === 'reply' ? undefined : r?.discussion"
+    :saving="responding"
+    @close="sheetMode = null"
+    @submit="onSubmitMessage"
+  />
 </template>
 
 <style scoped>
@@ -207,6 +293,62 @@ dd {
 .delete {
   background: #fff0f3;
   color: #f0547a;
+}
+.talk {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--bg);
+}
+.talk h4 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+.talk-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.talk-actions button {
+  flex: 1;
+  height: 40px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.accept {
+  background: var(--primary);
+  color: #fff;
+}
+.reply {
+  background: var(--card);
+  color: var(--primary);
+}
+.talk-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+}
+.confirm small {
+  display: block;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.confirm.pending {
+  color: #d97800;
+}
+.confirm.disputed {
+  color: var(--danger);
+}
+.ask {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-soft);
+}
+.confirm-btn {
+  background: #34b38a;
+  color: #fff;
 }
 .edit {
   background: var(--primary);

@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { useBooks } from '../composables/useBooks'
 import { useRecords } from '../composables/useRecords'
-import { rulesPageOpen } from '../composables/useUi'
+import { rulesPageOpen, settlePageOpen } from '../composables/useUi'
 import CategoryBreakdown from '../components/CategoryBreakdown.vue'
 import PeriodPickerSheet from '../components/PeriodPickerSheet.vue'
 import SharedRecordList from '../components/SharedRecordList.vue'
@@ -128,7 +128,10 @@ const openShared = ref(false)
           </p>
         </template>
       </div>
-      <button class="rules" @click="rulesPageOpen = true">这个数是怎么算的？</button>
+      <div class="settle-links">
+        <button class="rules" @click="rulesPageOpen = true">这个数是怎么算的？</button>
+        <button class="go-settle" @click="settlePageOpen = true">去结清 ›</button>
+      </div>
     </div>
   </section>
 
@@ -292,8 +295,21 @@ const openShared = ref(false)
 .mono {
   font-family: var(--mono);
 }
-.rules {
+.settle-links {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-top: 10px;
+}
+.go-settle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+}
+.rules {
   font-size: 12px;
   color: var(--primary);
 }

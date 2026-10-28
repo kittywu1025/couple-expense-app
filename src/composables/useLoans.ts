@@ -38,6 +38,7 @@ const normalizeRepayment = (row: Record<string, unknown>): LoanRepayment => ({
   id: String(row.id),
   loanId: String(row.loan_id),
   bookId: String(row.book_id),
+  deleteRequestedBy: row.delete_requested_by ? String(row.delete_requested_by) : null,
   amount: Number(row.amount),
   note: row.note ? String(row.note) : null,
   date: String(row.date),
@@ -128,19 +129,22 @@ const addLoan = async (input: LoanInput) => {
 }
 
 /** 申请删除 / 撤回申请 / 不同意：都是改 delete_requested_by */
-const setDeleteRequest = async (id: string, by: string | null) => {
+const setDeleteRequest = async (table: 'loans' | 'loan_repayments', id: string, by: string | null) => {
+  const list = table === 'loans' ? loans : repayments
   if (!isDemoMode && supabase) {
-    const { data, error } = await supabase.from('loans').update({ delete_requested_by: by }).eq('id', id).select().single()
+    const { data, error } = await supabase.from(table).update({ delete_requested_by: by }).eq('id', id).select().single()
     if (error) return { error: new Error(formatSupabaseError(error, '操作失败，请稍后重试。')) }
-    const next = normalizeLoan(data)
-    loans.value = loans.value.map((l) => (l.id === id ? next : l))
+    const next = table === 'loans' ? normalizeLoan(data) : normalizeRepayment(data)
+    list.value = list.value.map((x) => (x.id === id ? next : x)) as typeof list.value
     return { error: null }
   }
-  loans.value = loans.value.map((l) => (l.id === id ? { ...l, deleteRequestedBy: by } : l))
+  list.value = list.value.map((x) => (x.id === id ? { ...x, deleteRequestedBy: by } : x)) as typeof list.value
   return { error: null }
 }
-const requestDeleteLoan = (id: string) => setDeleteRequest(id, authUser.value?.id ?? null)
-const cancelDeleteLoan = (id: string) => setDeleteRequest(id, null)
+const requestDeleteLoan = (id: string) => setDeleteRequest('loans', id, authUser.value?.id ?? null)
+const cancelDeleteLoan = (id: string) => setDeleteRequest('loans', id, null)
+const requestDeleteRepayment = (id: string) => setDeleteRequest('loan_repayments', id, authUser.value?.id ?? null)
+const cancelDeleteRepayment = (id: string) => setDeleteRequest('loan_repayments', id, null)
 
 /** 同意对方的删除申请：真正删掉（还款记录一起删） */
 const removeLoan = async (id: string) => {
@@ -170,6 +174,7 @@ const addRepayment = async (loanId: string, input: { amount: number; date: strin
       confirmStatus: 'pending',
       lastEditedBy: uid,
       discussion: [],
+      deleteRequestedBy: null,
     }
     repayments.value = byDateDesc([stampConfirm(local, null, uid, !!partner.value, []), ...repayments.value])
     return { error: null }
@@ -188,7 +193,7 @@ const removeRepayment = async (id: string) => {
   if (!isDemoMode && supabase) {
     const { data, error } = await supabase.from('loan_repayments').delete().eq('id', id).select('id')
     if (error) return { error: new Error(formatSupabaseError(error, '删除失败，请稍后重试。')) }
-    if (!data?.length) return { error: new Error('TA 已经确认过的还款，只有借出的人能删') }
+    if (!data?.length) return { error: new Error('确认过的还款要一个人申请删除、另一个人同意才能删') }
   }
   repayments.value = repayments.value.filter((r) => r.id !== id)
   return { error: null }
@@ -251,5 +256,5 @@ watch(
 )
 
 export function useLoans() {
-  return { loans, repayments, loading, progress, load, addLoan, removeLoan, requestDeleteLoan, cancelDeleteLoan, addRepayment, removeRepayment, respondLoans, respondRepayments, replyLoan, replyRepayment }
+  return { loans, repayments, loading, progress, load, addLoan, removeLoan, requestDeleteLoan, cancelDeleteLoan, requestDeleteRepayment, cancelDeleteRepayment, addRepayment, removeRepayment, respondLoans, respondRepayments, replyLoan, replyRepayment }
 }

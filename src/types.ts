@@ -106,7 +106,10 @@ export interface FixedExpense {
 export type FixedExpenseInput = Pick<
   FixedExpense,
   'name' | 'amount' | 'category' | 'subCategory' | 'dayOfMonth' | 'intervalMonths' | 'payerUid' | 'type' | 'ratio'
->
+> & {
+  /** 首次扣款日（选了才传）：存成 start_date，周期从这天所在的月份算起 */
+  startDate?: string
+}
 
 export type NewRecord = Omit<LedgerRecord, 'id' | 'bookId' | 'createdBy' | 'createdAt' | keyof Confirmable>
 
@@ -131,6 +134,8 @@ export interface Loan extends Confirmable {
 export interface LoanRepayment extends Confirmable {
   id: string
   loanId: string
+  /** 已确认的还款要删，由一个人申请、另一个人同意 */
+  deleteRequestedBy: string | null
   bookId: string
   amount: number
   note: string | null

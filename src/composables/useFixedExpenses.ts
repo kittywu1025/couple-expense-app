@@ -31,6 +31,7 @@ const normalize = (row: Record<string, unknown>): FixedExpense => ({
 })
 
 const toRow = (input: FixedExpenseInput) => ({
+  ...(input.startDate ? { start_date: input.startDate } : {}),
   name: input.name,
   amount: input.amount,
   category: input.category,
@@ -50,14 +51,15 @@ export const dueDateIn = (year: number, monthIndex: number, day: number) => {
 
 /**
  * 依次给出扣款日期（和数据库 generate_fixed_expenses 同一套算法）：
- * start_date 起第一个到期的扣款日是第一次，之后每隔 intervalMonths 个月一次。
+ * 以 start_date 所在的月份为第一个周期，每隔 intervalMonths 个月一次；早于 start_date 的那次跳过。
+ * 比如 10/28 加「每 2 个月 1 号」：10/1 算这个月已经扣过了，下次是 12/1。
  */
 export function* dueDates(f: Pick<FixedExpense, 'startDate' | 'dayOfMonth' | 'intervalMonths'>) {
   let y = Number(f.startDate.slice(0, 4))
   let m = Number(f.startDate.slice(5, 7)) - 1
-  if (dueDateIn(y, m, f.dayOfMonth) < f.startDate) m += 1
   for (let guard = 0; guard < 240; guard++) {
-    yield dueDateIn(y, m, f.dayOfMonth)
+    const due = dueDateIn(y, m, f.dayOfMonth)
+    if (due >= f.startDate) yield due
     m += Math.max(1, f.intervalMonths)
     y += Math.floor(m / 12)
     m %= 12
@@ -160,7 +162,7 @@ const add = async (input: FixedExpenseInput) => {
         id: crypto.randomUUID(),
         bookId,
         paused: false,
-        startDate: todayKey(),
+        startDate: input.startDate ?? todayKey(),
         lastGeneratedDate: null,
         createdBy: uid,
       },
@@ -169,7 +171,7 @@ const add = async (input: FixedExpenseInput) => {
   }
   const { data, error } = await supabase
     .from('fixed_expenses')
-    .insert({ ...toRow(input), book_id: bookId, created_by: uid, start_date: todayKey() })
+    .insert({ start_date: todayKey(), ...toRow(input), book_id: bookId, created_by: uid })
     .select()
     .single()
   if (error) return { error: new Error(formatSupabaseError(error, '保存失败，请稍后重试。')) }

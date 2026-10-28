@@ -16,7 +16,7 @@ import { canRespond, confirmLabel, disputedByPartner } from '../utils/confirm'
 import { formatDateLabel, formatMoney, todayKey } from '../utils/format'
 
 const { myUid, partner, nameOf, currentBook } = useBooks()
-const { loans, progress, addLoan, removeLoan, requestDeleteLoan, cancelDeleteLoan, addRepayment, removeRepayment, respondLoans, respondRepayments, replyLoan, replyRepayment } =
+const { loans, progress, addLoan, removeLoan, requestDeleteLoan, cancelDeleteLoan, requestDeleteRepayment, cancelDeleteRepayment, addRepayment, removeRepayment, respondLoans, respondRepayments, replyLoan, replyRepayment } =
   useLoans()
 const partnerName = computed(() => partner.value?.displayName ?? 'TA')
 
@@ -271,16 +271,47 @@ const onApproveDelete = async (l: Loan) => {
   toast.success('已删除')
 }
 
+/** 自己记的、还没确认的还款可以直接删；确认过的要申请，对方同意才删（和借款一样） */
+const canDeleteRepayNow = (r: LoanRepayment) => r.createdBy === myUid.value && r.confirmStatus !== 'confirmed'
+
 const onDeleteRepay = async (r: LoanRepayment) => {
-  const ok = await confirmAction({ title: '删除这笔还款？', message: formatMoney(r.amount), confirmText: '删除', danger: true })
+  const cur = detail.value?.currency
+  if (canDeleteRepayNow(r)) {
+    const ok = await confirmAction({ title: '删除这笔还款？', message: formatMoney(r.amount, cur), confirmText: '删除', danger: true })
+    if (!ok) return
+    const { error } = await removeRepayment(r.id)
+    if (error) toast.error(error.message)
+    else toast.success('已删除')
+    return
+  }
+  const ok = await confirmAction({
+    title: '申请删除这笔还款？',
+    message: `${formatMoney(r.amount, cur)} 已经确认过了，${partnerName.value}同意后才会删除。`,
+    confirmText: '申请删除',
+    danger: true,
+  })
+  if (!ok) return
+  const { error } = await requestDeleteRepayment(r.id)
+  if (error) toast.error(error.message)
+  else toast.success(`已申请，等${partnerName.value}同意`)
+}
+const approveDeleteRepay = async (r: LoanRepayment) => {
+  const ok = await confirmAction({
+    title: '同意删除这笔还款？',
+    message: `${formatMoney(r.amount, detail.value?.currency)} 删除后会加回「还剩」，无法恢复。`,
+    confirmText: '同意删除',
+    danger: true,
+  })
   if (!ok) return
   const { error } = await removeRepayment(r.id)
   if (error) toast.error(error.message)
   else toast.success('已删除')
 }
-
-const canDeleteRepay = (l: Loan, r: LoanRepayment) =>
-  l.lenderUid === myUid.value || (r.createdBy === myUid.value && r.confirmStatus !== 'confirmed')
+const cancelDeleteRepay = async (r: LoanRepayment) => {
+  const { error } = await cancelDeleteRepayment(r.id)
+  if (error) toast.error(error.message)
+  else toast.success(r.deleteRequestedBy === myUid.value ? '已撤回删除申请' : `已告诉${partnerName.value}先不删`)
+}
 </script>
 
 <template>
@@ -436,8 +467,16 @@ const canDeleteRepay = (l: Loan, r: LoanRepayment) =>
           <b class="mono">{{ formatMoney(r.amount, detail.currency) }}</b>
           <small>{{ formatDateLabel(r.date) }} · {{ nameOf(r.createdBy) }}记<template v-if="r.note"> · {{ r.note }}</template></small>
           <small v-if="r.discussion.length" class="said">{{ lastWord(r) }}</small>
+          <small v-if="r.deleteRequestedBy" class="del-note">
+            {{ r.deleteRequestedBy === myUid ? '已申请删除，等 TA 同意' : 'TA 想删除这笔还款' }}
+          </small>
         </span>
-        <template v-if="canRespond(r, myUid)">
+        <template v-if="r.deleteRequestedBy && r.deleteRequestedBy !== myUid">
+          <button class="mini ask" @click="cancelDeleteRepay(r)">先不删</button>
+          <button class="mini danger" @click="approveDeleteRepay(r)">同意删除</button>
+        </template>
+        <button v-else-if="r.deleteRequestedBy" class="mini ask" @click="cancelDeleteRepay(r)">撤回</button>
+        <template v-else-if="canRespond(r, myUid)">
           <button class="mini ask" @click="talking = { kind: 'repayment', item: r, mode: 'dispute' }">有疑问</button>
           <button class="mini ok" @click="confirmRepay(r)">收到了</button>
         </template>
@@ -445,7 +484,7 @@ const canDeleteRepay = (l: Loan, r: LoanRepayment) =>
           回复
         </button>
         <em v-else :class="['status', r.confirmStatus]">{{ confirmLabel(r, myUid) }}</em>
-        <button v-if="canDeleteRepay(detail, r)" class="x" aria-label="删除这笔还款" @click="onDeleteRepay(r)">
+        <button v-if="!r.deleteRequestedBy" class="x" aria-label="删除这笔还款" @click="onDeleteRepay(r)">
           <AppIcon name="close" :size="14" :stroke="2.2" />
         </button>
       </div>
@@ -844,6 +883,13 @@ dd {
   background: var(--card);
   color: var(--primary);
   font-weight: 600;
+}
+.del-note {
+  color: var(--danger) !important;
+}
+.mini.danger {
+  background: var(--danger);
+  color: #fff;
 }
 .said {
   color: var(--text-soft) !important;

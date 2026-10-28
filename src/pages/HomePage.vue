@@ -118,11 +118,17 @@ const onChartUp = (e: PointerEvent) => {
 
 // 折线图跟着当前卡片
 const weekPoints = computed(() => {
+  // 看本月：截到今天；看以前的月份：截到那个周期的最后一天
+  const end = isThisMonth.value ? new Date() : new Date(`${period.value.end}T00:00:00`)
+  if (!isThisMonth.value) end.setDate(end.getDate() - 1)
   const days: { key: string; label: string }[] = []
   for (let i = 6; i >= 0; i--) {
-    const d = new Date()
+    const d = new Date(end)
     d.setDate(d.getDate() - i)
-    days.push({ key: toDateKey(d), label: i === 0 ? '今天' : `${d.getMonth() + 1}/${d.getDate()}` })
+    days.push({
+      key: toDateKey(d),
+      label: i === 0 && isThisMonth.value ? '今天' : `${d.getMonth() + 1}/${d.getDate()}`,
+    })
   }
   return days.map((d) => {
     const items = records.value.filter((r) => r.date === d.key && weightOf(activeCard.value, r) > 0)

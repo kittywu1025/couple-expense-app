@@ -5,7 +5,7 @@ import BottomSheet from './BottomSheet.vue'
 import type { FixedExpense, FixedExpenseInput, RecordType } from '../types'
 import { categoriesFor } from '../utils/categories'
 import { activeCurrencyInfo, formatFullDate, todayKey } from '../utils/format'
-import { intervalLabel, nextDueDate } from '../composables/useFixedExpenses'
+import { dueDateIn, intervalLabel, nextDueDate } from '../composables/useFixedExpenses'
 import { useBooks } from '../composables/useBooks'
 
 const props = defineProps<{ open: boolean; item: FixedExpense | null; saving?: boolean }>()
@@ -47,6 +47,7 @@ watch(
     categoryValue.value = f ? `${f.category}||${f.subCategory ?? ''}` : '固定开销||房租'
     day.value = f?.dayOfMonth ?? 1
     interval.value = f?.intervalMonths ?? 1
+    firstPick.value = null
     type.value = f?.type ?? 'personal'
     payerUid.value = f?.payerUid ?? myUid.value
     myShare.value =
@@ -69,6 +70,23 @@ const errors = computed(() => {
 })
 
 /** 预览下一次扣款（编辑时从原来的开始日算，新加的从今天算） */
+/** 手动选的首次 / 下次扣款日；没选就按周期自动算（nextDue） */
+const firstPick = ref<string | null>(null)
+// 改了扣款日或周期，之前选的日期可能对不上了，回到自动算
+watch([day, interval], () => (firstPick.value = null))
+
+/** 可选的日期：从今天起往后 12 个月里每个月的扣款日 */
+const firstOptions = computed(() => {
+  const now = new Date()
+  const today = todayKey()
+  const list: string[] = []
+  for (let i = 0; list.length < 12 && i < 14; i++) {
+    const d = dueDateIn(now.getFullYear(), now.getMonth() + i, day.value)
+    if (d >= today) list.push(d)
+  }
+  return list
+})
+
 const nextDue = computed(() =>
   nextDueDate({
     startDate: props.item?.startDate ?? todayKey(),
@@ -101,6 +119,7 @@ const submit = () => {
     subCategory: sub || null,
     dayOfMonth: day.value,
     intervalMonths: interval.value,
+    ...(firstPick.value ? { startDate: firstPick.value } : {}),
     payerUid: payerUid.value,
     type: type.value,
     // 存「付款人份额」，和账单一致
@@ -153,9 +172,18 @@ const submit = () => {
           <option v-for="d in 31" :key="d" :value="d">{{ d }} 号</option>
         </select>
       </label>
+      <label class="field">
+        <span>{{ item ? '下次扣款' : '首次扣款' }}</span>
+        <select :value="firstPick ?? nextDue" @change="firstPick = ($event.target as HTMLSelectElement).value">
+          <option v-if="!firstOptions.includes(nextDue)" :value="nextDue">{{ formatFullDate(nextDue) }}</option>
+          <option v-for="d in firstOptions" :key="d" :value="d">{{ formatFullDate(d) }}</option>
+        </select>
+      </label>
       <p class="hint">
-        下次扣款：{{ formatFullDate(nextDue) }}<template v-if="interval > 1">，之后{{ intervalLabel(interval) }}一次</template>
-        <template v-if="day > 28">；没有 {{ day }} 号的月份按月底扣款</template>
+        <template v-if="interval > 1">从这天起{{ intervalLabel(interval) }}扣一次；</template>
+        <template v-else>从这天起每月扣一次；</template>
+        这个月已经扣过的话，选下一次的日期就好
+        <template v-if="day > 28">。没有 {{ day }} 号的月份按月底扣款</template>
       </p>
 
       <div class="field">

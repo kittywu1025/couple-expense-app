@@ -58,7 +58,7 @@ const { loans, repayments, progress } = useLoans()
 const loanSummary = computed(() => {
   const waiting =
     [...loans.value, ...repayments.value].filter((x) => waitingForMe(x, myUid.value)).length +
-    loans.value.filter((l) => l.deleteRequestedBy && l.deleteRequestedBy !== myUid.value).length
+    [...loans.value, ...repayments.value].filter((x) => x.deleteRequestedBy && x.deleteRequestedBy !== myUid.value).length
   if (waiting) return `${waiting} 笔等你处理`
   const open = loans.value.filter((l) => !progress.value.get(l.id)?.settled).length
   return open ? `${open} 笔没还清` : loans.value.length ? '都还清了' : '未记录'

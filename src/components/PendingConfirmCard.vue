@@ -14,7 +14,7 @@ import type { IconName } from '../utils/icons'
 import { recordColor, recordIcon } from '../utils/categories'
 import { disputedByPartner, waitingForMe, waitingForPartner } from '../utils/confirm'
 import { formatDateLabel, formatMoney } from '../utils/format'
-import { isTreat, shareOf, treaterOf } from '../utils/settlement'
+import { isTreat, needsPartnerConfirm, shareOf, treaterOf } from '../utils/settlement'
 
 /**
  * 首页「待你确认」：TA 记的共同账单 / 借款 / 还款要我点过才算数，
@@ -109,7 +109,9 @@ const rows = computed<Row[]>(() => {
 
 const toConfirm = computed(() => rows.value.filter((r) => !r.disputed))
 /** TA 申请删除的借款：要我同意才删 */
-const deleteRequests = computed(() => loans.value.filter((l) => l.deleteRequestedBy && l.deleteRequestedBy !== myUid.value))
+const deleteRequests = computed(() =>
+  [...loans.value, ...repayments.value].filter((x) => x.deleteRequestedBy && x.deleteRequestedBy !== myUid.value),
+)
 const disputed = computed(() => rows.value.filter((r) => r.disputed))
 const waitingCount = computed(
   () =>
@@ -186,6 +188,8 @@ const news = computed(() =>
         r.type === 'shared' &&
         r.confirmStatus === 'confirmed' &&
         r.lastEditedBy !== myUid.value &&
+        // 要我确认的那些已经在「待你确认」里处理过了，确认后不再当成「新记的」提醒一遍
+        !needsPartnerConfirm(r, r.lastEditedBy, currentBook.value?.defaultRatio ?? 5) &&
         (r.editedAt || r.createdAt) > seenAt.value,
     )
     .map<Row>((r) => ({
@@ -324,7 +328,7 @@ const open = (row: Row) => {
   </section>
 
   <button v-if="deleteRequests.length" class="card warn del-line" @click="loansPageOpen = true">
-    <span class="title"><AppIcon name="wallet" :size="16" :stroke="2.2" />TA 想删除 {{ deleteRequests.length }} 笔借款</span>
+    <span class="title"><AppIcon name="wallet" :size="16" :stroke="2.2" />TA 想删除 {{ deleteRequests.length }} 笔借款 / 还款</span>
     <span class="later">去看看 ›</span>
   </button>
 

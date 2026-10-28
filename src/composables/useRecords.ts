@@ -73,7 +73,20 @@ const stampLocal = (next: LedgerRecord, prev: LedgerRecord | null, uid: string) 
     CONTENT_KEYS,
   )
   const moneyChanged = !prev || CONTENT_KEYS.some((k) => prev[k] !== next[k])
-  return { ...stamped, editedAt: moneyChanged ? new Date().toISOString() : (prev?.editedAt ?? null) }
+  // 和数据库一致：记账人对「有疑问」的账单只改了分类 / 日期，也重新请对方确认
+  const fixedDispute =
+    !!prev &&
+    !moneyChanged &&
+    prev.confirmStatus === 'disputed' &&
+    prev.lastEditedBy === uid &&
+    (['category', 'subCategory', 'date'] as const).some((k) => prev[k] !== next[k])
+  return {
+    ...stamped,
+    ...(fixedDispute ? { confirmStatus: 'pending' as const } : {}),
+    // 钱变了：之前标的「已收到」不再对得上，取消结清
+    ...(prev && moneyChanged ? { settledOnSpot: false, settledAt: null } : {}),
+    editedAt: moneyChanged ? new Date().toISOString() : (prev?.editedAt ?? null),
+  }
 }
 
 const sortRecords = (list: LedgerRecord[]) =>
@@ -225,7 +238,8 @@ const updateRecord = async (id: string, input: NewRecord) => {
   if (isDemoMode || !supabase) {
     const uid = authUser.value?.id ?? ''
     records.value = sortRecords(
-      records.value.map((r) => (r.id === id ? stampLocal({ ...r, ...input, settledOnSpot: !!input.settledOnSpot }, { ...r, settledOnSpot: !!r.settledOnSpot }, uid) : r)),
+      // 结清只由 setSettled 改，编辑时保留原来的状态（钱变了的话 stampLocal 会取消结清）
+      records.value.map((r) => (r.id === id ? stampLocal({ ...r, ...input, settledOnSpot: r.settledOnSpot }, r, uid) : r)),
     )
     return { error: null }
   }
@@ -238,7 +252,6 @@ const updateRecord = async (id: string, input: NewRecord) => {
       type: input.type,
       payer_uid: input.payerUid,
       ratio: input.ratio,
-      settled_on_spot: !!input.settledOnSpot,
       category: input.category,
       sub_category: input.subCategory,
       note: input.note,

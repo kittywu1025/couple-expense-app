@@ -38,6 +38,11 @@ const proposing = ref(false)
 const myShare = ref(5)
 const tried = ref(false)
 
+// 付钱的人至少承担一成：不会提议成「我付钱却算 TA 请客」
+const iPaid = computed(() => props.record?.payerUid === myUid.value)
+const shareMin = computed(() => (iPaid.value ? 1 : 0))
+const shareMax = computed(() => (iPaid.value ? 10 : 9))
+
 const canPropose = computed(() => props.mode === 'dispute' && props.record?.type === 'shared' && props.record.kind === 'expense')
 /** 快捷原因：多选，再点一次取消；账单和借款 / 还款的选项不一样 */
 const quick = computed(() =>
@@ -53,7 +58,7 @@ watch(
     picked.value = []
     tried.value = false
     proposing.value = false
-    myShare.value = props.record ? shareOf(props.record, myUid.value) : 5
+    myShare.value = Math.min(shareMax.value, Math.max(shareMin.value, props.record ? shareOf(props.record, myUid.value) : 5))
   },
 )
 
@@ -128,8 +133,8 @@ const submit = () => {
           <span class="share">{{ shareText }}</span>
           <span class="who partner"><b class="mono">{{ 10 - myShare }}</b> {{ partnerName }}</span>
         </div>
-        <input v-model.number="myShare" type="range" min="0" max="10" step="1" class="slider" :style="sliderStyle" aria-label="提议的比例" />
-        <p class="hint">TA 一键就能按这个比例改好</p>
+        <input v-model.number="myShare" type="range" :min="shareMin" :max="shareMax" step="1" class="slider" :style="sliderStyle" aria-label="提议的比例" />
+        <p class="hint">TA 一键就能按这个比例改好；付钱的人不能一分不出<template v-if="!iPaid">（想说是 TA 请客的话，就拉到「TA 全出」）</template></p>
       </div>
     </template>
 

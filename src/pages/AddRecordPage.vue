@@ -160,7 +160,14 @@ watch(kind, () => {
   pickCategory(0)
   if (kind.value === 'income') type.value = 'personal'
 })
-watch(myShare, () => haptic(4))
+// 请客的人就是付钱的人：我请客 → 我付；TA 请客 → TA 付（不会出现「我付钱却算 TA 请客」）
+watch(myShare, (share) => {
+  haptic(4)
+  if (share === 10) payerUid.value = myUid.value
+  else if (share === 0 && partner.value) payerUid.value = partner.value.userId
+})
+/** 请客时付款人跟着请客的人，另一边不能选 */
+const payerLocked = computed(() => myShare.value === 10 || myShare.value === 0)
 
 const setType = (t: RecordType) => {
   if (t === 'shared' && !partner.value) {
@@ -293,7 +300,9 @@ const rejectAmount = async (message: string) => {
 
 const buildPayload = (): NewRecord => {
   const shared = type.value === 'shared'
-  const payer = shared ? payerUid.value : myUid.value
+  // 旧账单可能是「我付钱、TA 请客」，保存时按请客的人改成付款人
+  const treater = myShare.value === 10 ? myUid.value : myShare.value === 0 ? partner.value?.userId : undefined
+  const payer = shared ? (treater ?? payerUid.value) : myUid.value
   return {
     amount: amount.value,
     kind: kind.value,
@@ -478,14 +487,19 @@ const requestClose = async () => {
             <button :class="{ on: myShare === 0 }" @click="myShare = 0">TA请客</button>
           </div>
           <div class="payer-line">
-            <span class="hint">谁付的钱</span>
+            <span class="hint">{{ payerLocked ? '请客的人付的钱' : '谁付的钱' }}</span>
             <div class="chips">
-              <button :class="['chip', 'me', { on: payerUid === myUid }]" @click="payerUid = myUid">
+              <button
+                :class="['chip', 'me', { on: payerUid === myUid }]"
+                :disabled="payerLocked && payerUid !== myUid"
+                @click="payerUid = myUid"
+              >
                 <i class="dot" />{{ nameOf(myUid) }}
               </button>
               <button
                 v-if="partner"
                 :class="['chip', 'partner', { on: payerUid === partner.userId }]"
+                :disabled="payerLocked && payerUid !== partner.userId"
                 @click="payerUid = partner.userId"
               >
                 <i class="dot" />{{ partner.displayName }}
@@ -802,6 +816,9 @@ const requestClose = async () => {
   align-items: center;
   gap: 5px;
   transition: all 0.15s;
+}
+.chip:disabled {
+  opacity: 0.35;
 }
 .chip .dot {
   width: 7px;

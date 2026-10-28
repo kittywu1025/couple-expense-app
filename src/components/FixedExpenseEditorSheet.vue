@@ -96,6 +96,13 @@ const nextDue = computed(() =>
   }),
 )
 
+// 请客的人就是付钱的人（和记账页一样）
+watch(myShare, (share) => {
+  if (share === 10) payerUid.value = myUid.value
+  else if (share === 0 && partner.value) payerUid.value = partner.value.userId
+})
+const payerLocked = computed(() => type.value === 'shared' && (myShare.value === 10 || myShare.value === 0))
+
 const sliderStyle = computed(() => {
   const pct = myShare.value * 10
   return { background: `linear-gradient(90deg, var(--me) 0%, var(--me) ${pct}%, var(--partner) ${pct}%, var(--partner) 100%)` }
@@ -112,6 +119,9 @@ const submit = () => {
   if (Object.keys(errors.value).length || props.saving) return
   const [category, sub] = categoryValue.value.split('||')
   const shared = type.value === 'shared'
+  // 旧设置可能是「我付钱、TA 请客」，保存时付款人按请客的人
+  const treater = shared && myShare.value === 10 ? myUid.value : shared && myShare.value === 0 ? partner.value?.userId : undefined
+  const payer = treater ?? payerUid.value
   emit('save', {
     name: name.value.trim(),
     amount: amount.value,
@@ -120,10 +130,10 @@ const submit = () => {
     dayOfMonth: day.value,
     intervalMonths: interval.value,
     ...(firstPick.value ? { startDate: firstPick.value } : {}),
-    payerUid: payerUid.value,
+    payerUid: payer,
     type: type.value,
     // 存「付款人份额」，和账单一致
-    ratio: shared ? (payerUid.value === myUid.value ? myShare.value : 10 - myShare.value) : 10,
+    ratio: shared ? (payer === myUid.value ? myShare.value : 10 - myShare.value) : 10,
   })
 }
 </script>
@@ -198,12 +208,17 @@ const submit = () => {
       <div class="field">
         <span>付款人</span>
         <div class="chips">
-          <button :class="['chip', 'me', { on: payerUid === myUid }]" @click="payerUid = myUid">
+          <button
+            :class="['chip', 'me', { on: payerUid === myUid }]"
+            :disabled="payerLocked && payerUid !== myUid"
+            @click="payerUid = myUid"
+          >
             <i class="dot" />{{ nameOf(myUid) }}
           </button>
           <button
             v-if="partner"
             :class="['chip', 'partner', { on: payerUid === partner.userId }]"
+            :disabled="payerLocked && payerUid !== partner.userId"
             @click="payerUid = partner.userId"
           >
             <i class="dot" />{{ partner.displayName }}
@@ -332,6 +347,9 @@ const submit = () => {
   font-size: 13px;
   color: var(--text-soft);
   background: var(--card);
+}
+.chip:disabled {
+  opacity: 0.35;
 }
 .chip .dot {
   width: 7px;

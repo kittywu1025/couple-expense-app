@@ -13,6 +13,10 @@ import AboutPage from './pages/AboutPage.vue'
 import CalendarPage from './pages/CalendarPage.vue'
 import BookSettingsPage from './pages/BookSettingsPage.vue'
 import MonthRecap from './components/MonthRecap.vue'
+import InviteSheet from './components/InviteSheet.vue'
+import AppIcon from './components/AppIcon.vue'
+import { usePullToRefresh } from './composables/usePullToRefresh'
+import { clearPendingInvite, pendingInvite } from './composables/useInvite'
 import SettlementRulesPage from './pages/SettlementRulesPage.vue'
 import { useFixedExpenses } from './composables/useFixedExpenses'
 // 本机偏好（金额配色等）在启动时就要生效
@@ -74,6 +78,17 @@ watch(screen, (next) => {
   activeTab.value = 'home'
 })
 
+// 已经在账本里又点了别人的邀请链接：一个人只能在一个账本，提示一下就好
+watch(
+  () => screen.value === 'app' && !!pendingInvite.value,
+  (stale) => {
+    if (!stale) return
+    clearPendingInvite()
+    toast.info('你已经在一个账本里了，邀请链接就不用了')
+  },
+  { immediate: true },
+)
+
 // 进入账本、回到前台时检查到期的固定扣款，自动记账
 const { generateDue } = useFixedExpenses()
 const runFixedExpenses = async () => {
@@ -94,6 +109,18 @@ const refreshOnVisible = () => {
   loadBook().then(loadRecords).then(runFixedExpenses)
 }
 onMounted(() => document.addEventListener('visibilitychange', refreshOnVisible))
+
+// 首页、统计页下拉刷新：重新拉账本、账单，顺便检查固定扣款
+const pullEnabled = computed(() => screen.value === 'app' && activeTab.value !== 'me')
+const pull = usePullToRefresh(pullEnabled, async () => {
+  await loadBook()
+  await loadRecords()
+  await runFixedExpenses()
+  toast.success('已经是最新的了')
+})
+const pullLabel = computed(() =>
+  pull.refreshing.value ? '正在刷新…' : pull.distance.value >= 64 ? '松手刷新' : '下拉刷新',
+)
 onBeforeUnmount(() => document.removeEventListener('visibilitychange', refreshOnVisible))
 
 if (typeof window !== 'undefined' && window.sessionStorage.getItem('pwa-updated') === '1') {
@@ -134,7 +161,27 @@ watch(updateAvailable, (visible) => {
   <BookSetupPage v-else-if="screen === 'setup'" />
 
   <template v-else>
-    <main class="main">
+    <div
+      class="pull"
+      :style="{
+        height: pull.distance.value + 'px',
+        opacity: Math.min(1, pull.distance.value / 40),
+        transition: pull.pulling.value ? 'none' : 'height 0.25s ease, opacity 0.25s ease',
+      }"
+      aria-live="polite"
+    >
+      <span :class="['pull-icon', { spin: pull.refreshing.value }]" :style="{ transform: pull.refreshing.value ? undefined : `rotate(${pull.distance.value * 4}deg)` }">
+        <AppIcon name="swap" :size="16" :stroke="2.2" />
+      </span>
+      <span>{{ pullLabel }}</span>
+    </div>
+    <main
+      class="main"
+      :style="{
+        transform: pull.distance.value ? `translateY(${pull.distance.value}px)` : undefined,
+        transition: pull.pulling.value ? 'none' : 'transform 0.25s ease',
+      }"
+    >
       <!-- 页面有多个根节点，Transition 需要包一层单根元素 -->
       <transition name="tab" mode="out-in">
         <div :key="activeTab">
@@ -146,6 +193,7 @@ watch(updateAvailable, (visible) => {
     </main>
     <TabBar v-model="activeTab" @add="openAddSheet" />
     <MonthRecap :show-trigger="activeTab === 'home'" />
+    <InviteSheet />
     <transition name="push">
       <ProfileDetailPage v-if="profilePageOpen" />
     </transition>
@@ -171,6 +219,29 @@ watch(updateAvailable, (visible) => {
 </template>
 
 <style scoped>
+.pull {
+  position: fixed;
+  top: env(safe-area-inset-top, 0px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+.pull-icon {
+  display: grid;
+  place-items: center;
+  color: var(--primary);
+}
+.pull-icon.spin {
+  animation: spin 0.8s linear infinite;
+}
 .main {
   max-width: 560px;
   margin: 0 auto;

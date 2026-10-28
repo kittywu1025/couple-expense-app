@@ -1,6 +1,6 @@
 {
-  "name": "情侣同居开销记录",
-  "short_name": "同居开销",
+  "name": "两个人的账本",
+  "short_name": "两个人的账本",
   "description": "记录情侣日常开销，支持离线使用与安装体验。",
   "start_url": "/",
   "display": "standalone",

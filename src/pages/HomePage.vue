@@ -8,7 +8,7 @@ import SkeletonList from '../components/SkeletonList.vue'
 import AppIcon from '../components/AppIcon.vue'
 import { useBooks } from '../composables/useBooks'
 import { useRecords } from '../composables/useRecords'
-import { calendarPageOpen, openAddSheet } from '../composables/useUi'
+import { calendarPageOpen, inviteSheetOpen, openAddSheet } from '../composables/useUi'
 import { HOME_CARDS, homeCardPref, type HomeCard } from '../composables/usePrefs'
 import { toast } from '../composables/useToast'
 import type { LedgerRecord } from '../types'
@@ -126,16 +126,6 @@ const retry = async () => {
   if (!recordsError.value) toast.success('已重新加载')
 }
 
-const copyInvite = async () => {
-  const code = currentBook.value?.inviteCode
-  if (!code) return
-  try {
-    await navigator.clipboard.writeText(code)
-    toast.success('邀请码已复制，发给 TA 吧')
-  } catch {
-    toast.info(`邀请码：${code}`)
-  }
-}
 </script>
 
 <template>
@@ -168,7 +158,7 @@ const copyInvite = async () => {
     <WeekLineChart :points="weekPoints" />
   </section>
 
-  <button v-if="!partner" class="invite" @click="copyInvite">
+  <button v-if="!partner" class="invite" @click="inviteSheetOpen = true">
     <span class="invite-icon"><AppIcon name="mail" :size="22" /></span>
     <span class="invite-text">
       <b>邀请 TA 一起记账</b>

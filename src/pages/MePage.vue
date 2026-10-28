@@ -6,12 +6,12 @@ import { HOME_CARDS, homeCardPref } from '../composables/usePrefs'
 import { useBooks } from '../composables/useBooks'
 import { useSupabaseAuth } from '../composables/useSupabaseAuth'
 import { toast } from '../composables/useToast'
-import { aboutPageOpen, bookSettingsOpen, confirmAction, openFixedPage, openProfilePage } from '../composables/useUi'
+import { aboutPageOpen, bookSettingsOpen, confirmAction, inviteSheetOpen, openFixedPage, openProfilePage } from '../composables/useUi'
 import { useFixedExpenses } from '../composables/useFixedExpenses'
 import { formatMoneyShort } from '../utils/format'
 import AppIcon from '../components/AppIcon.vue'
 
-const { currentBook, members, me, partner, myUid, leaveBook, bookActionLoading } = useBooks()
+const { members, me, partner, myUid, leaveBook, bookActionLoading } = useBooks()
 const { authDisplayName, signOut } = useSupabaseAuth()
 
 const myName = computed(() => me.value?.displayName || authDisplayName.value)
@@ -25,15 +25,6 @@ const fixedSummary = computed(() =>
     : '未设置',
 )
 
-const copyCode = async () => {
-  if (!currentBook.value) return
-  try {
-    await navigator.clipboard.writeText(currentBook.value.inviteCode)
-    toast.success('邀请码已复制，发给 TA 吧')
-  } catch {
-    toast.info(`邀请码：${currentBook.value.inviteCode}`)
-  }
-}
 
 const onLeave = async () => {
   const ok = await confirmAction({
@@ -98,8 +89,8 @@ const onSeed = async () => {
         <i :class="['avatar', 'sm', m.userId === myUid ? 'me' : 'partner']">{{ initial(m.displayName) }}</i>
         {{ m.displayName }}
       </span>
-      <button v-if="members.length < 2" class="invite" @click="copyCode">
-        <AppIcon name="plus" :size="14" :stroke="2.4" />邀请码 <b class="mono">{{ currentBook?.inviteCode }}</b>
+      <button v-if="members.length < 2" class="invite" @click="inviteSheetOpen = true">
+        <AppIcon name="plus" :size="14" :stroke="2.4" />邀请 TA
       </button>
     </span>
   </section>

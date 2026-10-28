@@ -3,6 +3,10 @@ import './style.css'
 import App from './App.vue'
 import { registerPwaRegistration, setPwaUpdated, showPwaUpdate } from './composables/usePwaUpdate'
 import { setAppError } from './composables/useRuntimeStatus'
+import { captureInviteFromUrl } from './composables/useInvite'
+
+// 通过邀请链接打开时，先记下邀请码（登录跳转回来后网址参数会丢）
+captureInviteFromUrl()
 
 const renderFatalError = () => {
   const target = document.querySelector('#app')

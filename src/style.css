@@ -49,6 +49,8 @@ html {
 
 body {
   margin: 0;
+  /* 关掉浏览器自带的下拉刷新（会整页重载），用 App 自己的 */
+  overscroll-behavior-y: none;
   color: var(--text);
   background: var(--bg);
 }

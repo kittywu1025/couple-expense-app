@@ -29,6 +29,9 @@ export const fixedPageOpen = ref(false)
 export const openFixedPage = () => (fixedPageOpen.value = true)
 export const closeFixedPage = () => (fixedPageOpen.value = false)
 
+/** 邀请 TA 的弹窗（链接 + 邀请码） */
+export const inviteSheetOpen = ref(false)
+
 /** 账本设置（「我的」二级菜单） */
 export const bookSettingsOpen = ref(false)
 

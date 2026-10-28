@@ -8,10 +8,13 @@ import { authColor, authDisplayName, authGender, useSupabaseAuth } from '../comp
 import { MEMBER_COLORS, defaultColorFor, swatchOf } from '../utils/palette'
 import { toast } from '../composables/useToast'
 import AppIcon from '../components/AppIcon.vue'
+import { clearPendingInvite, pendingInvite } from '../composables/useInvite'
 
 const { createBook, joinBook, takenColorsForInvite, bookActionLoading } = useBooks()
 const { signOut, updateProfile } = useSupabaseAuth()
-const code = ref('')
+// 通过邀请链接来的，邀请码已经填好
+const invited = !!pendingInvite.value
+const code = ref(pendingInvite.value ?? '')
 
 // 性别在注册时已选好（ProfileSetupPage），这里直接带上
 const requireGender = () => {
@@ -25,7 +28,10 @@ const onCreate = async () => {
   if (!g) return
   const { error } = await createBook(g, authColor.value ?? defaultColorFor(g))
   if (error) toast.error(error.message)
-  else toast.success('账本已创建，把邀请码发给 TA 吧')
+  else {
+    clearPendingInvite()
+    toast.success('账本已创建，去「我的」里把邀请链接发给 TA 吧')
+  }
 }
 
 const onJoin = async () => {
@@ -49,7 +55,8 @@ const tryJoin = async (color: MemberColor) => {
   const { error } = await joinBook(code.value, g, color)
   if (!error) {
     conflictOpen.value = false
-    toast.success('已加入账本')
+    clearPendingInvite()
+    toast.success('已加入账本，一起记账吧')
     return
   }
   if (error.message.includes('对方已选择该颜色')) {
@@ -83,7 +90,8 @@ const confirmRetry = async () => {
       <button class="primary" :disabled="bookActionLoading" @click="onCreate">{{ bookActionLoading ? '请稍候…' : '创建账本' }}</button>
     </section>
 
-    <section class="card">
+    <section :class="['card', { invited }]">
+      <p v-if="invited" class="invited-tip">你收到了一个邀请，邀请码已经帮你填好了</p>
       <div class="emoji"><AppIcon name="link" :size="22" /></div>
       <h2>加入 TA 的账本</h2>
       <input
@@ -192,6 +200,22 @@ h2 {
 }
 button:disabled {
   opacity: 0.6;
+}
+.setup > header {
+  order: -2;
+}
+.card.invited {
+  order: -1;
+  box-shadow: 0 0 0 2px var(--primary);
+}
+.invited-tip {
+  margin: 0 0 4px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--primary-soft);
+  color: var(--primary) !important;
+  font-size: 13px;
+  font-weight: 600;
 }
 .logout {
   margin-top: auto;

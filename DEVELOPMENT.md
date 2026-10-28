@@ -1,0 +1,51 @@
+# 开发笔记
+
+给自己看的：数据结构、Supabase 初始化、本地开发。怎么用 App 见 [README.md](README.md)，每次更新了什么见 [CHANGELOG.md](CHANGELOG.md)。
+
+技术栈：Vue 3 + Vite + TypeScript + Supabase，PWA。
+
+## 结算规则
+
+每笔共同记录存 `ratio` = **付款人承担的份额**（0–10）：
+
+- 对方应付给付款人 = `amount × (10 − ratio) / 10`
+- `ratio = 10`（付款人请客）或 `ratio = 0`（对方请客）不产生债务，只计请客次数
+- 月末差额 = 我应付合计 − 对方应付给我合计；正数我转给对方，负数对方转给我
+
+记账页的滑条始终是「我 : TA」，保存时按付款人换算成 `ratio`。
+
+## 初始化 Supabase
+
+1. 在 SQL Editor **按文件名顺序**执行 `supabase/migrations/` 下的新文件（都可重复执行；旧的 `expenses` 等表不受影响）：
+   - `20261017_rebuild_books_records.sql`
+   - `20261018_member_colors.sql`
+   - `20261019_custom_categories.sql`
+   - `20261020_registration_rules.sql`
+   - `20261021_revoke_anon_rpc.sql`
+   - `20261022_fixed_expenses.sql`
+   - `20261024_record_permissions.sql`
+   - `20261028_confirm_and_loans.sql`
+   - `20261028_interval_and_settle.sql`
+   - `20261028_loans_delete_request.sql`
+   - `20261028_quieter_confirm.sql`
+2. Authentication → Providers → 开启 **Google**，填入 Google Cloud 的 OAuth Client ID / Secret
+3. Authentication → URL Configuration → Redirect URLs 加入 `http://localhost:5173/**`、`http://<本机局域网IP>:5173/**`；Site URL 填线上地址
+4. 复制 `.env.example` 为 `.env.local`，填写 `VITE_SUPABASE_URL` 和 `VITE_SUPABASE_ANON_KEY`
+
+## 开发
+
+不登录预览界面（演示数据）：`VITE_DEMO_MODE=true npm run dev`
+
+
+```bash
+npm install
+npm run dev
+```
+
+## 项目结构
+
+- `src/App.vue` — 登录 / 建账本 / 主界面切换，`activeTab` 条件渲染
+- `src/pages/` — `AuthPage` `BookSetupPage` `HomePage` `StatsPage` `MePage` `AddRecordPage`
+- `src/components/` — `TabBar`（含 FAB）、`RecordList`、`WeekLineChart`（手写 SVG）、`ToastViewport`
+- `src/composables/` — `useSupabaseAuth`（Google OAuth）、`useBooks`（账本与成员）、`useRecords`（账单）、`useToast`、`usePwaUpdate`、`useRuntimeStatus`
+- `src/utils/` — `categories`（分类定义）、`settlement`（结算 / 周期计算）、`format`

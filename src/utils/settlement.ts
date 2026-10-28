@@ -15,6 +15,22 @@ export const shareOf = (r: LedgerRecord, uid: string) => {
 }
 
 /**
+ * 记这笔的人是 actor 时，另一个人要承担几成（0-10）
+ */
+export const partnerShareFor = (r: Pick<LedgerRecord, 'payerUid' | 'ratio'>, actor: string) =>
+  r.payerUid === actor ? 10 - r.ratio : r.ratio
+
+/**
+ * 要不要对方确认（和数据库 confirm_guard 一致）：共同账单里对方承担的比账本默认比例多才要，
+ * 比如记成「TA 请客」「TA 多出」；我请客、按默认比例 AA 记了就算，只提醒对方一下。
+ */
+export const needsPartnerConfirm = (
+  r: Pick<LedgerRecord, 'type' | 'payerUid' | 'ratio'>,
+  actor: string,
+  defaultRatio: number,
+) => r.type === 'shared' && partnerShareFor(r, actor) > 10 - defaultRatio
+
+/**
  * 共同记录要两个人都确认过才分摊；确认之前（等确认 / 有疑问）先全算付款人自己的。
  * 显示比例时仍用记的 ratio（shareOf / isTreat），算钱时用 bearOf / debtOf。
  */

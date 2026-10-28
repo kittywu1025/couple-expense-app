@@ -26,6 +26,7 @@ const normalizeLoan = (row: Record<string, unknown>): Loan => ({
   borrowerUid: String(row.borrower_uid),
   amount: Number(row.amount),
   currency: isCurrencyCode(row.currency) ? row.currency : (currentBook.value?.currency ?? 'JPY'),
+  deleteRequestedBy: row.delete_requested_by ? String(row.delete_requested_by) : null,
   note: row.note ? String(row.note) : null,
   date: String(row.date),
   createdBy: String(row.created_by),
@@ -98,11 +99,13 @@ const addLoan = async (input: LoanInput) => {
       bookId,
       createdBy: uid,
       createdAt: new Date().toISOString(),
-      confirmStatus: 'pending',
+      // 借款记了就算，不用对方确认
+      confirmStatus: 'confirmed',
       lastEditedBy: uid,
       discussion: [],
+      deleteRequestedBy: null,
     }
-    loans.value = byDateDesc([stampConfirm(local, null, uid, !!partner.value, []), ...loans.value])
+    loans.value = byDateDesc([local, ...loans.value])
     return { error: null }
   }
   const { data, error } = await supabase
@@ -124,12 +127,28 @@ const addLoan = async (input: LoanInput) => {
   return { error: null }
 }
 
+/** 申请删除 / 撤回申请 / 不同意：都是改 delete_requested_by */
+const setDeleteRequest = async (id: string, by: string | null) => {
+  if (!isDemoMode && supabase) {
+    const { data, error } = await supabase.from('loans').update({ delete_requested_by: by }).eq('id', id).select().single()
+    if (error) return { error: new Error(formatSupabaseError(error, '操作失败，请稍后重试。')) }
+    const next = normalizeLoan(data)
+    loans.value = loans.value.map((l) => (l.id === id ? next : l))
+    return { error: null }
+  }
+  loans.value = loans.value.map((l) => (l.id === id ? { ...l, deleteRequestedBy: by } : l))
+  return { error: null }
+}
+const requestDeleteLoan = (id: string) => setDeleteRequest(id, authUser.value?.id ?? null)
+const cancelDeleteLoan = (id: string) => setDeleteRequest(id, null)
+
+/** 同意对方的删除申请：真正删掉（还款记录一起删） */
 const removeLoan = async (id: string) => {
   if (!isDemoMode && supabase) {
     // RLS 不允许时 delete 不报错只是删 0 行，用 select 判断
     const { data, error } = await supabase.from('loans').delete().eq('id', id).select('id')
     if (error) return { error: new Error(formatSupabaseError(error, '删除失败，请稍后重试。')) }
-    if (!data?.length) return { error: new Error('TA 已经确认过的借款，只有借出的人能删') }
+    if (!data?.length) return { error: new Error('要先由一个人申请删除，另一个人同意才能删') }
   }
   loans.value = loans.value.filter((l) => l.id !== id)
   repayments.value = repayments.value.filter((r) => r.loanId !== id)
@@ -232,5 +251,5 @@ watch(
 )
 
 export function useLoans() {
-  return { loans, repayments, loading, progress, load, addLoan, removeLoan, addRepayment, removeRepayment, respondLoans, respondRepayments, replyLoan, replyRepayment }
+  return { loans, repayments, loading, progress, load, addLoan, removeLoan, requestDeleteLoan, cancelDeleteLoan, addRepayment, removeRepayment, respondLoans, respondRepayments, replyLoan, replyRepayment }
 }

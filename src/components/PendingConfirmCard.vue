@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import CategoryIcon from './CategoryIcon.vue'
 import RecordDetailSheet from './RecordDetailSheet.vue'
@@ -20,7 +20,7 @@ import { isTreat, shareOf, treaterOf } from '../utils/settlement'
  * 首页「待你确认」：TA 记的共同账单 / 借款 / 还款要我点过才算数，
  * 免得一方把个人花销随手记成共同。
  */
-const { myUid, nameOf, otherUid } = useBooks()
+const { myUid, nameOf, otherUid, currentBook } = useBooks()
 const { records, respondRecords } = useRecords()
 const { loans, repayments, respondLoans, respondRepayments } = useLoans()
 
@@ -108,6 +108,8 @@ const rows = computed<Row[]>(() => {
 })
 
 const toConfirm = computed(() => rows.value.filter((r) => !r.disputed))
+/** TA 申请删除的借款：要我同意才删 */
+const deleteRequests = computed(() => loans.value.filter((l) => l.deleteRequestedBy && l.deleteRequestedBy !== myUid.value))
 const disputed = computed(() => rows.value.filter((r) => r.disputed))
 const waitingCount = computed(
   () =>
@@ -149,7 +151,7 @@ const readExpanded = (): Record<string, boolean> => {
   }
 }
 const expandedCards = ref(readExpanded())
-const toggle = (key: 'confirm' | 'disputed') => {
+const toggle = (key: 'confirm' | 'disputed' | 'news') => {
   expandedCards.value = { ...expandedCards.value, [key]: !expandedCards.value[key] }
   try {
     localStorage.setItem(EXPAND_KEY, JSON.stringify(expandedCards.value))
@@ -159,6 +161,53 @@ const toggle = (key: 'confirm' | 'disputed') => {
 }
 const confirmCollapsed = computed(() => !expandedCards.value.confirm)
 const disputedCollapsed = computed(() => !expandedCards.value.disputed)
+const newsCollapsed = computed(() => !expandedCards.value.news)
+
+// ── 提醒：TA 新记 / 改了钱的共同账单（不用确认的，比如默认比例 AA、TA 请客），点「知道了」就清掉 ──
+// 看过到哪儿记在这台手机上；第一次用时从现在开始算，不翻旧账
+const seenKey = computed(() => `couple-expense-seen:${currentBook.value?.id ?? ''}:${myUid.value}`)
+const readSeen = (key: string) => {
+  try {
+    const v = localStorage.getItem(key)
+    if (v) return v
+    const now = new Date().toISOString()
+    localStorage.setItem(key, now)
+    return now
+  } catch {
+    return new Date().toISOString()
+  }
+}
+const seenAt = ref(readSeen(seenKey.value))
+watch(seenKey, (k) => (seenAt.value = readSeen(k)))
+const news = computed(() =>
+  records.value
+    .filter(
+      (r) =>
+        r.type === 'shared' &&
+        r.confirmStatus === 'confirmed' &&
+        r.lastEditedBy !== myUid.value &&
+        (r.editedAt || r.createdAt) > seenAt.value,
+    )
+    .map<Row>((r) => ({
+      kind: 'record',
+      id: r.id,
+      title: r.note || r.subCategory || r.category,
+      sub: `${formatDateLabel(r.date)} · ${recordSub(r)}${r.createdAt > seenAt.value ? '' : ' · 改过'}`,
+      amount: r.amount,
+      icon: recordIcon(r.category, r.subCategory),
+      color: recordColor(r.category),
+      disputed: false,
+      last: '',
+    })),
+)
+const markSeen = () => {
+  seenAt.value = new Date().toISOString()
+  try {
+    localStorage.setItem(seenKey.value, seenAt.value)
+  } catch {
+    // 存不了就只在这次生效
+  }
+}
 
 // 有疑问：先写留言（账单还能提议比例）再发
 const disputing = ref<Row | null>(null)
@@ -210,7 +259,7 @@ const open = (row: Row) => {
       <button v-else-if="toConfirm.length > 1" class="all" :disabled="busy" @click="respond(toConfirm, 'confirmed')">全部确认</button>
     </div>
     <template v-if="!confirmCollapsed">
-    <p class="desc">TA 记成了共同的，确认后才算两个人的</p>
+    <p class="desc">这些让你承担的比平时多（比如记成你请客），确认后才算</p>
     <div v-for="row in shownRows" :key="row.kind + row.id" class="row">
       <button class="main" @click="open(row)">
         <CategoryIcon :name="row.icon" :color="row.color" :size="36" />
@@ -228,6 +277,27 @@ const open = (row: Row) => {
     <button v-if="toConfirm.length > LIMIT" class="more" @click="expanded = !expanded">
       {{ expanded ? '收起' : `还有 ${toConfirm.length - LIMIT} 笔` }}
     </button>
+    </template>
+  </section>
+
+  <section v-if="news.length" :class="['card', 'news', { collapsed: newsCollapsed }]">
+    <div class="head">
+      <button class="title" :aria-expanded="!newsCollapsed" @click="toggle('news')">
+        <AppIcon name="receipt" :size="16" :stroke="2.2" />TA 新记了 {{ news.length }} 笔共同账单
+        <AppIcon name="chevronRight" :size="15" :stroke="2.2" :class="['arrow', { open: !newsCollapsed }]" />
+      </button>
+      <button class="all" @click="markSeen">知道了</button>
+    </div>
+    <template v-if="!newsCollapsed">
+      <p class="desc">这些不用你确认，已经算进账本；不对的话点进去「有疑问」</p>
+      <button v-for="row in news" :key="row.id" class="row main" @click="open(row)">
+        <CategoryIcon :name="row.icon" :color="row.color" :size="36" />
+        <span class="info">
+          <span class="line"><span class="name">{{ row.title }}</span><span class="mono amount">{{ formatMoney(row.amount) }}</span></span>
+          <span class="sub">{{ row.sub }}</span>
+        </span>
+        <AppIcon name="chevronRight" :size="16" class="chev" />
+      </button>
     </template>
   </section>
 
@@ -252,6 +322,11 @@ const open = (row: Row) => {
     </button>
     </template>
   </section>
+
+  <button v-if="deleteRequests.length" class="card warn del-line" @click="loansPageOpen = true">
+    <span class="title"><AppIcon name="wallet" :size="16" :stroke="2.2" />TA 想删除 {{ deleteRequests.length }} 笔借款</span>
+    <span class="later">去看看 ›</span>
+  </button>
 
   <p v-if="waitingCount && !toConfirm.length" class="waiting">
     <AppIcon name="check" :size="13" :stroke="2.4" />你记的 {{ waitingCount }} 笔共同账单在等 TA 确认
@@ -295,6 +370,19 @@ const open = (row: Row) => {
   font-size: 13px;
   color: var(--text-soft);
   padding: 4px 10px;
+}
+.del-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding-bottom: 12px;
+}
+.card.news {
+  box-shadow: inset 0 0 0 1.5px rgba(52, 179, 138, 0.35);
+}
+.news .title {
+  color: #2a9b76;
 }
 .card.warn {
   box-shadow: inset 0 0 0 1.5px rgba(255, 149, 0, 0.35);

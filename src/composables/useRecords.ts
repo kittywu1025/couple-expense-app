@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { createDemoRecords, isDemoMode } from '../lib/demo'
 import type { ConfirmStatus, LedgerRecord, NewRecord } from '../types'
 import { newEntry, parseDiscussion, stampConfirm } from '../utils/confirm'
+import { needsPartnerConfirm } from '../utils/settlement'
 import { formatSupabaseError, useBooks } from './useBooks'
 import { authUser } from './useSupabaseAuth'
 import { setSyncWarning } from './useRuntimeStatus'
@@ -48,6 +49,7 @@ const normalizeRecord = (row: Record<string, unknown>): LedgerRecord => ({
   ratio: Number(row.ratio ?? 5),
   settledOnSpot: !!row.settled_on_spot,
   settledAt: row.settled_at ? String(row.settled_at) : null,
+  editedAt: row.edited_at ? String(row.edited_at) : String(row.created_at ?? ''),
   category: String(row.category ?? '其他'),
   subCategory: row.sub_category ? String(row.sub_category) : null,
   note: row.note ? String(row.note) : null,
@@ -60,10 +62,19 @@ const normalizeRecord = (row: Record<string, unknown>): LedgerRecord => ({
 })
 
 /** 改了这些才需要对方重新确认（只改备注不用） */
-const CONTENT_KEYS: (keyof LedgerRecord)[] = ['amount', 'kind', 'type', 'payerUid', 'ratio', 'category', 'subCategory', 'date']
+const CONTENT_KEYS: (keyof LedgerRecord)[] = ['amount', 'kind', 'type', 'payerUid', 'ratio']
 /** 演示模式：模拟数据库的确认守卫 */
-const stampLocal = (next: LedgerRecord, prev: LedgerRecord | null, uid: string) =>
-  stampConfirm(next, prev, uid, next.type === 'shared' && !!partner.value, CONTENT_KEYS)
+const stampLocal = (next: LedgerRecord, prev: LedgerRecord | null, uid: string) => {
+  const stamped = stampConfirm(
+    next,
+    prev,
+    uid,
+    !!partner.value && needsPartnerConfirm(next, uid, currentBook.value?.defaultRatio ?? 5),
+    CONTENT_KEYS,
+  )
+  const moneyChanged = !prev || CONTENT_KEYS.some((k) => prev[k] !== next[k])
+  return { ...stamped, editedAt: moneyChanged ? new Date().toISOString() : (prev?.editedAt ?? null) }
+}
 
 const sortRecords = (list: LedgerRecord[]) =>
   [...list].sort((a, b) => (a.date === b.date ? b.createdAt.localeCompare(a.createdAt) : b.date.localeCompare(a.date)))

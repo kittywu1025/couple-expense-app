@@ -16,7 +16,7 @@ import { canRespond, confirmLabel, disputedByPartner } from '../utils/confirm'
 import { formatDateLabel, formatMoney, todayKey } from '../utils/format'
 
 const { myUid, partner, nameOf, currentBook } = useBooks()
-const { loans, progress, addLoan, removeLoan, addRepayment, removeRepayment, respondLoans, respondRepayments, replyLoan, replyRepayment } =
+const { loans, progress, addLoan, removeLoan, requestDeleteLoan, cancelDeleteLoan, addRepayment, removeRepayment, respondLoans, respondRepayments, replyLoan, replyRepayment } =
   useLoans()
 const partnerName = computed(() => partner.value?.displayName ?? 'TA')
 
@@ -37,6 +37,68 @@ const sumRemaining = (list: Loan[]) => {
 const lentOut = computed(() => sumRemaining(active.value.filter((l) => l.lenderUid === myUid.value)))
 const borrowed = computed(() => sumRemaining(active.value.filter((l) => l.borrowerUid === myUid.value)))
 const showSettled = ref(false)
+
+/**
+ * 互相抵消：同一种货币里，我借 TA 的和 TA 借我的可以对冲。
+ * 只算两个人都确认过、还没还完的（等确认的还款先扣掉，免得重复抵）。
+ */
+const offsets = computed(() => {
+  const open = active.value
+    .filter((l) => l.confirmStatus === 'confirmed')
+    .map((l) => ({ loan: l, avail: Math.round((prog(l).remaining - prog(l).pending) * 100) / 100 }))
+    .filter((x) => x.avail > 0)
+    // 先抵最早的那笔
+    .sort((a, b) => a.loan.date.localeCompare(b.loan.date) || a.loan.createdAt.localeCompare(b.loan.createdAt))
+  const currencies = [...new Set(open.map((x) => x.loan.currency))]
+  return currencies
+    .map((currency) => {
+      const iOwe = open.filter((x) => x.loan.currency === currency && x.loan.borrowerUid === myUid.value)
+      const theyOwe = open.filter((x) => x.loan.currency === currency && x.loan.lenderUid === myUid.value)
+      const a = iOwe.reduce((s, x) => s + x.avail, 0)
+      const b = theyOwe.reduce((s, x) => s + x.avail, 0)
+      const amount = Math.min(a, b)
+      // 从最早的借款开始，一笔笔扣到 amount 为止
+      const allocate = (list: typeof open) => {
+        let left = amount
+        return list.flatMap((x) => {
+          const take = Math.min(left, x.avail)
+          left = Math.round((left - take) * 100) / 100
+          return take > 0 ? [{ loanId: x.loan.id, amount: take }] : []
+        })
+      }
+      return { currency, iOwe: a, theyOwe: b, amount, net: b - a, parts: amount > 0 ? [...allocate(iOwe), ...allocate(theyOwe)] : [] }
+    })
+    .filter((o) => o.amount > 0)
+})
+const netText = (o: { net: number; currency: string }) =>
+  o.net > 0
+    ? `${partnerName.value}还欠我 ${formatMoney(o.net, o.currency)}`
+    : o.net < 0
+      ? `我还欠${partnerName.value} ${formatMoney(-o.net, o.currency)}`
+      : '正好两清'
+
+const offsetting = ref(false)
+const runOffset = async (o: (typeof offsets.value)[number]) => {
+  const ok = await confirmAction({
+    title: `互相抵消 ${formatMoney(o.amount, o.currency)}？`,
+    message: `会给双方的借款各记一笔 ${formatMoney(o.amount, o.currency)} 的还款（备注「互相抵消」），${partnerName.value}确认后生效。抵消后${netText(o)}。`,
+    confirmText: '抵消',
+  })
+  if (!ok) return
+  offsetting.value = true
+  const today = todayKey()
+  for (const p of o.parts) {
+    const { error } = await addRepayment(p.loanId, { amount: p.amount, date: today, note: '互相抵消' })
+    if (error) {
+      offsetting.value = false
+      toast.error(error.message)
+      return
+    }
+  }
+  offsetting.value = false
+  haptic()
+  toast.success(`已记下抵消，等${partnerName.value}确认`)
+}
 
 const title = (l: Loan) => (l.lenderUid === myUid.value ? `借给${nameOf(l.borrowerUid)}` : `向${nameOf(l.lenderUid)}借`)
 const pct = (l: Loan) => Math.min(100, Math.round(((l.amount - prog(l).remaining) / l.amount) * 100))
@@ -87,7 +149,7 @@ const saveLoan = async () => {
   }
   haptic()
   editorOpen.value = false
-  toast.success(`已记下，等${partnerName.value}确认`)
+  toast.success('已记下')
 }
 
 // ── 借款详情 ──
@@ -174,14 +236,29 @@ const lastWord = (r: LoanRepayment) => {
   return e ? `${e.by === myUid.value ? '我' : nameOf(e.by)}：${e.text}` : ''
 }
 
-const onDeleteLoan = async (l: Loan) => {
+// ── 删除借款：一个人申请，另一个人同意才删 ──
+const onRequestDelete = async (l: Loan) => {
   const ok = await confirmAction({
-    title: '删除这笔借款？',
-    message:
-      l.lenderUid === myUid.value && l.confirmStatus === 'confirmed'
-        ? '删掉就相当于不用还了，还款记录也会一起删掉。'
-        : '还款记录也会一起删掉，两个人都看不到。',
-    confirmText: '删除',
+    title: '申请删除这笔借款？',
+    message: `${partnerName.value}同意后才会删除，还款记录也会一起删掉。`,
+    confirmText: '申请删除',
+    danger: true,
+  })
+  if (!ok) return
+  const { error } = await requestDeleteLoan(l.id)
+  if (error) toast.error(error.message)
+  else toast.success(`已申请，等${partnerName.value}同意`)
+}
+const onCancelDelete = async (l: Loan, mine: boolean) => {
+  const { error } = await cancelDeleteLoan(l.id)
+  if (error) toast.error(error.message)
+  else toast.success(mine ? '已撤回删除申请' : `已告诉${partnerName.value}先不删`)
+}
+const onApproveDelete = async (l: Loan) => {
+  const ok = await confirmAction({
+    title: '同意删除这笔借款？',
+    message: '删除后两个人都看不到，还款记录也会一起删掉，无法恢复。',
+    confirmText: '同意删除',
     danger: true,
   })
   if (!ok) return
@@ -202,8 +279,6 @@ const onDeleteRepay = async (r: LoanRepayment) => {
   else toast.success('已删除')
 }
 
-// 借出的人可以删；自己记的、对方还没确认的也能删（和数据库规则一致）
-const canDeleteLoan = (l: Loan) => l.lenderUid === myUid.value || (l.createdBy === myUid.value && l.confirmStatus !== 'confirmed')
 const canDeleteRepay = (l: Loan, r: LoanRepayment) =>
   l.lenderUid === myUid.value || (r.createdBy === myUid.value && r.confirmStatus !== 'confirmed')
 </script>
@@ -225,7 +300,7 @@ const canDeleteRepay = (l: Loan, r: LoanRepayment) =>
         <span>我借的还没还</span>
         <b v-for="t in borrowed" :key="t" class="mono">{{ t }}</b>
       </div>
-      <small>和每月的共同开销分开算；两个人都确认过的才计入</small>
+      <small>和每月的共同开销分开算；还款要对方确认后才扣</small>
     </section>
 
     <section v-if="!loans.length" class="empty">
@@ -250,10 +325,23 @@ const canDeleteRepay = (l: Loan, r: LoanRepayment) =>
         <span class="line meta">
           <span>{{ formatDateLabel(l.date) }}<template v-if="l.note"> · {{ l.note }}</template></span>
           <span>
-            <em v-if="l.confirmStatus !== 'confirmed'" :class="['status', l.confirmStatus]">{{ confirmLabel(l, myUid) }}</em>
-            还剩 <b class="mono">{{ formatMoney(prog(l).remaining, l.currency) }}</b>
+            <em v-if="l.deleteRequestedBy" class="status disputed">{{ l.deleteRequestedBy === myUid ? '申请删除中' : 'TA 想删除' }}</em>
+            <em v-else-if="l.confirmStatus !== 'confirmed'" :class="['status', l.confirmStatus]">{{ confirmLabel(l, myUid) }}</em>
+            还剩 <b class="mono">{{ formatMoney(prog(l).remaining, l.currency) }}</b><template v-if="prog(l).pending"> · {{ formatMoney(prog(l).pending, l.currency) }} 等确认</template>
           </span>
         </span>
+      </button>
+    </section>
+
+    <!-- 互相抵消：两边都有没还完的借款时出现 -->
+    <section v-for="o in offsets" :key="o.currency" class="offset">
+      <div class="offset-rows">
+        <span>我借{{ partnerName }}的 <b class="mono">{{ formatMoney(o.iOwe, o.currency) }}</b></span>
+        <span>{{ partnerName }}借我的 <b class="mono">{{ formatMoney(o.theyOwe, o.currency) }}</b></span>
+      </div>
+      <p class="offset-net">相互抵消后，{{ netText(o) }}</p>
+      <button class="offset-btn" :disabled="offsetting" @click="runOffset(o)">
+        <AppIcon name="swap" :size="16" :stroke="2.2" />{{ offsetting ? '处理中…' : `一键抵消 ${formatMoney(o.amount, o.currency)}` }}
       </button>
     </section>
 
@@ -298,7 +386,7 @@ const canDeleteRepay = (l: Loan, r: LoanRepayment) =>
         <span>备注</span>
         <input v-model="note" maxlength="50" placeholder="借来做什么（可不填）" />
       </label>
-      <p class="hint">保存后{{ partnerName }}会收到提示，确认了才算数</p>
+      <p class="hint">记了就算，{{ partnerName }}那边也能看到；以后要删得{{ partnerName }}同意</p>
     </div>
     <button class="save" :disabled="saving" @click="saveLoan">
       <AppIcon v-if="!saving" name="check" :size="18" :stroke="2.4" />{{ saving ? '保存中…' : '保存' }}
@@ -346,7 +434,7 @@ const canDeleteRepay = (l: Loan, r: LoanRepayment) =>
       <div v-for="r in prog(detail).items" :key="r.id" class="repay">
         <span class="grow">
           <b class="mono">{{ formatMoney(r.amount, detail.currency) }}</b>
-          <small>{{ formatDateLabel(r.date) }} · {{ nameOf(r.createdBy) }}记</small>
+          <small>{{ formatDateLabel(r.date) }} · {{ nameOf(r.createdBy) }}记<template v-if="r.note"> · {{ r.note }}</template></small>
           <small v-if="r.discussion.length" class="said">{{ lastWord(r) }}</small>
         </span>
         <template v-if="canRespond(r, myUid)">
@@ -379,7 +467,18 @@ const canDeleteRepay = (l: Loan, r: LoanRepayment) =>
         <p class="hint">还款也要对方确认，确认后才从「还剩」里扣掉</p>
       </div>
 
-      <button v-if="canDeleteLoan(detail)" class="delete" @click="onDeleteLoan(detail)">删除这笔借款</button>
+      <div v-if="detail.deleteRequestedBy && detail.deleteRequestedBy !== myUid" class="del-req">
+        <p>{{ nameOf(detail.deleteRequestedBy) }} 想删除这笔借款</p>
+        <div>
+          <button class="ask" @click="onCancelDelete(detail, false)">先不删</button>
+          <button class="danger" @click="onApproveDelete(detail)">同意删除</button>
+        </div>
+      </div>
+      <div v-else-if="detail.deleteRequestedBy" class="del-req mine">
+        <p>已申请删除，等 {{ partnerName }} 同意</p>
+        <button class="ask" @click="onCancelDelete(detail, true)">撤回申请</button>
+      </div>
+      <button v-else class="delete" @click="onRequestDelete(detail)">申请删除这笔借款</button>
     </template>
   </BottomSheet>
 
@@ -511,6 +610,40 @@ const canDeleteRepay = (l: Loan, r: LoanRepayment) =>
 }
 .status.disputed {
   color: var(--danger);
+}
+.offset {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 14px;
+  box-shadow: inset 0 0 0 1.5px var(--primary-soft);
+}
+.offset-rows {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.offset-rows b {
+  color: var(--text);
+}
+.offset-net {
+  margin: 8px 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.offset-btn {
+  width: 100%;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 .toggle {
   display: flex;
@@ -771,6 +904,35 @@ dd {
 }
 .primary {
   background: var(--primary);
+  color: #fff;
+}
+.del-req {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 59, 48, 0.07);
+  text-align: center;
+}
+.del-req p {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--danger);
+}
+.del-req div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.del-req button {
+  height: 40px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+.del-req.mine button {
+  width: 100%;
+}
+.del-req .danger {
+  background: var(--danger);
   color: #fff;
 }
 .delete {

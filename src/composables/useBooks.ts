@@ -81,7 +81,7 @@ export const formatSupabaseError = (error: unknown, fallback: string) => {
   }
   if (text.includes('network') || text.includes('fetch')) return '网络连接失败，请稍后重试。'
   if (text.includes('idx_book_members_book_color')) return '对方已选择该颜色，请重新选择'
-  for (const known of ['对方已选择该颜色，请重新选择', '性别注册后不可修改', '这个颜色对方在用了', '演示模式下不能退出账本', '邀请码不存在', '你已经在这个账本中', '这个账本已经满两人了', '邀请码生成失败', '自己记的账要等 TA 确认', '只有 TA 能确认这笔借款', '只有借出的人能确认还款', '只有先垫钱的人能标记已收到']) {
+  for (const known of ['对方已选择该颜色，请重新选择', '性别注册后不可修改', '这个颜色对方在用了', '演示模式下不能退出账本', '邀请码不存在', '你已经在这个账本中', '这个账本已经满两人了', '邀请码生成失败', '自己记的账要等 TA 确认', '只有 TA 能确认这笔借款', '只有借出的人能确认还款', '只有先垫钱的人能标记已收到', '只能以自己的名义申请删除']) {
     if (raw.includes(known)) return known
   }
   // 不认识的错误把原文带上一小段，方便截图反馈

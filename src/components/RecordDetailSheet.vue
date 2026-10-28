@@ -169,6 +169,13 @@ const onDelete = async () => {
             <AppIcon name="check" :size="16" :stroke="2.4" />确认
           </button>
         </template>
+        <button
+          v-if="r.type === 'shared' && r.confirmStatus === 'confirmed' && r.lastEditedBy !== myUid"
+          class="question"
+          @click="sheetMode = 'dispute'"
+        >
+          这笔不对？有疑问
+        </button>
         <p v-if="!editable" class="readonly">这是 {{ nameOf(r.payerUid) }} 的个人记录，只能看，不能修改</p>
         <button class="delete" :disabled="deleting || !editable" @click="onDelete">
           <AppIcon name="close" :size="16" :stroke="2.2" />{{ deleting ? '删除中…' : '删除' }}
@@ -293,6 +300,15 @@ dd {
 .delete {
   background: #fff0f3;
   color: #f0547a;
+}
+.question {
+  grid-column: 1 / -1;
+  height: auto !important;
+  padding: 2px 0;
+  font-size: 12px;
+  font-weight: 500 !important;
+  color: var(--text-soft);
+  background: none;
 }
 .talk {
   margin-top: 12px;

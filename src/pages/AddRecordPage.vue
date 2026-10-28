@@ -5,7 +5,7 @@ import { categoriesFor, isCategoryNameTaken } from '../utils/categories'
 import CategoryEditorSheet from '../components/CategoryEditorSheet.vue'
 import CategoryDetailSheet from '../components/CategoryDetailSheet.vue'
 import type { IconName } from '../utils/icons'
-import { shareOf } from '../utils/settlement'
+import { needsPartnerConfirm, shareOf } from '../utils/settlement'
 import { activeCurrencyInfo, formatDateLabel, formatMoney, todayKey } from '../utils/format'
 import { useBooks } from '../composables/useBooks'
 import { useRecords } from '../composables/useRecords'
@@ -268,6 +268,15 @@ const shareText = computed(() => {
   return `${base} · ${debt}`
 })
 
+/** TA 承担的比平时多（比如记成 TA 请客）才要 TA 确认；否则只提醒 TA 一声 */
+const confirmNote = computed(() => {
+  const payer = payerUid.value
+  const ratio = payer === myUid.value ? myShare.value : 10 - myShare.value
+  return needsPartnerConfirm({ type: 'shared', payerUid: payer, ratio }, myUid.value, currentBook.value?.defaultRatio ?? 5)
+    ? `${partnerName.value}承担的比平时多，保存后要${partnerName.value}确认了才算`
+    : `保存后会告诉${partnerName.value}一声，不用等确认`
+})
+
 // ── 校验与保存 ──
 const saving = ref(false)
 const shake = ref(false)
@@ -483,7 +492,7 @@ const requestClose = async () => {
               </button>
             </div>
           </div>
-          <p class="confirm-note">保存后会请 {{ partnerName }} 确认，确认了才算两个人的</p>
+          <p class="confirm-note">{{ confirmNote }}</p>
         </div>
       </transition>
       <div class="meta">

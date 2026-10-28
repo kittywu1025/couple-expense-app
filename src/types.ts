@@ -72,6 +72,8 @@ export interface LedgerRecord extends Confirmable {
   settledOnSpot?: boolean
   /** 标记已收到的时间 */
   settledAt?: string | null
+  /** 最近一次跟钱有关的新建 / 改动时间（对方首页提醒「TA 新记了」用） */
+  editedAt?: string | null
   category: string
   subCategory: string | null
   note: string | null
@@ -117,6 +119,8 @@ export interface Loan extends Confirmable {
   amount: number
   /** 借款可以是外币，默认账本货币；还款跟着借款的货币 */
   currency: CurrencyCode
+  /** 谁申请了删除；另一个人同意才真正删掉 */
+  deleteRequestedBy: string | null
   note: string | null
   date: string
   createdBy: string

@@ -1,7 +1,16 @@
+<script lang="ts">
+/**
+ * 叠放顺序：后打开的弹窗永远在上面（比如在账单详情上点删除，确认框要盖住详情）。
+ * 所有弹窗共用这一个计数器。
+ */
+let layerSeq = 0
+</script>
+
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
 
 const props = defineProps<{ open: boolean }>()
+
 const emit = defineEmits<{ close: [] }>()
 
 /** 下滑超过这个距离松手就关闭，否则弹回 */
@@ -14,12 +23,18 @@ let startY = 0
 let tracking = false
 let moved = false
 
+const layer = ref(0)
 watch(
   () => props.open,
   (open) => {
-    if (open) offset.value = 0
+    if (open) {
+      offset.value = 0
+      layer.value = ++layerSeq
+    }
   },
+  { immediate: true },
 )
+const zBase = () => 300 + layer.value * 2
 
 const begin = (y: number, target: EventTarget | null) => {
   const el = sheet.value
@@ -86,7 +101,7 @@ onBeforeUnmount(onMouseUp)
       <div
         v-if="open"
         class="backdrop"
-        :style="{ opacity: 1 - Math.min(offset / 400, 0.6) }"
+        :style="{ opacity: 1 - Math.min(offset / 400, 0.6), zIndex: zBase() }"
         @click="emit('close')"
       />
     </transition>
@@ -97,7 +112,7 @@ onBeforeUnmount(onMouseUp)
         :class="['sheet', { dragging }]"
         role="dialog"
         aria-modal="true"
-        :style="offset ? { transform: `translateY(${offset}px)` } : undefined"
+        :style="{ zIndex: zBase() + 1, ...(offset ? { transform: `translateY(${offset}px)` } : {}) }"
         @touchstart.passive="onTouchStart"
         @touchmove="onTouchMove"
         @touchend="end"

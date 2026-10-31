@@ -48,9 +48,11 @@ const settleSummary = computed(() => {
     open.filter((r) => (r.payerUid === myUid.value) === mine).reduce((s, r) => s + (r.amount * (10 - r.ratio)) / 10, 0)
   const receive = part(true)
   const pay = part(false)
-  if (receive) return `待收 ${formatMoneyShort(receive)}`
-  if (pay) return `待给${partner.value?.displayName ?? 'TA'} ${formatMoneyShort(pay)}`
-  return '都结清了'
+  const parts = [
+    receive ? `待收 ${formatMoneyShort(receive)}` : '',
+    pay ? `待给 ${formatMoneyShort(pay)}` : '',
+  ].filter(Boolean)
+  return parts.length ? parts.join(' · ') : '都结清了'
 })
 
 // 借款：有等我确认的就提示，否则显示没还清的笔数

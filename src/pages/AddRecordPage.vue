@@ -524,6 +524,7 @@ const requestClose = async () => {
             'key',
             { op: ['+', '-', '=', '⌫'].includes(k), zero: k === '0' },
           ]"
+          :aria-label="k === '⌫' ? '删除一位' : undefined"
           @click="press(k)"
         >
           <AppIcon v-if="k === '⌫'" name="backspace" :size="22" />
@@ -1134,6 +1135,27 @@ const requestClose = async () => {
 }
 .submit button:active {
   transform: scale(0.98);
+}
+/* 矮屏手机（iPhone SE 等）：键盘和按钮收紧一点，上面能多露出一排分类 */
+@media (max-height: 700px) {
+  .key {
+    height: 36px;
+  }
+  .pad {
+    gap: 5px;
+  }
+  .meta {
+    margin: 4px 0 6px;
+  }
+  .submit button {
+    height: 40px;
+  }
+  .shared-panel {
+    padding: 6px 10px;
+  }
+  .shared-panel .payer-line {
+    margin-top: 4px;
+  }
 }
 .spinner {
   width: 16px;

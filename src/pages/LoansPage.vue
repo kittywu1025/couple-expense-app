@@ -31,7 +31,12 @@ const sumRemaining = (list: Loan[]) => {
   for (const l of list.filter((x) => x.confirmStatus === 'confirmed')) {
     byCur.set(l.currency, (byCur.get(l.currency) ?? 0) + prog(l).remaining)
   }
-  const parts = [...byCur.entries()].filter(([, v]) => v > 0).map(([c, v]) => formatMoney(v, c))
+  const home = currentBook.value?.currency ?? 'JPY'
+  // 账本货币排第一个
+  const parts = [...byCur.entries()]
+    .filter(([, v]) => v > 0)
+    .sort(([a], [b]) => Number(b === home) - Number(a === home))
+    .map(([c, v]) => formatMoney(v, c))
   return parts.length ? parts : [formatMoney(0)]
 }
 const lentOut = computed(() => sumRemaining(active.value.filter((l) => l.lenderUid === myUid.value)))
@@ -44,7 +49,8 @@ const showSettled = ref(false)
  */
 const offsets = computed(() => {
   const open = active.value
-    .filter((l) => l.confirmStatus === 'confirmed')
+    // 有人申请删除的先不拿来抵
+    .filter((l) => l.confirmStatus === 'confirmed' && !l.deleteRequestedBy)
     .map((l) => ({ loan: l, avail: Math.round((prog(l).remaining - prog(l).pending) * 100) / 100 }))
     .filter((x) => x.avail > 0)
     // 先抵最早的那笔

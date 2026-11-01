@@ -28,6 +28,7 @@
    - `20261028_interval_and_settle.sql`
    - `20261028_loans_delete_request.sql`
    - `20261028_quieter_confirm.sql`
+   - `20261029_fixed_first_charge.sql`
 2. Authentication → Providers → 开启 **Google**，填入 Google Cloud 的 OAuth Client ID / Secret
 3. Authentication → URL Configuration → Redirect URLs 加入 `http://localhost:5173/**`、`http://<本机局域网IP>:5173/**`；Site URL 填线上地址
 4. 复制 `.env.example` 为 `.env.local`，填写 `VITE_SUPABASE_URL` 和 `VITE_SUPABASE_ANON_KEY`

@@ -11,7 +11,7 @@ const FEEDBACK_URL = 'https://github.com/kittywu1025/couple-expense-app/issues'
 <template>
   <PushPage title="关于" back-label="我的" @back="aboutPageOpen = false">
     <section class="hero">
-      <div class="logo"><AppIcon name="heart" :size="36" :stroke="2" /></div>
+      <img class="logo" src="/icon-192.png" alt="" />
       <p class="name">两个人的账本</p>
       <p class="ver">v{{ appVersion }}</p>
     </section>
@@ -48,12 +48,9 @@ const FEEDBACK_URL = 'https://github.com/kittywu1025/couple-expense-app/issues'
   width: 72px;
   height: 72px;
   margin: 0 auto 12px;
-  border-radius: 22px;
-  background: var(--primary);
-  color: #fff;
-  display: grid;
-  place-items: center;
-  box-shadow: 0 12px 24px rgba(108, 99, 255, 0.3);
+  display: block;
+  border-radius: 20px;
+  box-shadow: 0 12px 24px rgba(180, 140, 240, 0.3);
 }
 .name {
   margin: 0;

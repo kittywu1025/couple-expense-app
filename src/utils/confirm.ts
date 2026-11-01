@@ -12,7 +12,7 @@ export const canRespond = (x: Confirmable, uid: string) => x.confirmStatus !== '
 export const confirmLabel = (x: Confirmable, uid: string) => {
   if (x.confirmStatus === 'confirmed') return '已确认'
   if (x.confirmStatus === 'disputed') return x.lastEditedBy === uid ? 'TA 有疑问' : '我提了疑问'
-  return x.lastEditedBy === uid ? '等 TA 确认' : '等我确认'
+  return x.lastEditedBy === uid ? '等 TA 同意' : '等我同意'
 }
 
 /** 从数据库读出来的留言，过滤掉格式不对的 */

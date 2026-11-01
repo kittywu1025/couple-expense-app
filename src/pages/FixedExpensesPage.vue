@@ -22,14 +22,18 @@ const saving = ref(false)
 
 const sorted = computed(() => [...items.value].sort((a, b) => Number(a.paused) - Number(b.paused) || a.dayOfMonth - b.dayOfMonth))
 // 列表显示全部；汇总数字只算共同 + 自己的。不是每月扣的按月平均（每两月 ¥6,000 = 每月 ¥3,000）
-const monthlyTotal = computed(() =>
-  visibleItems.value.filter((f) => !f.paused).reduce((s, f) => s + f.amount / f.intervalMonths, 0),
-)
+const monthlyOf = (k: 'expense' | 'income') =>
+  visibleItems.value.filter((f) => !f.paused && f.kind === k).reduce((s, f) => s + f.amount / f.intervalMonths, 0)
+const monthlyTotal = computed(() => monthlyOf('expense'))
+const monthlyIncome = computed(() => monthlyOf('income'))
 
 const typeText = (f: FixedExpense) => {
+  if (f.kind === 'income') return '收入'
   if (f.type === 'personal') return '个人'
   const mine = f.payerUid === myUid.value ? f.ratio : 10 - f.ratio
-  if (mine === 10 || mine === 0) return '请客'
+  // 付钱的人全出才是请客；付钱的人一分不出是对方全出、付钱的人先垫
+  if (f.ratio === 10) return '请客'
+  if (f.ratio === 0) return mine === 10 ? '我全出' : 'TA 全出'
   return mine === 5 ? '共同 · 平摊' : `共同 · ${mine}:${10 - mine}`
 }
 
@@ -38,6 +42,11 @@ const openNew = () => {
   editorOpen.value = true
 }
 const openEdit = (f: FixedExpense) => {
+  // TA 的个人固定收支（比如 TA 的工资）只能看，不能改
+  if (f.type === 'personal' && f.payerUid !== myUid.value) {
+    toast.info('这是 TA 自己的，只有 TA 能改')
+    return
+  }
   editing.value = f
   editorOpen.value = true
 }
@@ -54,7 +63,7 @@ const onSave = async (input: FixedExpenseInput) => {
   toast.success(editing.value ? '已保存' : `已添加「${input.name}」`)
   // 新加的如果今天就是扣款日，马上生成
   const count = await generateDue()
-  if (count) toast.success(`已自动记入 ${count} 笔固定扣款`)
+  if (count) toast.success(`已自动记入 ${count} 笔固定收支`)
 }
 
 const onDelete = async () => {
@@ -89,24 +98,25 @@ const togglePause = async (f: FixedExpense) => {
       <button class="back" aria-label="返回" @click="closeFixedPage">
         <AppIcon name="chevronLeft" :size="22" :stroke="2.2" />我的
       </button>
-      <h1>固定扣款</h1>
-      <button class="add" aria-label="添加固定扣款" @click="openNew"><AppIcon name="plus" :size="22" :stroke="2.2" /></button>
+      <h1>固定收支</h1>
+      <button class="add" aria-label="添加固定收支" @click="openNew"><AppIcon name="plus" :size="22" :stroke="2.2" /></button>
     </header>
 
     <div class="body">
       <section v-if="items.length" class="summary">
         <span>平均每月固定支出</span>
         <b class="mono">{{ formatMoney(monthlyTotal) }}</b>
-        <small>到扣款日自动记一笔账，打开 App 时检查</small>
+        <small v-if="monthlyIncome">固定收入 <span class="mono">+{{ formatMoney(monthlyIncome) }}</span> · </small>
+        <small>到日子自动记一笔账，打开 App 时检查</small>
       </section>
 
       <SkeletonList v-if="loading && !items.length" />
       <section v-else-if="!items.length" class="empty">
         <EmptyState
           icon="calendar"
-          title="还没有固定扣款"
-          desc="房租、话费、保险这类定期的支出，设置一次就会按日期自动记账"
-          action="添加固定扣款"
+          title="还没有固定收支"
+          desc="房租、话费这类定期支出，或者每月的工资，设置一次就会按日期自动记账"
+          action="添加固定收支"
           @action="openNew"
         />
       </section>
@@ -118,11 +128,11 @@ const togglePause = async (f: FixedExpense) => {
             <span class="info">
               <span class="line">
                 <span class="name">{{ f.name }}</span>
-                <span class="mono amount">{{ formatMoney(f.amount) }}</span>
+                <span :class="['mono', 'amount', { income: f.kind === 'income' }]">{{ f.kind === 'income' ? '+' : '' }}{{ formatMoney(f.amount) }}</span>
               </span>
               <span class="meta">
                 <i :class="['dot', f.payerUid === myUid ? 'me' : 'partner']" />
-                {{ intervalLabel(f.intervalMonths) }} {{ f.dayOfMonth }} 号 · {{ typeText(f) }} · {{ nameOf(f.payerUid) }}付
+                {{ intervalLabel(f.intervalMonths) }} {{ f.dayOfMonth }} 号 · {{ typeText(f) }}<template v-if="f.kind !== 'income'"> · {{ nameOf(f.payerUid) }}付</template>
               </span>
               <span class="next">{{ f.paused ? '已暂停' : `下次 ${formatDateLabel(nextDueDate(f))}` }}</span>
             </span>
@@ -213,6 +223,9 @@ const togglePause = async (f: FixedExpense) => {
 .summary b {
   font-size: 28px;
   margin: 2px 0;
+}
+.amount.income {
+  color: var(--income);
 }
 .summary small {
   font-size: 11px;

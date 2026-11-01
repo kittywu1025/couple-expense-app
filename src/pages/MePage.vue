@@ -17,7 +17,7 @@ import {
   settlePageOpen,
 } from '../composables/useUi'
 import { useRecords } from '../composables/useRecords'
-import { isAgreed, isTreat } from '../utils/settlement'
+import { isAgreed, isTreat, otherPart } from '../utils/settlement'
 import { useLoans } from '../composables/useLoans'
 import { waitingForMe } from '../utils/confirm'
 import { useFixedExpenses } from '../composables/useFixedExpenses'
@@ -34,7 +34,7 @@ const { visibleItems: fixedItems } = useFixedExpenses()
 const activeFixed = computed(() => fixedItems.value.filter((f) => !f.paused))
 const fixedSummary = computed(() =>
   activeFixed.value.length
-    ? `${activeFixed.value.length} 项 · 月均 ${formatMoneyShort(activeFixed.value.reduce((s, f) => s + f.amount / f.intervalMonths, 0))}`
+    ? `${activeFixed.value.length} 项 · 月均支出 ${formatMoneyShort(activeFixed.value.filter((f) => f.kind !== 'income').reduce((s, f) => s + f.amount / f.intervalMonths, 0))}`
     : '未设置',
 )
 
@@ -45,12 +45,14 @@ const settleSummary = computed(() => {
     (r) => r.kind === 'expense' && r.type === 'shared' && isAgreed(r) && !isTreat(r) && !r.settledOnSpot,
   )
   const part = (mine: boolean) =>
-    open.filter((r) => (r.payerUid === myUid.value) === mine).reduce((s, r) => s + (r.amount * (10 - r.ratio)) / 10, 0)
+    open.filter((r) => (r.payerUid === myUid.value) === mine).reduce((s, r) => s + otherPart(r), 0)
   const receive = part(true)
   const pay = part(false)
-  if (receive) return `待收 ${formatMoneyShort(receive)}`
-  if (pay) return `待给${partner.value?.displayName ?? 'TA'} ${formatMoneyShort(pay)}`
-  return '都结清了'
+  const parts = [
+    receive ? `待收 ${formatMoneyShort(receive)}` : '',
+    pay ? `待给 ${formatMoneyShort(pay)}` : '',
+  ].filter(Boolean)
+  return parts.length ? parts.join(' · ') : '都结清了'
 })
 
 // 借款：有等我确认的就提示，否则显示没还清的笔数
@@ -58,7 +60,7 @@ const { loans, repayments, progress } = useLoans()
 const loanSummary = computed(() => {
   const waiting =
     [...loans.value, ...repayments.value].filter((x) => waitingForMe(x, myUid.value)).length +
-    loans.value.filter((l) => l.deleteRequestedBy && l.deleteRequestedBy !== myUid.value).length
+    [...loans.value, ...repayments.value].filter((x) => x.deleteRequestedBy && x.deleteRequestedBy !== myUid.value).length
   if (waiting) return `${waiting} 笔等你处理`
   const open = loans.value.filter((l) => !progress.value.get(l.id)?.settled).length
   return open ? `${open} 笔没还清` : loans.value.length ? '都还清了' : '未记录'
@@ -153,7 +155,7 @@ const onSeed = async () => {
   <section class="card group">
     <button class="row" @click="openFixedPage">
       <span class="row-icon"><AppIcon name="calendar" :size="18" :stroke="2" /></span>
-      <span class="grow">固定扣款</span>
+      <span class="grow">固定收支</span>
       <small class="faint">{{ fixedSummary }}</small>
       <AppIcon name="chevronRight" :size="16" class="chev" />
     </button>

@@ -8,7 +8,7 @@ import EmptyState from './EmptyState.vue'
 import AppIcon from './AppIcon.vue'
 import CategoryIcon from './CategoryIcon.vue'
 import type { IconName } from '../utils/icons'
-import { bearOf } from '../utils/settlement'
+import { bearAmount } from '../utils/settlement'
 import { useBooks } from '../composables/useBooks'
 
 const props = defineProps<{ records: LedgerRecord[]; periodWord?: string }>()
@@ -36,7 +36,7 @@ const weightOf = (r: LedgerRecord) => {
   if (r.type === 'personal' && r.payerUid !== myUid.value) return 0
   if (scope.value === 'all') return r.amount
   if (r.type === 'personal') return r.amount
-  return (r.amount * bearOf(r, myUid.value)) / 10
+  return bearAmount(r, myUid.value)
 }
 
 const scoped = computed(() =>

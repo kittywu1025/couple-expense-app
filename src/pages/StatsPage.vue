@@ -66,7 +66,11 @@ const treatLine = computed(() => {
   if (partnerTreats) parts.push(`${partnerName.value}请客 ${partnerTreats} 次`)
   return parts.join('，')
 })
-const settleSummary = computed(() => (isEven.value ? '基本扯平' : `${fronter.value}多垫了一些`))
+/** 一笔要分摊的都没有（或者都结清了） */
+const nothingToSplit = computed(() => stats.value.iOwe === 0 && stats.value.theyOwe === 0)
+const settleSummary = computed(() =>
+  nothingToSplit.value ? '没有要分摊的' : isEven.value ? '基本扯平' : `${fronter.value}多垫了一些`,
+)
 
 const sharedCount = computed(() => periodRecords.value.filter((r) => r.kind === 'expense' && r.type === 'shared').length)
 
@@ -117,7 +121,11 @@ const openShared = ref(false)
     <div v-if="openSettle" class="fold-body">
       <p class="treat"><AppIcon name="gift" :size="16" :stroke="2" />{{ treatLine }}</p>
       <div class="balance">
-        <template v-if="isEven">
+        <template v-if="nothingToSplit">
+          <p class="balance-main">{{ periodWord }}还没有需要分摊的账</p>
+          <p class="balance-sub">AA 的账确认后、还没结清的，会在这里算差额</p>
+        </template>
+        <template v-else-if="isEven">
           <p class="balance-main">{{ periodWord }}基本扯平啦</p>
           <p class="balance-sub">相差 {{ formatMoney(Math.abs(stats.diff)) }}，不用特意处理</p>
         </template>

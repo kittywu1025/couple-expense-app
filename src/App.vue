@@ -22,6 +22,8 @@ import { usePullToRefresh } from './composables/usePullToRefresh'
 import { clearPendingInvite, pendingInvite } from './composables/useInvite'
 import SettlementRulesPage from './pages/SettlementRulesPage.vue'
 import { useFixedExpenses } from './composables/useFixedExpenses'
+import { formatMoney } from './utils/format'
+import { otherPart } from './utils/settlement'
 // 本机偏好（金额配色等）在启动时就要生效
 import './composables/usePrefs'
 import HomePage from './pages/HomePage.vue'
@@ -40,6 +42,7 @@ import {
   bookSettingsOpen,
   calendarPageOpen,
   closeAddSheet,
+  confirmAction,
   editingRecord,
   fixedPageOpen,
   loansPageOpen,
@@ -50,7 +53,8 @@ import {
 } from './composables/useUi'
 
 const { authUser, authLoading, authGender, isSupabaseEnabled } = useSupabaseAuth()
-const { currentBook, booksLoading, loadBook, me } = useBooks()
+const { currentBook, booksLoading, loadBook, me, partner } = useBooks()
+const partnerName = computed(() => partner.value?.displayName ?? 'TA')
 const { loadRecords } = useRecords()
 const { load: loadLoans } = useLoans()
 const { updateAvailable, updateMessage } = usePwaUpdate()
@@ -97,16 +101,89 @@ watch(
   { immediate: true },
 )
 
-// 进入账本、回到前台时检查到期的固定扣款，自动记账
+// 进入账本、回到前台时检查到期的固定收支，自动记账
 const { generateDue } = useFixedExpenses()
+const { records: allRecords } = useRecords()
 const runFixedExpenses = async () => {
+  const before = new Set(allRecords.value.map((r) => r.id))
   const count = await generateDue()
-  if (count) toast.success(`已自动记入 ${count} 笔固定扣款`)
+  if (!count) return
+  // 只提和我有关的固定扣款；固定收入（不管是谁这边生成的）由下面的「到账啦」提醒
+  const uid = authUser.value?.id
+  const expenses = allRecords.value.filter(
+    (r) => !before.has(r.id) && r.kind === 'expense' && (r.type === 'shared' || r.payerUid === uid),
+  ).length
+  if (expenses) toast.success(`已自动记入 ${expenses} 笔固定扣款`)
 }
+
+// 工资这类固定收入到账：最近 3 天自动记下、我还没看过的，提醒一声（对方那边先生成的也会提醒）
+const incomeSeenKey = computed(() => `couple-expense-income-seen:${currentBook.value?.id ?? ''}:${authUser.value?.id ?? ''}`)
+watch(
+  () => (screen.value === 'app' ? { list: allRecords.value, uid: authUser.value?.id } : null),
+  (cur) => {
+    if (!cur?.uid) return
+    let seen: string[] = []
+    try {
+      seen = JSON.parse(localStorage.getItem(incomeSeenKey.value) ?? '[]')
+    } catch {
+      // 读不到就当没看过
+    }
+    const since = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10)
+    const fresh = cur.list.filter(
+      (r) => r.kind === 'income' && r.payerUid === cur.uid && r.note?.endsWith('（固定收入）') && r.date >= since && !seen.includes(r.id),
+    )
+    if (!fresh.length) return
+    for (const r of fresh) {
+      toast.success(`已记入 ${formatMoney(r.amount)}，金额不一样的话点进去改`, { title: `${r.note?.replace('（固定收入）', '')}到账啦` })
+    }
+    try {
+      localStorage.setItem(incomeSeenKey.value, JSON.stringify([...seen, ...fresh.map((r) => r.id)].slice(-50)))
+    } catch {
+      // 存不了最多下次再提醒一次
+    }
+  },
+  { immediate: true },
+)
 watch(
   () => (screen.value === 'app' ? currentBook.value?.id : null),
   (id) => {
     if (id) runFixedExpenses()
+  },
+  { immediate: true },
+)
+
+// TA 点了「提醒 TA」：打开网页时弹一次窗（同一次提醒只弹一次，记在这台手机上）
+const nudgeKey = computed(() => `couple-expense-nudge-seen:${currentBook.value?.id ?? ''}:${authUser.value?.id ?? ''}`)
+let nudgeShowing = false
+watch(
+  () => (screen.value === 'app' ? { list: allRecords.value, uid: authUser.value?.id } : null),
+  async (cur) => {
+    const list = cur?.list
+    if (!list || nudgeShowing) return
+    let seen = ''
+    try {
+      seen = localStorage.getItem(nudgeKey.value) ?? ''
+    } catch {
+      // 存不了就每次打开都提醒
+    }
+    const uid = authUser.value?.id
+    const nudged = list.filter((r) => r.payerUid === uid && r.paidClaimedAt && r.paidNudgedAt && !r.settledOnSpot)
+    const latest = nudged.reduce((m, r) => (r.paidNudgedAt! > m ? r.paidNudgedAt! : m), '')
+    if (!latest || latest <= seen) return
+    nudgeShowing = true
+    try {
+      localStorage.setItem(nudgeKey.value, latest)
+    } catch {
+      // 同上
+    }
+    const total = nudged.reduce((s, r) => s + otherPart(r), 0)
+    const ok = await confirmAction({
+      title: `${partnerName.value} 提醒你确认收到`,
+      message: `TA 说已经给了你 ${nudged.length} 笔 AA，共 ${formatMoney(total)}。收到了的话去「结清」点一下确认收到。`,
+      confirmText: '去确认',
+    })
+    nudgeShowing = false
+    if (ok) settlePageOpen.value = true
   },
   { immediate: true },
 )

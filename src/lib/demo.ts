@@ -72,15 +72,24 @@ export const createDemoRecords = (): LedgerRecord[] => [
     discussion: [{ by: DEMO_PARTNER_UID, text: '这顿不是说好你请吗～', ratio: 10, at: new Date().toISOString() }],
   }),
   rec(0, 640, '交通', '巴士·电车', { type: 'personal', ratio: 10 }),
-  rec(1, 4280, '饮食', '超市·便利店', { payerUid: DEMO_PARTNER_UID, ratio: 6, note: '周末囤货', confirmStatus: 'pending' }),
+  rec(1, 4280, '饮食', '超市·便利店', { payerUid: DEMO_PARTNER_UID, ratio: 6, note: '周末囤货' }),
   rec(2, 6800, '娱乐', '出去玩·旅行', { payerUid: DEMO_PARTNER_UID, ratio: 10, note: '水族馆门票' }),
   rec(2, 1500, '购物', '网购', { type: 'personal', payerUid: DEMO_PARTNER_UID, ratio: 10 }),
   rec(3, 3200, '饮食', '外食', { ratio: 10, note: '生日请吃饭' }),
   rec(4, 980, '医疗', '药局', { type: 'personal', ratio: 10 }),
   rec(5, 5200, '固定开销', '电费', { payerUid: DEMO_PARTNER_UID }),
   rec(5, 3700, '固定开销', '水费', { payerUid: DEMO_PARTNER_UID }),
-  rec(6, 1850, '交通', '打车', { ratio: 7, payerUid: DEMO_PARTNER_UID, confirmStatus: 'pending' }),
-  rec(8, 72000, '固定开销', '房租'),
+  // 我点了「有疑问」，阿健回复后等我再看
+  rec(6, 1850, '交通', '打车', {
+    ratio: 7,
+    payerUid: DEMO_PARTNER_UID,
+    confirmStatus: 'pending',
+    discussion: [
+      { by: DEMO_MY_UID, text: '这趟是你自己去的吧', at: new Date().toISOString() },
+      { by: DEMO_PARTNER_UID, text: '是送你去车站的呀', at: new Date().toISOString() },
+    ],
+  }),
+  rec(8, 72000, '固定开销', '房租', { paidClaimedAt: new Date().toISOString() }),
   rec(10, 250000, '工资', null, { kind: 'income', type: 'personal', ratio: 10 }),
 ]
 
@@ -123,6 +132,7 @@ export const createDemoLoans = (): { loans: Loan[]; repayments: LoanRepayment[] 
         ...base,
         id: 'demo-repay-1',
         loanId: 'demo-loan-1',
+        deleteRequestedBy: null,
         amount: 50000,
         date: daysAgo(10),
         confirmStatus: 'confirmed',

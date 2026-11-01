@@ -7,7 +7,7 @@ import DisputeSheet from './DisputeSheet.vue'
 import type { LedgerRecord } from '../types'
 import { recordColor, recordIcon } from '../utils/categories'
 import { formatFullDate, formatMoney } from '../utils/format'
-import { isTreat, shareOf, treaterOf } from '../utils/settlement'
+import { amountSplitText, isAmountSplit, isFullyOwed, isTreat, shareOf, treaterOf } from '../utils/settlement'
 import { useBooks } from '../composables/useBooks'
 import { canModify, useRecords } from '../composables/useRecords'
 import { confirmAction, haptic, openEditSheet } from '../composables/useUi'
@@ -29,8 +29,11 @@ const splitText = computed(() => {
   const rec = r.value
   if (!rec || rec.type === 'personal') return '个人'
   if (isTreat(rec)) return `${nameOf(treaterOf(rec, otherUid))} 请客`
+  const settled = rec.settledOnSpot ? ' · 已结清' : ''
+  if (isFullyOwed(rec)) return `${nameOf(otherUid(rec.payerUid))} 全出 · ${nameOf(rec.payerUid)} 先垫${settled}`
+  if (isAmountSplit(rec)) return `按金额 · ${amountSplitText(rec, myUid.value, nameOf(otherUid(myUid.value)))}${settled}`
   const mine = shareOf(rec, myUid.value)
-  return `AA ${mine}:${10 - mine}（我:TA）${rec.settledOnSpot ? ' · 已结清' : ''}`
+  return `AA ${mine}:${10 - mine}（我:TA）${settled}`
 })
 
 const responding = ref(false)
@@ -67,7 +70,11 @@ const onSubmitMessage = async (msg: { text: string; ratio: number | null }) => {
 }
 
 /** 对方有疑问并提议了比例：记账人可以一键按这个比例改，改完直接算确认 */
-const proposal = computed(() => (r.value ? pendingProposal(r.value, myUid.value) : null))
+const proposal = computed(() => {
+  const p = r.value ? pendingProposal(r.value, myUid.value) : null
+  // 提议的和现在一样就不用「按 TA 说的改」了（改了钱也不会变，账单会一直卡在有疑问）
+  return p === null || p === r.value?.ratio ? null : p
+})
 const proposalText = computed(() => {
   const rec = r.value
   if (!rec || proposal.value === null) return ''
@@ -163,10 +170,13 @@ const onDelete = async () => {
       <!-- 底部固定：删除（左）/ 编辑（右），内容再长也不会被挤到看不见 -->
       <div class="actions">
         <template v-if="canRespond(r, myUid)">
-          <p class="readonly">{{ nameOf(r.lastEditedBy) }} 把这笔记成了共同的，确认后才算两个人的</p>
-          <button class="ask" :disabled="responding" @click="sheetMode = 'dispute'">有疑问</button>
+          <p v-if="r.confirmStatus === 'pending'" class="readonly">{{ nameOf(r.lastEditedBy) }} 回复了你的疑问，你同意了就入账</p>
+          <p v-else class="readonly">你提了疑问，等 {{ nameOf(r.lastEditedBy) }} 改一下或者回复；没问题了也可以直接同意</p>
+          <button class="ask" :disabled="responding" @click="sheetMode = 'dispute'">
+            {{ r.confirmStatus === 'pending' ? '不同意' : '再说一句' }}
+          </button>
           <button class="confirm-btn" :disabled="responding" @click="onConfirm">
-            <AppIcon name="check" :size="16" :stroke="2.4" />确认
+            <AppIcon name="check" :size="16" :stroke="2.4" />同意
           </button>
         </template>
         <button

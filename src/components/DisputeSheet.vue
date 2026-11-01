@@ -38,6 +38,7 @@ const proposing = ref(false)
 const myShare = ref(5)
 const tried = ref(false)
 
+
 const canPropose = computed(() => props.mode === 'dispute' && props.record?.type === 'shared' && props.record.kind === 'expense')
 /** 快捷原因：多选，再点一次取消；账单和借款 / 还款的选项不一样 */
 const quick = computed(() =>
@@ -53,7 +54,7 @@ watch(
     picked.value = []
     tried.value = false
     proposing.value = false
-    myShare.value = props.record ? shareOf(props.record, myUid.value) : 5
+    myShare.value = props.record ? Math.round(shareOf(props.record, myUid.value)) : 5
   },
 )
 
@@ -76,23 +77,25 @@ const shareText = computed(() => {
   return myShare.value === 5 ? '平摊' : `我 ${myShare.value * 10}% · ${partnerName.value} ${(10 - myShare.value) * 10}%`
 })
 
+/** 提议的比例（存「付款人份额」，和账单一致）；和现在一样就不算提议 */
+const proposedRatio = computed(() => {
+  const r = props.record
+  if (!proposing.value || !r) return null
+  const ratio = r.payerUid === myUid.value ? myShare.value : 10 - myShare.value
+  return ratio === r.ratio ? null : ratio
+})
+
 const error = computed(() => {
   if (text.value.trim().length > TEXT_MAX) return `最多 ${TEXT_MAX} 个字`
-  if (!message.value && !proposing.value) return props.mode === 'reply' ? '写点什么再发吧' : '说说哪里不对，或者提议一个比例'
+  if (!message.value && proposedRatio.value === null)
+    return props.mode === 'reply' ? '写点什么再发吧' : proposing.value ? '把比例拉到你觉得对的位置，或者说说哪里不对' : '说说哪里不对，或者提议一个比例'
   return ''
 })
 
 const submit = () => {
   tried.value = true
   if (error.value || props.saving) return
-  const r = props.record
-  const ratio =
-    proposing.value && r
-      ? // 存「付款人份额」，和账单一致
-        r.payerUid === myUid.value
-        ? myShare.value
-        : 10 - myShare.value
-      : null
+  const ratio = proposedRatio.value
   emit('submit', { text: message.value || `提议改成 ${shareText.value}`, ratio })
 }
 </script>
@@ -128,7 +131,7 @@ const submit = () => {
           <span class="share">{{ shareText }}</span>
           <span class="who partner"><b class="mono">{{ 10 - myShare }}</b> {{ partnerName }}</span>
         </div>
-        <input v-model.number="myShare" type="range" min="0" max="10" step="1" class="slider" :style="sliderStyle" aria-label="提议的比例" />
+        <input v-model.number="myShare" type="range" :min="0" :max="10" step="1" class="slider" :style="sliderStyle" aria-label="提议的比例" />
         <p class="hint">TA 一键就能按这个比例改好</p>
       </div>
     </template>

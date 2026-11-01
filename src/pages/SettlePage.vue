@@ -1,36 +1,65 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
 import CategoryIcon from '../components/CategoryIcon.vue'
 import EmptyState from '../components/EmptyState.vue'
 import PushPage from '../components/PushPage.vue'
 import { useBooks } from '../composables/useBooks'
-import { useRecords } from '../composables/useRecords'
+import { nudgeReadyAt, useRecords } from '../composables/useRecords'
 import { confirmAction, haptic, settlePageOpen } from '../composables/useUi'
 import { toast } from '../composables/useToast'
 import type { LedgerRecord } from '../types'
 import { recordColor, recordIcon } from '../utils/categories'
 import { formatDateLabel, formatMoney, toDateKey } from '../utils/format'
-import { isAgreed, isTreat } from '../utils/settlement'
+import { amountSplitText, isAgreed, isAmountSplit, isTreat, otherPart } from '../utils/settlement'
 
 /**
  * 结清（像报销）：AA 账单里没付钱那位的那份，给了之后由先垫钱的人勾选「已收到」。
+ * 没付钱的那位也可以先勾「我给了」告诉对方，对方确认收到或说没收到。
  * 已收到的照常算各自承担，但不再进月末差额。只看两个人都确认过的 AA。
  */
 const { myUid, partner, nameOf } = useBooks()
-const { records, setSettled } = useRecords()
+const { records, loadRecords, setSettled, setPaidClaim, bouncedClaims, dismissBounced, nudgeClaims } = useRecords()
 const partnerName = computed(() => partner.value?.displayName ?? 'TA')
 
 /** 没付钱那位的那份 */
-const theirPart = (r: LedgerRecord) => (r.amount * (10 - r.ratio)) / 10
+const theirPart = (r: LedgerRecord) => otherPart(r)
 
 const aa = computed(() =>
   records.value.filter((r) => r.kind === 'expense' && r.type === 'shared' && isAgreed(r) && !isTreat(r)),
 )
+/** TA 说已经给了的排在前面 */
+const claimedFirst = (list: LedgerRecord[]) => [...list].sort((a, b) => Number(!!b.paidClaimedAt) - Number(!!a.paidClaimedAt))
 /** 我先垫的：TA 那份等我收 */
-const toReceive = computed(() => aa.value.filter((r) => r.payerUid === myUid.value && !r.settledOnSpot))
+const toReceive = computed(() => claimedFirst(aa.value.filter((r) => r.payerUid === myUid.value && !r.settledOnSpot)))
 /** TA 先垫的：我那份等 TA 收 */
-const toPay = computed(() => aa.value.filter((r) => r.payerUid !== myUid.value && !r.settledOnSpot))
+const toPay = computed(() => claimedFirst(aa.value.filter((r) => r.payerUid !== myUid.value && !r.settledOnSpot)))
+/** TA 说给了、等我确认收到的 */
+const claimedToMe = computed(() => toReceive.value.filter((r) => r.paidClaimedAt))
+/** 我说给了、等 TA 确认的 */
+const claimedByMe = computed(() => toPay.value.filter((r) => r.paidClaimedAt))
+// ── 提醒 TA：说了「我给了」12 小时 TA 还没确认，可以提醒一次，之后每 12 小时一次 ──
+const now = ref(Date.now())
+const clock = setInterval(() => (now.value = Date.now()), 60_000)
+onBeforeUnmount(() => clearInterval(clock))
+const nudgeable = computed(() => claimedByMe.value.filter((r) => nudgeReadyAt(r) <= now.value))
+const nudgeHours = computed(() => {
+  const next = Math.min(...claimedByMe.value.map(nudgeReadyAt))
+  return Math.max(1, Math.ceil((next - now.value) / 3_600_000))
+})
+const nudging = ref(false)
+const nudge = async () => {
+  if (nudging.value) return
+  nudging.value = true
+  const { error } = await nudgeClaims(nudgeable.value.map((r) => r.id))
+  nudging.value = false
+  now.value = Date.now()
+  if (error) toast.error(error.message)
+  else toast.success(`已提醒${partnerName.value}，TA 下次打开时会看到`)
+}
+
+/** 还没说给了的，才能勾「我给了」 */
+const payable = computed(() => toPay.value.filter((r) => !r.paidClaimedAt))
 const settled = computed(() =>
   aa.value
     .filter((r) => r.settledOnSpot)
@@ -38,22 +67,47 @@ const settled = computed(() =>
 )
 const sum = (list: LedgerRecord[]) => list.reduce((s, r) => s + theirPart(r), 0)
 
-type Tab = 'receive' | 'pay' | 'done'
-const tab = ref<Tab>('receive')
+/** TA 退回来的「我给了」（没收到 / 改了金额），在「我该给 TA」里标出来 */
+const bounced = computed(() => toPay.value.filter((r) => bouncedClaims.value.some((b) => b.id === r.id)))
+const isBounced = (r: LedgerRecord) => bounced.value.some((b) => b.id === r.id)
 
-// ── 多选（只有「TA 该给我」能选） ──
+type Tab = 'receive' | 'pay' | 'done'
+const tab = ref<Tab>(!claimedToMe.value.length && bounced.value.length ? 'pay' : 'receive')
+
+/**
+ * 动手前先拉一下最新的：TA 可能刚改了金额、撤回了「我给了」或者已经点了收到。
+ * 选中的几笔有变化就停下来让我再看一眼，免得按旧金额结清。
+ */
+const fingerprint = (ids: string[]) =>
+  ids
+    .map((id) => records.value.find((r) => r.id === id))
+    .map((r) => (r ? `${r.id}:${r.amount}:${r.ratio}:${r.payerUid}:${r.confirmStatus}:${!!r.settledOnSpot}:${!!r.paidClaimedAt}` : 'gone'))
+    .join('|')
+const stillSame = async (ids: string[]) => {
+  const before = fingerprint(ids)
+  await loadRecords()
+  if (fingerprint(ids) === before) return true
+  toast.error(`${partnerName.value}刚改过这几笔，再看一下`)
+  return false
+}
+
+// ── 多选：「TA 该给我」勾已收到，「我该给 TA」勾我给了；换 tab 清空 ──
 const picked = ref<string[]>([])
-watch(toReceive, (list) => {
+const pickable = computed(() => (tab.value === 'receive' ? toReceive.value : tab.value === 'pay' ? payable.value : []))
+watch(pickable, (list) => {
   picked.value = picked.value.filter((id) => list.some((r) => r.id === id))
+})
+watch(tab, () => {
+  picked.value = []
 })
 const toggle = (id: string) => {
   picked.value = picked.value.includes(id) ? picked.value.filter((x) => x !== id) : [...picked.value, id]
 }
-const allPicked = computed(() => toReceive.value.length > 0 && picked.value.length === toReceive.value.length)
+const allPicked = computed(() => pickable.value.length > 0 && picked.value.length === pickable.value.length)
 const toggleAll = () => {
-  picked.value = allPicked.value ? [] : toReceive.value.map((r) => r.id)
+  picked.value = allPicked.value ? [] : pickable.value.map((r) => r.id)
 }
-const pickedTotal = computed(() => sum(toReceive.value.filter((r) => picked.value.includes(r.id))))
+const pickedTotal = computed(() => sum(pickable.value.filter((r) => picked.value.includes(r.id))))
 
 const saving = ref(false)
 const markReceived = async () => {
@@ -67,6 +121,10 @@ const markReceived = async () => {
   saving.value = true
   // 结清后列表会变，先记下笔数
   const count = picked.value.length
+  if (!(await stillSame(picked.value))) {
+    saving.value = false
+    return
+  }
   const { error } = await setSettled(picked.value, true)
   saving.value = false
   if (error) {
@@ -76,6 +134,68 @@ const markReceived = async () => {
   haptic()
   toast.success(`已结清 ${count} 笔`)
   picked.value = []
+}
+
+/** 我该给 TA：勾选后告诉 TA「我给了」，等 TA 确认收到 */
+const markPaid = async () => {
+  if (!picked.value.length || saving.value) return
+  const ok = await confirmAction({
+    title: `给了${partnerName.value} ${formatMoney(pickedTotal.value)}？`,
+    message: `会告诉${partnerName.value}你给了这 ${picked.value.length} 笔，TA 确认收到后就算结清。`,
+    confirmText: '告诉 TA',
+  })
+  if (!ok) return
+  saving.value = true
+  const count = picked.value.length
+  if (!(await stillSame(picked.value))) {
+    saving.value = false
+    return
+  }
+  const { error } = await setPaidClaim(picked.value, true)
+  saving.value = false
+  if (error) {
+    toast.error(error.message)
+    return
+  }
+  haptic()
+  toast.success(`已告诉${partnerName.value}，等 TA 确认收到 ${count} 笔`)
+  picked.value = []
+}
+const withdrawClaim = async (r: LedgerRecord) => {
+  const { error } = await setPaidClaim([r.id], false)
+  if (error) toast.error(error.message)
+  else toast.success('已撤回')
+}
+
+/** TA 说给了：一键确认收到，或者说没收到 */
+const confirmClaims = async () => {
+  if (saving.value) return
+  saving.value = true
+  const ids = claimedToMe.value.map((r) => r.id)
+  if (!(await stillSame(ids))) {
+    saving.value = false
+    return
+  }
+  const count = ids.length
+  const { error } = await setSettled(ids, true)
+  saving.value = false
+  if (error) {
+    toast.error(error.message)
+    return
+  }
+  haptic()
+  toast.success(`已结清 ${count} 笔`)
+}
+const rejectClaims = async () => {
+  const ok = await confirmAction({
+    title: '没收到？',
+    message: `这 ${claimedToMe.value.length} 笔会回到「还没给」，${partnerName.value}给了之后可以再告诉你。`,
+    confirmText: '没收到',
+  })
+  if (!ok) return
+  const { error } = await setPaidClaim(claimedToMe.value.map((r) => r.id), false)
+  if (error) toast.error(error.message)
+  else toast.success(`已告诉${partnerName.value}还没收到`)
 }
 
 const undo = async (r: LedgerRecord) => {
@@ -100,15 +220,15 @@ const settledDay = (r: LedgerRecord) => (r.settledAt ? formatDateLabel(toDateKey
       <button :class="{ on: tab === 'receive' }" @click="tab = 'receive'">
         <span>{{ partnerName }}还没给我</span>
         <b class="mono">{{ formatMoney(sum(toReceive)) }}</b>
-        <small>{{ toReceive.length }} 笔</small>
+        <small>{{ toReceive.length }} 笔<template v-if="claimedToMe.length"> · <em>{{ claimedToMe.length }} 笔 TA 说给了</em></template></small>
       </button>
       <button :class="{ on: tab === 'pay' }" @click="tab = 'pay'">
         <span>我还没给{{ partnerName }}</span>
         <b class="mono">{{ formatMoney(sum(toPay)) }}</b>
-        <small>{{ toPay.length }} 笔</small>
+        <small>{{ toPay.length }} 笔<template v-if="claimedByMe.length"> · {{ claimedByMe.length }} 笔等 TA 确认</template></small>
       </button>
     </section>
-    <p class="tip">AA 的那份给了之后，由先垫钱的人在这里勾「已收到」；结清的照常算各自花了多少，只是不再进月末差额。</p>
+    <p class="tip">AA 的那份给了之后，给钱的人勾「我给了」告诉对方，先垫钱的人确认收到就算结清；结清的照常算各自花了多少，只是不再进月末差额。</p>
 
     <div class="tabs">
       <button :class="{ on: tab === 'receive' }" @click="tab = 'receive'">{{ partnerName }}该给我</button>
@@ -121,7 +241,17 @@ const settledDay = (r: LedgerRecord) => (r.settledAt ? formatDateLabel(toDateKey
       <section v-if="!toReceive.length" class="empty">
         <EmptyState icon="check" title="都结清啦" :desc="`没有等${partnerName}给你的 AA 了`" />
       </section>
-      <section v-else class="group">
+      <div v-else-if="claimedToMe.length" class="claim">
+        <p>
+          <b>{{ partnerName }} 说已经给了 {{ claimedToMe.length }} 笔</b>
+          <span class="mono">{{ formatMoney(sum(claimedToMe)) }}</span>
+        </p>
+        <div class="claim-actions">
+          <button class="ghost" @click="rejectClaims">没收到</button>
+          <button class="solid" :disabled="saving" @click="confirmClaims">确认收到</button>
+        </div>
+      </div>
+      <section v-if="toReceive.length" class="group">
         <button class="select-all" @click="toggleAll">
           <i :class="['box', { on: allPicked }]"><AppIcon v-if="allPicked" name="check" :size="12" :stroke="3" /></i>
           全选
@@ -133,27 +263,64 @@ const settledDay = (r: LedgerRecord) => (r.settledAt ? formatDateLabel(toDateKey
           <CategoryIcon :name="recordIcon(r.category, r.subCategory)" :color="recordColor(r.category)" :size="34" />
           <span class="info">
             <span class="line"><span class="name">{{ title(r) }}</span><b class="mono">{{ formatMoney(theirPart(r)) }}</b></span>
-            <span class="sub">{{ formatDateLabel(r.date) }} · 共 {{ formatMoney(r.amount) }} · {{ partnerName }}承担 {{ (10 - r.ratio) * 10 }}%</span>
+            <span class="sub">
+              <em v-if="r.paidClaimedAt" class="tag">TA 说给了</em>{{ formatDateLabel(r.date) }} · 共 {{ formatMoney(r.amount) }} · {{ isAmountSplit(r) ? amountSplitText(r, myUid, partnerName) : `${partnerName}承担 ${(10 - r.ratio) * 10}%` }}
+            </span>
           </span>
         </button>
       </section>
     </template>
 
-    <!-- 我该给 TA：只能看，TA 收到后由 TA 勾 -->
+    <!-- 我该给 TA：勾「我给了」告诉 TA，TA 确认收到才算结清 -->
     <template v-else-if="tab === 'pay'">
       <section v-if="!toPay.length" class="empty">
         <EmptyState icon="check" title="都结清啦" :desc="`没有欠着${partnerName}的 AA 了`" />
       </section>
       <template v-else>
-        <p class="hint">给了 {{ partnerName }} 之后，请 TA 在 TA 的「结清」里勾「已收到」</p>
-        <section class="group">
-          <div v-for="r in toPay" :key="r.id" class="item static">
-            <CategoryIcon :name="recordIcon(r.category, r.subCategory)" :color="recordColor(r.category)" :size="34" />
-            <span class="info">
-              <span class="line"><span class="name">{{ title(r) }}</span><b class="mono">{{ formatMoney(theirPart(r)) }}</b></span>
-              <span class="sub">{{ formatDateLabel(r.date) }} · 共 {{ formatMoney(r.amount) }} · {{ nameOf(r.payerUid) }}先垫</span>
-            </span>
+        <div v-if="bounced.length" class="claim">
+          <p>
+            <b>{{ partnerName }} 没确认收到 {{ bounced.length }} 笔</b>
+            <span class="mono">{{ formatMoney(sum(bounced)) }}</span>
+          </p>
+          <p class="claim-sub">可能是没收到，或者 TA 改了金额 / 比例。看一下，给了之后再告诉 TA</p>
+          <div class="claim-actions">
+            <button class="ghost" @click="dismissBounced">知道了</button>
           </div>
+        </div>
+        <div v-if="claimedByMe.length" class="nudge">
+          <span>{{ claimedByMe.length }} 笔等 {{ partnerName }} 确认收到</span>
+          <button v-if="nudgeable.length" :disabled="nudging" @click="nudge">提醒 TA</button>
+          <small v-else>{{ nudgeHours }} 小时后可以提醒 TA</small>
+        </div>
+        <p class="hint">给了{{ partnerName }}之后勾上，点「我给了」告诉 TA，TA 确认收到就结清了</p>
+        <section class="group">
+          <button v-if="payable.length" class="select-all" @click="toggleAll">
+            <i :class="['box', { on: allPicked }]"><AppIcon v-if="allPicked" name="check" :size="12" :stroke="3" /></i>
+            全选
+          </button>
+          <template v-for="r in toPay" :key="r.id">
+            <div v-if="r.paidClaimedAt" class="item static">
+              <i class="box sent"><AppIcon name="check" :size="12" :stroke="3" /></i>
+              <CategoryIcon :name="recordIcon(r.category, r.subCategory)" :color="recordColor(r.category)" :size="34" />
+              <span class="info">
+                <span class="line"><span class="name">{{ title(r) }}</span><b class="mono">{{ formatMoney(theirPart(r)) }}</b></span>
+                <span class="sub"><em class="tag">等 TA 确认收到</em>{{ formatDateLabel(r.date) }} · {{ nameOf(r.payerUid) }}先垫</span>
+              </span>
+              <button class="undo" @click="withdrawClaim(r)">撤回</button>
+            </div>
+            <button v-else class="item" @click="toggle(r.id)">
+              <i :class="['box', { on: picked.includes(r.id) }]">
+                <AppIcon v-if="picked.includes(r.id)" name="check" :size="12" :stroke="3" />
+              </i>
+              <CategoryIcon :name="recordIcon(r.category, r.subCategory)" :color="recordColor(r.category)" :size="34" />
+              <span class="info">
+                <span class="line"><span class="name">{{ title(r) }}</span><b class="mono">{{ formatMoney(theirPart(r)) }}</b></span>
+                <span class="sub">
+                  <em v-if="isBounced(r)" class="tag">TA 没确认收到</em>{{ formatDateLabel(r.date) }} · 共 {{ formatMoney(r.amount) }} · {{ nameOf(r.payerUid) }}先垫
+                </span>
+              </span>
+            </button>
+          </template>
         </section>
       </template>
     </template>
@@ -178,9 +345,11 @@ const settledDay = (r: LedgerRecord) => (r.settledAt ? formatDateLabel(toDateKey
       </section>
     </template>
 
-    <div v-if="tab === 'receive' && picked.length" class="bar">
+    <div v-if="tab !== 'done' && picked.length" class="bar">
       <span>已选 {{ picked.length }} 笔 · <b class="mono">{{ formatMoney(pickedTotal) }}</b></span>
-      <button :disabled="saving" @click="markReceived">{{ saving ? '保存中…' : '已收到' }}</button>
+      <button :disabled="saving" @click="tab === 'receive' ? markReceived() : markPaid()">
+        {{ saving ? '保存中…' : tab === 'receive' ? '已收到' : '我给了' }}
+      </button>
     </div>
   </PushPage>
 </template>
@@ -313,6 +482,83 @@ const settledDay = (r: LedgerRecord) => (r.settledAt ? formatDateLabel(toDateKey
   margin-top: 2px;
   font-size: 12px;
   color: var(--text-faint);
+}
+.summary em,
+.tag {
+  font-style: normal;
+  color: #e08600;
+}
+.tag {
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  background: rgba(255, 149, 0, 0.12);
+}
+.box.sent {
+  background: #c7c7cc;
+  border-color: #c7c7cc;
+}
+.claim {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 149, 0, 0.35);
+}
+.claim p {
+  display: flex;
+  justify-content: space-between;
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+.nudge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: var(--card);
+  font-size: 13px;
+}
+.nudge button {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+.nudge small {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.claim-sub {
+  margin: -6px 0 10px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.claim-actions {
+  display: flex;
+  gap: 8px;
+}
+.claim-actions button {
+  flex: 1;
+  height: 38px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.claim-actions .ghost {
+  background: var(--bg);
+  color: var(--text-soft);
+}
+.claim-actions .solid {
+  background: var(--primary);
+  color: #fff;
 }
 .undo {
   flex-shrink: 0;

@@ -1,8 +1,8 @@
-const CACHE_VERSION = 'v2'
+const CACHE_VERSION = 'v3'
 const APP_PREFIX = 'couple-expense-app'
 const PAGE_CACHE_NAME = `${APP_PREFIX}-pages-${CACHE_VERSION}`
 const ASSET_CACHE_NAME = `${APP_PREFIX}-assets-${CACHE_VERSION}`
-const PRECACHE_URLS = ['/favicon.svg', '/manifest.webmanifest']
+const PRECACHE_URLS = ['/favicon-32.png', '/apple-touch-icon.png', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

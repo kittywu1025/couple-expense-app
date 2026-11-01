@@ -8,7 +8,7 @@ import { formatDateLabel, formatMoney, formatMoneyShort, formatWeekday } from '.
 import { canModify, useRecords } from '../composables/useRecords'
 import { confirmAction, haptic } from '../composables/useUi'
 import { toast } from '../composables/useToast'
-import { isTreat, shareOf, treaterOf } from '../utils/settlement'
+import { isAmountSplit, isFullyOwed, isTreat, shareOf, treaterOf } from '../utils/settlement'
 import { useBooks } from '../composables/useBooks'
 import { confirmLabel } from '../utils/confirm'
 
@@ -62,8 +62,9 @@ const groups = computed(() => {
   return [...map.entries()].map(([date, items]) => ({
     date,
     items,
-    expense: items.filter((r) => r.kind === 'expense').reduce((s, r) => s + r.amount, 0),
-    income: items.filter((r) => r.kind === 'income').reduce((s, r) => s + r.amount, 0),
+    // 和首页、日历的数字一致：共同的 + 自己的，TA 的个人消费、收入列出来但不加进合计
+    expense: items.filter((r) => r.kind === 'expense' && (r.type === 'shared' || r.payerUid === myUid.value)).reduce((s, r) => s + r.amount, 0),
+    income: items.filter((r) => r.kind === 'income' && r.payerUid === myUid.value).reduce((s, r) => s + r.amount, 0),
   }))
 })
 
@@ -73,6 +74,8 @@ const tag = (r: LedgerRecord) => {
     const mine = treaterOf(r, otherUid) === myUid.value
     return { text: mine ? '我请客' : 'TA请客', cls: 'treat' }
   }
+  if (isFullyOwed(r)) return { text: r.payerUid === myUid.value ? 'TA全出' : '我全出', cls: 'shared' }
+  if (isAmountSplit(r)) return { text: 'AA 按金额', cls: 'shared' }
   const s = shareOf(r, myUid.value)
   return { text: s === 5 ? 'AA' : `AA ${s}:${10 - s}`, cls: 'shared' }
 }
@@ -103,7 +106,7 @@ const tag = (r: LedgerRecord) => {
         <span class="info">
           <span class="line">
             <span class="name">{{ r.subCategory || r.category }}</span>
-            <span :class="['amount', 'mono', { income: r.kind === 'income' }]">
+            <span :class="['amount', 'mono', { income: r.kind === 'income', unbooked: r.confirmStatus !== 'confirmed' }]">
               {{ r.kind === 'income' ? '+' : '-' }}{{ formatMoney(r.amount) }}
             </span>
           </span>
@@ -113,7 +116,8 @@ const tag = (r: LedgerRecord) => {
               <span v-if="r.note" class="note">{{ r.note }}</span>
             </span>
             <span class="tags">
-              <span v-if="r.confirmStatus !== 'confirmed'" :class="['tag', r.confirmStatus]">{{ confirmLabel(r, myUid) }}</span>
+              <!-- 已经存好了，只是还没算成两个人的：写清楚「未入账」，免得以为没保存 -->
+              <span v-if="r.confirmStatus !== 'confirmed'" :class="['tag', r.confirmStatus]">未入账 · {{ confirmLabel(r, myUid) }}</span>
               <span :class="['tag', tag(r).cls]">{{ tag(r).text }}</span>
             </span>
           </span>
@@ -254,6 +258,9 @@ const tag = (r: LedgerRecord) => {
   display: flex;
   gap: 4px;
   flex-shrink: 0;
+}
+.amount.unbooked {
+  opacity: 0.55;
 }
 .tag.pending {
   background: rgba(255, 149, 0, 0.14);

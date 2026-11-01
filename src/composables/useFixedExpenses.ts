@@ -21,6 +21,7 @@ const normalize = (row: Record<string, unknown>): FixedExpense => ({
   subCategory: row.sub_category ? String(row.sub_category) : null,
   dayOfMonth: Number(row.day_of_month),
   intervalMonths: Number(row.interval_months ?? 1) || 1,
+  kind: row.kind === 'income' ? 'income' : 'expense',
   payerUid: String(row.payer_uid),
   type: row.type === 'shared' ? 'shared' : 'personal',
   ratio: Number(row.ratio ?? 10),
@@ -31,12 +32,14 @@ const normalize = (row: Record<string, unknown>): FixedExpense => ({
 })
 
 const toRow = (input: FixedExpenseInput) => ({
+  ...(input.startDate ? { start_date: input.startDate } : {}),
   name: input.name,
   amount: input.amount,
   category: input.category,
   sub_category: input.subCategory,
   day_of_month: input.dayOfMonth,
   interval_months: input.intervalMonths,
+  kind: input.kind,
   payer_uid: input.payerUid,
   type: input.type,
   ratio: input.ratio,
@@ -50,14 +53,15 @@ export const dueDateIn = (year: number, monthIndex: number, day: number) => {
 
 /**
  * 依次给出扣款日期（和数据库 generate_fixed_expenses 同一套算法）：
- * start_date 起第一个到期的扣款日是第一次，之后每隔 intervalMonths 个月一次。
+ * 以 start_date 所在的月份为第一个周期，每隔 intervalMonths 个月一次；早于 start_date 的那次跳过。
+ * 比如 10/28 加「每 2 个月 1 号」：10/1 算这个月已经扣过了，下次是 12/1。
  */
 export function* dueDates(f: Pick<FixedExpense, 'startDate' | 'dayOfMonth' | 'intervalMonths'>) {
   let y = Number(f.startDate.slice(0, 4))
   let m = Number(f.startDate.slice(5, 7)) - 1
-  if (dueDateIn(y, m, f.dayOfMonth) < f.startDate) m += 1
   for (let guard = 0; guard < 240; guard++) {
-    yield dueDateIn(y, m, f.dayOfMonth)
+    const due = dueDateIn(y, m, f.dayOfMonth)
+    if (due >= f.startDate) yield due
     m += Math.max(1, f.intervalMonths)
     y += Math.floor(m / 12)
     m %= 12
@@ -86,13 +90,14 @@ const generateLocally = (today: string) => {
       if (last && due <= last) continue
       created.push({
         amount: f.amount,
-        kind: 'expense',
-        type: f.type,
+        kind: f.kind,
+        // 固定收入只算自己的
+        type: f.kind === 'income' ? 'personal' : f.type,
         payerUid: f.payerUid,
-        ratio: f.ratio,
+        ratio: f.kind === 'income' ? 10 : f.ratio,
         category: f.category,
         subCategory: f.subCategory,
-        note: `${f.name}（固定扣款）`,
+        note: `${f.name}${f.kind === 'income' ? '（固定收入）' : '（固定扣款）'}`,
         date: due,
       })
       last = due
@@ -160,7 +165,7 @@ const add = async (input: FixedExpenseInput) => {
         id: crypto.randomUUID(),
         bookId,
         paused: false,
-        startDate: todayKey(),
+        startDate: input.startDate ?? todayKey(),
         lastGeneratedDate: null,
         createdBy: uid,
       },
@@ -169,7 +174,7 @@ const add = async (input: FixedExpenseInput) => {
   }
   const { data, error } = await supabase
     .from('fixed_expenses')
-    .insert({ ...toRow(input), book_id: bookId, created_by: uid, start_date: todayKey() })
+    .insert({ start_date: todayKey(), ...toRow(input), book_id: bookId, created_by: uid })
     .select()
     .single()
   if (error) return { error: new Error(formatSupabaseError(error, '保存失败，请稍后重试。')) }
@@ -191,11 +196,21 @@ const patch = async (id: string, values: Record<string, unknown>, local: Partial
 
 const update = (id: string, input: FixedExpenseInput) => patch(id, toRow(input), input)
 
-/** 恢复时从今天重新开始算，暂停期间错过的不补 */
+/** 恢复时暂停期间错过的不补，从今天起按原来的节奏的下一次开始（每 2 个月的还是 10、12 月，不会变成 11、1 月） */
 const setPaused = (id: string, paused: boolean) => {
-  const values = paused ? { paused } : { paused, start_date: todayKey() }
-  const local = paused ? { paused } : { paused, startDate: todayKey() }
-  return patch(id, values, local)
+  if (paused) return patch(id, { paused }, { paused })
+  const f = items.value.find((x) => x.id === id)
+  const today = todayKey()
+  let start = today
+  if (f) {
+    for (const due of dueDates(f)) {
+      if (due >= today) {
+        start = due
+        break
+      }
+    }
+  }
+  return patch(id, { paused, start_date: start }, { paused, startDate: start })
 }
 
 const remove = async (id: string) => {

@@ -3,14 +3,17 @@ import { computed, ref } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
 import PushPage from '../components/PushPage.vue'
 import RecordList from '../components/RecordList.vue'
+import { useBooks } from '../composables/useBooks'
 import { useRecords } from '../composables/useRecords'
 import { calendarPageOpen } from '../composables/useUi'
 import { toast } from '../composables/useToast'
 import { formatMoney, todayKey, toDateKey } from '../utils/format'
 import { addDays, mondayOf, parseKey } from '../utils/period'
 
-// 日历只显示共同记录 + 自己的个人记录（对方的个人消费不可见）
-const { visibleRecords } = useRecords()
+// 两个人的账单都能看到（和首页列表一样）；金额只算共同的 + 自己的，TA 的个人消费、收入不汇总
+const { records } = useRecords()
+const { myUid } = useBooks()
+const counted = (r: { type: string; payerUid: string }) => r.type === 'shared' || r.payerUid === myUid.value
 
 const today = todayKey()
 const month = ref(today.slice(0, 7))
@@ -27,13 +30,13 @@ const shift = (dir: number) => {
   selected.value = null
 }
 
-const monthRecords = computed(() => visibleRecords.value.filter((r) => r.date.startsWith(month.value)))
+const monthRecords = computed(() => records.value.filter((r) => r.date.startsWith(month.value)))
 const byDay = computed(() => {
   const map = new Map<string, { expense: number; income: number; count: number }>()
   for (const r of monthRecords.value) {
     const cur = map.get(r.date) ?? { expense: 0, income: 0, count: 0 }
-    if (r.kind === 'expense') cur.expense += r.amount
-    else cur.income += r.amount
+    if (counted(r) && r.kind === 'expense') cur.expense += r.amount
+    else if (r.kind === 'income' && r.payerUid === myUid.value) cur.income += r.amount
     cur.count++
     map.set(r.date, cur)
   }
@@ -102,7 +105,7 @@ const pick = (key: string) => {
           <span v-else-if="d.startsWith(month) && byDay.get(d)?.income" class="amt inc mono">+{{ short(byDay.get(d)!.income) }}</span>
         </button>
       </div>
-      <p class="tip">点有金额的日子看当天账单 · 显示共同记录和你自己的记录</p>
+      <p class="tip">点有记录的日子看当天账单 · 金额只算共同的和你自己的</p>
     </section>
 
     <transition name="fade" mode="out-in">

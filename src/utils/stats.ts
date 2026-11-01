@@ -1,13 +1,13 @@
 import type { LedgerRecord } from '../types'
-import { bearOf, debtOf, isAgreed, isTreat, treaterOf } from './settlement'
+import { bearAmount, debtOf, isAgreed, isTreat, treaterOf } from './settlement'
 
 /**
  * 统计口径（统计页、共同消费清单共用，改口径只改这里）：
  * - 共同支出 = 所有 type=shared 支出的 amount 之和
- * - AA 部分 = shared 里 ratio≠10 且 ratio≠0（不是请客）的 amount 之和
+ * - AA 部分 = shared 里 ratio≠10（付钱的人全出才是请客）的 amount 之和；ratio=0 是对方全出、付钱的人先垫，也算 AA
  * - 各自实付 = 该用户作为 payer_uid 的所有支出（个人 + 共同）amount 之和
  * - 其中 AA = 该用户付款的 AA 记录 amount 之和
- * - 还没被对方确认的共同记录不算 AA、不算请客，先全算付款人自己的（确认后才分摊）
+ * - 没入账的共同记录（对方有疑问、等再看）不算 AA、不算请客，先全算付款人自己的
  * - 已经结清的 AA 照常算各自承担，但不产生月末差额
  * 收入不计入以上任何一项。
  */
@@ -71,4 +71,4 @@ export const computeStats = (records: LedgerRecord[], myUid: string, otherUid: (
 }
 
 /** 某人在这笔共同记录里应承担的金额 */
-export const owedBy = (r: LedgerRecord, uid: string) => (r.amount * bearOf(r, uid)) / 10
+export const owedBy = (r: LedgerRecord, uid: string) => bearAmount(r, uid)

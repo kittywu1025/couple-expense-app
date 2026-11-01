@@ -61,11 +61,14 @@ export function useMonthRecap() {
     const end = todayKey()
     return records.value.filter((r) => r.date >= start && r.date <= end)
   })
-  const expenses = computed(() => monthRecords.value.filter((r) => r.kind === 'expense'))
+  // 和首页一致：共同的 + 自己的，TA 的个人消费不汇总
+  const expenses = computed(() =>
+    monthRecords.value.filter((r) => r.kind === 'expense' && (r.type === 'shared' || r.payerUid === myUid.value)),
+  )
   const stats = computed(() => computeStats(monthRecords.value, myUid.value, otherUid))
 
   const summary = computed(() => ({
-    total: stats.value.totalExpense,
+    total: expenses.value.reduce((s, r) => s + r.amount, 0),
     count: expenses.value.length,
     myTreats: stats.value.myTreats,
     partnerTreats: stats.value.partnerTreats,

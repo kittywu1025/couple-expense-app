@@ -72,6 +72,10 @@ export interface LedgerRecord extends Confirmable {
   settledOnSpot?: boolean
   /** 标记已收到的时间 */
   settledAt?: string | null
+  /** 没付钱那位说「我给了」的时间，等先垫钱的人确认收到 */
+  paidClaimedAt?: string | null
+  /** 给钱的人「提醒 TA」的时间（12 小时最多一次） */
+  paidNudgedAt?: string | null
   /** 最近一次跟钱有关的新建 / 改动时间（对方首页提醒「TA 新记了」用） */
   editedAt?: string | null
   category: string
@@ -93,6 +97,8 @@ export interface FixedExpense {
   dayOfMonth: number
   /** 每几个月扣一次（1 = 每月，12 = 每年） */
   intervalMonths: number
+  /** 固定支出（房租）还是固定收入（工资） */
+  kind: RecordKind
   payerUid: string
   type: RecordType
   /** 付款人承担的份额 0-10 */
@@ -105,8 +111,11 @@ export interface FixedExpense {
 
 export type FixedExpenseInput = Pick<
   FixedExpense,
-  'name' | 'amount' | 'category' | 'subCategory' | 'dayOfMonth' | 'intervalMonths' | 'payerUid' | 'type' | 'ratio'
->
+  'name' | 'amount' | 'kind' | 'category' | 'subCategory' | 'dayOfMonth' | 'intervalMonths' | 'payerUid' | 'type' | 'ratio'
+> & {
+  /** 首次扣款日（选了才传）：存成 start_date，周期从这天所在的月份算起 */
+  startDate?: string
+}
 
 export type NewRecord = Omit<LedgerRecord, 'id' | 'bookId' | 'createdBy' | 'createdAt' | keyof Confirmable>
 
@@ -131,6 +140,8 @@ export interface Loan extends Confirmable {
 export interface LoanRepayment extends Confirmable {
   id: string
   loanId: string
+  /** 已确认的还款要删，由一个人申请、另一个人同意 */
+  deleteRequestedBy: string | null
   bookId: string
   amount: number
   note: string | null

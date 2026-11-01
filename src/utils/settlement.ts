@@ -1,18 +1,43 @@
 import type { LedgerRecord } from '../types'
-import { toDateKey } from './format'
+import { formatMoney, toDateKey } from './format'
 
-/** ratio=0 或 10 视为请客，不产生债务 */
-export const isTreat = (r: LedgerRecord) => r.type === 'shared' && (r.ratio === 0 || r.ratio === 10)
+/** 请客：付钱的人全出，不产生欠款 */
+export const isTreat = (r: LedgerRecord) => r.type === 'shared' && r.ratio === 10
 
-/** 请客的人：ratio=10 是付款人自己承担，ratio=0 是对方承担 */
-export const treaterOf = (r: LedgerRecord, partnerUid: (uid: string) => string) =>
-  r.ratio === 10 ? r.payerUid : partnerUid(r.payerUid)
+/** 请客的人就是付钱的人 */
+export const treaterOf = (r: LedgerRecord, _partnerUid?: (uid: string) => string) => r.payerUid
+
+/**
+ * 付钱的人一分不出、对方全出：比如在国外 TA 说请客，但我的卡汇率好、我先刷，TA 再转给我。
+ * 不算请客，对方那份就是全额，照常进结清。
+ */
+export const isFullyOwed = (r: LedgerRecord) => r.type === 'shared' && r.ratio === 0
 
 /** 某用户在这笔记录中承担的份额 0-10 */
 export const shareOf = (r: LedgerRecord, uid: string) => {
   if (r.type === 'personal') return r.payerUid === uid ? 10 : 0
   return r.payerUid === uid ? r.ratio : 10 - r.ratio
 }
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+
+/** 按金额分的账单（比如 2200 里我吃了 800）：ratio 存的是小数，不是整成 */
+export const isAmountSplit = (r: Pick<LedgerRecord, 'type' | 'ratio'>) => r.type === 'shared' && !Number.isInteger(r.ratio)
+
+/** 付款人那份的钱：取整到分，另一份用总额减，两份加起来正好是总额 */
+export const payerPart = (r: Pick<LedgerRecord, 'amount' | 'ratio'>) => round2((r.amount * r.ratio) / 10)
+/** 没付钱那位的那份（结清、月末差额都按这个） */
+export const otherPart = (r: Pick<LedgerRecord, 'amount' | 'ratio'>) => round2(r.amount - payerPart(r))
+
+/** 某用户在这笔记录里承担的钱 */
+export const partOf = (r: LedgerRecord, uid: string) => {
+  if (r.type === 'personal') return r.payerUid === uid ? r.amount : 0
+  return r.payerUid === uid ? payerPart(r) : otherPart(r)
+}
+
+/** 按金额分的显示：「我 ¥800 · TA ¥1,400」 */
+export const amountSplitText = (r: LedgerRecord, uid: string, partnerName = 'TA') =>
+  `我 ${formatMoney(partOf(r, uid))} · ${partnerName} ${formatMoney(r.amount - partOf(r, uid))}`
 
 /**
  * 记这笔的人是 actor 时，另一个人要承担几成（0-10）
@@ -21,27 +46,19 @@ export const partnerShareFor = (r: Pick<LedgerRecord, 'payerUid' | 'ratio'>, act
   r.payerUid === actor ? 10 - r.ratio : r.ratio
 
 /**
- * 要不要对方确认（和数据库 confirm_guard 一致）：共同账单里对方承担的比账本默认比例多才要，
- * 比如记成「TA 请客」「TA 多出」；我请客、按默认比例 AA 记了就算，只提醒对方一下。
- */
-export const needsPartnerConfirm = (
-  r: Pick<LedgerRecord, 'type' | 'payerUid' | 'ratio'>,
-  actor: string,
-  defaultRatio: number,
-) => r.type === 'shared' && partnerShareFor(r, actor) > 10 - defaultRatio
-
-/**
- * 共同记录要两个人都确认过才分摊；确认之前（等确认 / 有疑问）先全算付款人自己的。
+ * 共同记录记了就入账；对方点了「有疑问」退回的（或者回复后等对方再看的）先全算付款人自己的，算「未入账」。
  * 显示比例时仍用记的 ratio（shareOf / isTreat），算钱时用 bearOf / debtOf。
  */
 export const isAgreed = (r: LedgerRecord) => r.type !== 'shared' || r.confirmStatus === 'confirmed'
 
 /** 算钱用：某用户实际承担的份额 0-10（没确认的共同记录全算付款人的） */
 export const bearOf = (r: LedgerRecord, uid: string) => (isAgreed(r) ? shareOf(r, uid) : r.payerUid === uid ? 10 : 0)
+/** 算钱用：某用户实际承担的钱（没确认的共同记录全算付款人的） */
+export const bearAmount = (r: LedgerRecord, uid: string) => (isAgreed(r) ? partOf(r, uid) : r.payerUid === uid ? r.amount : 0)
 
 /** 非付款人需要付给付款人的金额（没确认的、已经结清的都不算） */
 export const debtOf = (r: LedgerRecord) =>
-  r.type !== 'shared' || !isAgreed(r) || r.settledOnSpot || isTreat(r) ? 0 : (r.amount * (10 - r.ratio)) / 10
+  r.type !== 'shared' || !isAgreed(r) || r.settledOnSpot || isTreat(r) ? 0 : otherPart(r)
 
 /**
  * 结算周期：以 settleDay 为起点。month 为 'YYYY-MM'，

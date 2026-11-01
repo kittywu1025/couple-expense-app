@@ -43,7 +43,7 @@ const handleAction = async (toastItem: ToastItem, action: ToastAction) => {
   left: 50%;
   transform: translateX(-50%);
   width: min(calc(100% - 24px), 440px);
-  z-index: 1000;
+  z-index: 100000; /* 永远在弹窗上面（弹窗按打开顺序递增） */
   pointer-events: none;
 }
 .stack {

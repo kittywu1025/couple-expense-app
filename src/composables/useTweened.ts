@@ -22,7 +22,9 @@ export function useTweened(source: Ref<number>, duration = 450) {
     const step = (now: number) => {
       const t = Math.min(1, (now - start) / duration)
       const eased = 1 - (1 - t) ** 3
-      value.value = from + (to - from) * eased
+      const mid = from + (to - from) * eased
+      // 起止都是整数（日元等）时中间值也取整，滚动时不会闪出小数
+      value.value = Number.isInteger(from) && Number.isInteger(to) ? Math.round(mid) : mid
       if (t < 1) frame = requestAnimationFrame(step)
       else value.value = to
     }

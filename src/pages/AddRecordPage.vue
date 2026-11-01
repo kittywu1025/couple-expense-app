@@ -5,7 +5,7 @@ import { categoriesFor, isCategoryNameTaken } from '../utils/categories'
 import CategoryEditorSheet from '../components/CategoryEditorSheet.vue'
 import CategoryDetailSheet from '../components/CategoryDetailSheet.vue'
 import type { IconName } from '../utils/icons'
-import { needsPartnerConfirm, shareOf } from '../utils/settlement'
+import { isAmountSplit, partOf, shareOf } from '../utils/settlement'
 import { activeCurrencyInfo, formatDateLabel, formatMoney, todayKey } from '../utils/format'
 import { useBooks } from '../composables/useBooks'
 import { useRecords } from '../composables/useRecords'
@@ -19,7 +19,7 @@ const emit = defineEmits<{ close: [] }>()
 /** 编辑模式：预填当前记录的值 */
 const editing = props.record ?? null
 
-const { currentBook, myUid, partner, nameOf, updateBookSettings } = useBooks()
+const { currentBook, myUid, partner, updateBookSettings } = useBooks()
 const { addRecord, updateRecord } = useRecords()
 
 const partnerName = computed(() => partner.value?.displayName ?? 'TA')
@@ -153,14 +153,31 @@ const type = ref<RecordType>(editing?.type ?? 'personal')
 const payerUid = ref(editing?.type === 'shared' ? editing.payerUid : myUid.value)
 /** 我承担的份额 0-10（滑条左端=我） */
 const myShare = ref(
-  editing?.type === 'shared' ? shareOf(editing, myUid.value) : (currentBook.value?.defaultRatio ?? 5),
+  editing?.type === 'shared' ? Math.round(shareOf(editing, myUid.value)) : (currentBook.value?.defaultRatio ?? 5),
 )
+/** 分法：按比例（滑条，整成）或按金额（直接填我那份，比如 2200 里我吃了 800） */
+const splitMode = ref<'ratio' | 'amount'>(editing && isAmountSplit(editing) ? 'amount' : 'ratio')
+const myPartText = ref(editing && isAmountSplit(editing) ? String(partOf(editing, myUid.value)) : '')
+const myPart = computed(() => Math.round(Number.parseFloat(myPartText.value) * 100) / 100)
 
 watch(kind, () => {
   pickCategory(0)
   if (kind.value === 'income') type.value = 'personal'
 })
 watch(myShare, () => haptic(4))
+/** 共同面板默认只显示一行（谁付 + 怎么分），要改比例 / 按金额再展开 */
+const adjusting = ref(false)
+
+const setSplitMode = (mode: 'ratio' | 'amount') => {
+  if (mode === splitMode.value) return
+  if (mode === 'amount') {
+    // 先按现在的比例填好我那份，再改
+    myPartText.value = amount.value > 0 ? String(Math.round(amount.value * myShare.value * 10) / 100) : ''
+  } else {
+    myShare.value = Math.round(effShare.value)
+  }
+  splitMode.value = mode
+}
 
 const setType = (t: RecordType) => {
   if (t === 'shared' && !partner.value) {
@@ -246,35 +263,54 @@ const onKeydown = (e: KeyboardEvent) => {
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
+/** 我承担的份额：按比例就是滑条；按金额时由「我那份 ÷ 总额」算出来，可能是小数 */
+const effShare = computed(() => {
+  if (splitMode.value === 'ratio') return myShare.value
+  const a = amount.value
+  if (!(a > 0) || !(myPart.value >= 0) || myPart.value > a) return myShare.value
+  const s = (myPart.value / a) * 10
+  return Math.abs(s - Math.round(s)) < 1e-9 ? Math.round(s) : s
+})
+/** 按金额时 TA 那份 */
+const theirPart = computed(() => Math.max(0, Math.round((amount.value - (myPart.value || 0)) * 100) / 100))
+const partError = computed(() => {
+  if (splitMode.value !== 'amount') return ''
+  if (!myPartText.value.trim() || Number.isNaN(myPart.value) || myPart.value < 0) return '填一下你那份是多少'
+  if (amount.value > 0 && myPart.value > amount.value) return '你那份不能比总额多'
+  return ''
+})
+// 拉到一头时付款人先跟着全出的人（多数是请客），还可以再改：比如 TA 全出、我卡汇率好我先刷
+watch(
+  () => effShare.value,
+  (share) => {
+    if (share === 10) payerUid.value = myUid.value
+    else if (share === 0 && partner.value) payerUid.value = partner.value.userId
+  },
+)
+
 // ── 时间 / 备注 ──
 const date = ref(editing?.date ?? todayKey())
 const note = ref(editing?.note ?? '')
 const dateLabel = computed(() => formatDateLabel(date.value))
 
-// ── 实时说明 ──
+// ── 实时说明（一行）──
 const shareText = computed(() => {
-  const s = myShare.value
+  const p = partnerName.value
+  const iPaid = payerUid.value === myUid.value
+  if (splitMode.value === 'amount') {
+    if (!amount.value) return '先输入总额'
+    if (partError.value) return partError.value
+  }
+  const s = effShare.value
   const a = amount.value
-  if (s === 10) return `我请客，${partnerName.value} 不用付钱`
-  if (s === 0) return `${partnerName.value} 请客，我不用付钱`
-  const mine = (a * s) / 10
+  const mine = splitMode.value === 'amount' ? myPart.value : (a * s) / 10
   const theirs = a - mine
-  const base = s === 5 ? '5:5 平摊' : `我承担 ${s * 10}%，${partnerName.value} 承担 ${(10 - s) * 10}%`
+  // 两头：付钱的人全出是请客；付钱的人一分不出是「对方全出、我先垫」（比如我卡汇率好先刷，TA 再转给我）
+  if (s === 10) return iPaid ? `我请客` : `我全出 · 我要给${p}${a ? ` ${formatMoney(a)}` : ''}`
+  if (s === 0) return iPaid ? `${p}全出 · ${p}要给我${a ? ` ${formatMoney(a)}` : ''}` : `${p}请客`
+  const base = splitMode.value === 'amount' ? '按金额' : s === 5 ? '平摊' : `${s}:${10 - s}`
   if (!a) return base
-  const debt =
-    payerUid.value === myUid.value
-      ? `${partnerName.value}那份 ${formatMoney(theirs)} 我先垫`
-      : `我那份 ${formatMoney(mine)} ${partnerName.value}先垫`
-  return `${base} · ${debt}`
-})
-
-/** TA 承担的比平时多（比如记成 TA 请客）才要 TA 确认；否则只提醒 TA 一声 */
-const confirmNote = computed(() => {
-  const payer = payerUid.value
-  const ratio = payer === myUid.value ? myShare.value : 10 - myShare.value
-  return needsPartnerConfirm({ type: 'shared', payerUid: payer, ratio }, myUid.value, currentBook.value?.defaultRatio ?? 5)
-    ? `${partnerName.value}承担的比平时多，保存后要${partnerName.value}确认了才算`
-    : `保存后会告诉${partnerName.value}一声，不用等确认`
+  return iPaid ? `${base} · ${p}要给我 ${formatMoney(theirs)}` : `${base} · 我要给${p} ${formatMoney(mine)}`
 })
 
 // ── 校验与保存 ──
@@ -293,6 +329,8 @@ const rejectAmount = async (message: string) => {
 
 const buildPayload = (): NewRecord => {
   const shared = type.value === 'shared'
+  // 付款人按选的来：TA 全出、我先垫（我卡汇率好先刷，TA 再转给我）也是可以的
+  const share = effShare.value
   const payer = shared ? payerUid.value : myUid.value
   return {
     amount: amount.value,
@@ -300,7 +338,8 @@ const buildPayload = (): NewRecord => {
     type: type.value,
     payerUid: payer,
     // 存「付款人份额」
-    ratio: shared ? (payer === myUid.value ? myShare.value : 10 - myShare.value) : 10,
+    // 按金额分时是小数，比如 2200 里我付钱、我吃 800 → 3.63…
+    ratio: shared ? (payer === myUid.value ? share : 10 - share) : 10,
     // 结清在「结清」页由先垫钱的人标记，这里只保留原来的状态
     settledOnSpot: !!editing?.settledOnSpot,
     category: category.value.name,
@@ -327,6 +366,10 @@ const save = async (closeAfter: boolean) => {
   const shared = type.value === 'shared'
   if (shared && !partner.value) {
     toast.info('TA 加入后才能记共同账')
+    return
+  }
+  if (shared && kind.value === 'expense' && partError.value) {
+    toast.warning(partError.value)
     return
   }
   const payload = buildPayload()
@@ -457,42 +500,44 @@ const requestClose = async () => {
 
       <transition name="expand">
         <div v-if="kind === 'expense' && type === 'shared'" class="shared-panel">
-          <div class="ratio-head">
-            <span class="who me">我 <b class="mono">{{ myShare }}</b></span>
-            <span class="share-text">{{ shareText }}</span>
-            <span class="who partner"><b class="mono">{{ 10 - myShare }}</b> {{ partnerName }}</span>
-          </div>
-          <input
-            v-model.number="myShare"
-            type="range"
-            min="0"
-            max="10"
-            step="1"
-            class="slider"
-            :style="sliderStyle"
-            aria-label="AA 比例"
-          />
-          <div class="ticks">
-            <button :class="{ on: myShare === 10 }" @click="myShare = 10">我请客</button>
-            <button :class="{ on: myShare === 5 }" @click="myShare = 5">平摊</button>
-            <button :class="{ on: myShare === 0 }" @click="myShare = 0">TA请客</button>
-          </div>
-          <div class="payer-line">
-            <span class="hint">谁付的钱</span>
-            <div class="chips">
-              <button :class="['chip', 'me', { on: payerUid === myUid }]" @click="payerUid = myUid">
-                <i class="dot" />{{ nameOf(myUid) }}
-              </button>
-              <button
-                v-if="partner"
-                :class="['chip', 'partner', { on: payerUid === partner.userId }]"
-                @click="payerUid = partner.userId"
-              >
-                <i class="dot" />{{ partner.displayName }}
+          <div class="shared-row">
+            <div class="payer-seg" role="group" aria-label="谁付的钱">
+              <button :class="['me', { on: payerUid === myUid }]" @click="payerUid = myUid">我付</button>
+              <button v-if="partner" :class="['partner', { on: payerUid === partner.userId }]" @click="payerUid = partner.userId">
+                {{ partner.displayName }}付
               </button>
             </div>
+            <span :class="['share-text', { bad: !!partError && !!myPartText }]">{{ shareText }}</span>
+            <button class="adjust" :aria-expanded="adjusting" @click="adjusting = !adjusting">
+              {{ adjusting ? '收起' : '调整' }}
+            </button>
           </div>
-          <p class="confirm-note">{{ confirmNote }}</p>
+          <div v-if="adjusting" class="adjust-body">
+            <div class="split-mode">
+              <button :class="{ on: splitMode === 'ratio' }" @click="setSplitMode('ratio')">按比例</button>
+              <button :class="{ on: splitMode === 'amount' }" @click="setSplitMode('amount')">按金额</button>
+            </div>
+            <template v-if="splitMode === 'ratio'">
+              <div class="ratio-head">
+                <span class="who me">我 <b class="mono">{{ myShare }}</b></span>
+                <span class="who partner"><b class="mono">{{ 10 - myShare }}</b> {{ partnerName }}</span>
+              </div>
+              <input v-model.number="myShare" type="range" min="0" max="10" step="1" class="slider" :style="sliderStyle" aria-label="AA 比例" />
+              <div class="ticks">
+                <button :class="{ on: myShare === 10 }" @click="myShare = 10">我全出</button>
+                <button :class="{ on: myShare === 5 }" @click="myShare = 5">平摊</button>
+                <button :class="{ on: myShare === 0 }" @click="myShare = 0">{{ partnerName }}全出</button>
+              </div>
+            </template>
+            <div v-else class="by-amount">
+              <label class="part me">
+                <span>我那份</span>
+                <small>{{ activeCurrencyInfo.symbol }}</small>
+                <input v-model="myPartText" inputmode="decimal" placeholder="0" class="mono" aria-label="我那份的金额" />
+              </label>
+              <span class="part partner">{{ partnerName }}那份 <b class="mono">{{ formatMoney(theirPart) }}</b></span>
+            </div>
+          </div>
         </div>
       </transition>
       <div class="meta">
@@ -510,6 +555,7 @@ const requestClose = async () => {
             'key',
             { op: ['+', '-', '=', '⌫'].includes(k), zero: k === '0' },
           ]"
+          :aria-label="k === '⌫' ? '删除一位' : undefined"
           @click="press(k)"
         >
           <AppIcon v-if="k === '⌫'" name="backspace" :size="22" />
@@ -724,17 +770,6 @@ const requestClose = async () => {
   align-items: center;
   gap: 5px;
 }
-.sub-enter-active,
-.sub-leave-active {
-  transition: opacity 0.16s ease, transform 0.16s ease;
-}
-.sub-enter-from {
-  opacity: 0;
-  transform: translateY(-6px);
-}
-.sub-leave-to {
-  opacity: 0;
-}
 .sub-icon {
   display: grid;
   place-items: center;
@@ -776,58 +811,9 @@ const requestClose = async () => {
 .type-switch button.locked {
   color: var(--text-faint);
 }
-.payer-line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
-}
 .hint {
   font-size: 12px;
   color: var(--text-faint);
-}
-.chips {
-  display: flex;
-  gap: 8px;
-}
-.chip {
-  padding: 5px 14px;
-  border-radius: 999px;
-  font-size: 13px;
-  border: 1.5px solid var(--line);
-  color: var(--text-soft);
-}
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  transition: all 0.15s;
-}
-.chip .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-}
-.chip.me .dot {
-  background: var(--me);
-}
-.chip.partner .dot {
-  background: var(--partner);
-}
-.chip:active {
-  transform: scale(0.95);
-}
-.chip.me.on {
-  border-color: var(--me);
-  background: var(--me-bg);
-  color: var(--me-text);
-  font-weight: 600;
-}
-.chip.partner.on {
-  border-color: var(--partner);
-  background: var(--partner-bg);
-  color: var(--partner-text);
-  font-weight: 600;
 }
 .ratio-head {
   display: flex;
@@ -933,23 +919,105 @@ const requestClose = async () => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.shared-panel .payer-line {
-  margin: 8px 0 0;
+.shared-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.confirm-note {
-  margin: 6px 0 0;
-  font-size: 11px;
-  color: var(--text-faint);
-  text-align: center;
+.shared-row .share-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-soft);
 }
-.expand-enter-active,
-.expand-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
+.shared-row .share-text.bad {
+  color: var(--danger);
 }
-.expand-enter-from,
-.expand-leave-to {
-  opacity: 0;
-  transform: translateY(-6px);
+.payer-seg {
+  display: flex;
+  flex-shrink: 0;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.05);
+}
+.payer-seg button {
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.payer-seg button.on {
+  background: var(--card);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.payer-seg button.me.on {
+  color: var(--me-text);
+}
+.payer-seg button.partner.on {
+  color: var(--partner-text);
+}
+.adjust {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+.adjust-body {
+  margin-top: 10px;
+}
+.split-mode {
+  display: flex;
+  gap: 2px;
+  width: fit-content;
+  margin: 0 auto 6px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.05);
+}
+.split-mode button {
+  padding: 3px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.split-mode button.on {
+  background: var(--card);
+  color: var(--primary);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.by-amount {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+.part.me {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--me-text);
+}
+.part.me input {
+  width: 96px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: var(--card);
+  font-size: 16px;
+  outline: none;
+}
+.part.partner {
+  color: var(--partner-text);
 }
 .expr {
   font-size: 14px;
@@ -1006,15 +1074,6 @@ const requestClose = async () => {
   background: rgba(45, 184, 122, 0.12);
   padding: 3px 10px;
   border-radius: 999px;
-}
-.saved-enter-active,
-.saved-leave-active {
-  transition: opacity 0.2s, transform 0.2s;
-}
-.saved-enter-from,
-.saved-leave-to {
-  opacity: 0;
-  transform: translateX(-50%) scale(0.9);
 }
 .mono {
   font-family: var(--mono);
@@ -1078,9 +1137,6 @@ const requestClose = async () => {
   color: var(--primary);
   background: var(--primary-soft);
 }
-.key.off {
-  color: var(--text-faint);
-}
 .key.zero {
   grid-column: span 2;
 }
@@ -1118,6 +1174,27 @@ const requestClose = async () => {
 .submit button:active {
   transform: scale(0.98);
 }
+/* 矮屏手机（iPhone SE 等）：键盘和按钮收紧一点，上面能多露出一排分类 */
+@media (max-height: 700px) {
+  .key {
+    height: 36px;
+  }
+  .pad {
+    gap: 5px;
+  }
+  .meta {
+    margin: 4px 0 6px;
+  }
+  .submit button {
+    height: 40px;
+  }
+  .shared-panel {
+    padding: 6px 10px;
+  }
+  .shared-panel .payer-line {
+    margin-top: 4px;
+  }
+}
 .spinner {
   width: 16px;
   height: 16px;
@@ -1133,5 +1210,37 @@ const requestClose = async () => {
 }
 .submit button:disabled {
   opacity: 0.6;
+}
+.sub-enter-active,
+.sub-leave-active {
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.sub-enter-from {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+.sub-leave-to {
+  opacity: 0;
+}
+.expand-enter-active,
+.expand-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.expand-enter-from,
+.expand-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+.saved-enter-active,
+.saved-leave-active {
+  transition: opacity 0.2s, transform 0.2s;
+}
+.saved-enter-from,
+.saved-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) scale(0.9);
+}
+.key.off {
+  color: var(--text-faint);
 }
 </style>

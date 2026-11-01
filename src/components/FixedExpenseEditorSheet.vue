@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import BottomSheet from './BottomSheet.vue'
-import type { FixedExpense, FixedExpenseInput, RecordType } from '../types'
+import type { FixedExpense, FixedExpenseInput, RecordKind, RecordType } from '../types'
 import { categoriesFor } from '../utils/categories'
 import { activeCurrencyInfo, formatFullDate, todayKey } from '../utils/format'
-import { intervalLabel, nextDueDate } from '../composables/useFixedExpenses'
+import { dueDateIn, intervalLabel, nextDueDate } from '../composables/useFixedExpenses'
 import { useBooks } from '../composables/useBooks'
 
 const props = defineProps<{ open: boolean; item: FixedExpense | null; saving?: boolean }>()
@@ -18,6 +18,11 @@ const NAME_MAX = 20
 const name = ref('')
 const amountText = ref('')
 const categoryValue = ref('')
+/** 固定支出（房租）还是固定收入（工资） */
+const kind = ref<RecordKind>('expense')
+const isIncome = computed(() => kind.value === 'income')
+/** 文案里的「扣款 / 到账」 */
+const dueWord = computed(() => (isIncome.value ? '到账' : '扣款'))
 const day = ref(1)
 /** 每几个月扣一次 */
 const interval = ref(1)
@@ -29,24 +34,29 @@ const myShare = ref(5)
 const tried = ref(false)
 
 const categoryOptions = computed(() =>
-  categoriesFor('expense').flatMap((c) =>
+  categoriesFor(kind.value).flatMap((c) =>
     c.subs.length
       ? c.subs.map((s) => ({ value: `${c.name}||${s.name}`, label: `${c.name} · ${s.name}` }))
       : [{ value: `${c.name}||`, label: c.name }],
   ),
 )
 
+/** 打开弹窗填值时不要触发「拉到一头就换付款人」 */
+let filling = false
 watch(
   () => props.open,
-  (open) => {
+  async (open) => {
     if (!open) return
+    filling = true
     tried.value = false
     const f = props.item
     name.value = f?.name ?? ''
     amountText.value = f ? String(f.amount) : ''
+    kind.value = f?.kind ?? 'expense'
     categoryValue.value = f ? `${f.category}||${f.subCategory ?? ''}` : '固定开销||房租'
     day.value = f?.dayOfMonth ?? 1
     interval.value = f?.intervalMonths ?? 1
+    firstPick.value = null
     type.value = f?.type ?? 'personal'
     payerUid.value = f?.payerUid ?? myUid.value
     myShare.value =
@@ -55,6 +65,8 @@ watch(
           ? f.ratio
           : 10 - f.ratio
         : (currentBook.value?.defaultRatio ?? 5)
+    await nextTick()
+    filling = false
   },
 )
 
@@ -64,12 +76,47 @@ const errors = computed(() => {
   if (!name.value.trim()) e.name = '请填写名称'
   else if (name.value.trim().length > NAME_MAX) e.name = `最多 ${NAME_MAX} 个字`
   if (!(amount.value > 0)) e.amount = '金额需要大于 0'
-  if (type.value === 'shared' && !partner.value) e.type = 'TA 加入后才能设共同扣款'
+  if (!isIncome.value && type.value === 'shared' && !partner.value) e.type = 'TA 加入后才能设共同扣款'
   return e
 })
 
 /** 预览下一次扣款（编辑时从原来的开始日算，新加的从今天算） */
+/** 手动选的首次 / 下次扣款日；没选就按周期自动算（nextDue） */
+const firstPick = ref<string | null>(null)
+// 改了扣款日或周期，之前选的日期可能对不上了，回到自动算
+watch([day, interval], () => (firstPick.value = null))
+
+/** 可选的日期：从今天起往后 12 个月里每个月的扣款日 */
+const firstOptions = computed(() => {
+  const now = new Date()
+  const today = todayKey()
+  const list: string[] = []
+  for (let i = 0; list.length < 12 && i < 14; i++) {
+    const d = dueDateIn(now.getFullYear(), now.getMonth() + i, day.value)
+    if (d >= today) list.push(d)
+  }
+  return list
+})
+
+/**
+ * 编辑时改了扣款日 / 周期又没自己选日期：从上次扣款那个月往后一个周期开始，
+ * 免得「1 号已经扣过、改成 30 号」同一个月又扣一次。
+ */
+const shiftedStart = computed(() => {
+  const f = props.item
+  if (!f?.lastGeneratedDate || (day.value === f.dayOfMonth && interval.value === f.intervalMonths)) return null
+  const y = Number(f.lastGeneratedDate.slice(0, 4))
+  const m = Number(f.lastGeneratedDate.slice(5, 7)) - 1
+  const today = todayKey()
+  for (let i = interval.value; i <= 240; i += interval.value) {
+    const d = dueDateIn(y, m + i, day.value)
+    if (d >= today) return d
+  }
+  return null
+})
+
 const nextDue = computed(() =>
+  shiftedStart.value ??
   nextDueDate({
     startDate: props.item?.startDate ?? todayKey(),
     lastGeneratedDate: props.item?.lastGeneratedDate ?? null,
@@ -78,33 +125,70 @@ const nextDue = computed(() =>
   }),
 )
 
+// 拉到一头时，付款人先跟着全出的人（和记账页一样，可以再改：比如 TA 全出、我先刷卡）
+watch(myShare, (share) => {
+  if (filling) return
+  if (share === 10) payerUid.value = myUid.value
+  else if (share === 0 && partner.value) payerUid.value = partner.value.userId
+})
+
 const sliderStyle = computed(() => {
   const pct = myShare.value * 10
   return { background: `linear-gradient(90deg, var(--me) 0%, var(--me) ${pct}%, var(--partner) ${pct}%, var(--partner) 100%)` }
 })
 
 const shareText = computed(() => {
-  if (myShare.value === 10) return `我请客，${partnerName.value} 不用付`
-  if (myShare.value === 0) return `${partnerName.value} 请客，我不用付`
+  const p = partnerName.value
+  const iPaid = payerUid.value === myUid.value
+  if (myShare.value === 10) return iPaid ? '我请客' : `我全出 · ${p}先垫，我转给${p}`
+  if (myShare.value === 0) return iPaid ? `${p}全出 · 我先垫，${p}转给我` : `${p}请客`
   return myShare.value === 5 ? '5:5 平摊' : `我 ${myShare.value * 10}% · ${partnerName.value} ${(10 - myShare.value) * 10}%`
 })
+
+/** 切换支出 / 收入：分类换成对应的第一个（工资） */
+const setKind = (k: RecordKind) => {
+  if (k === kind.value) return
+  kind.value = k
+  categoryValue.value = categoryOptions.value[0]?.value ?? ''
+}
 
 const submit = () => {
   tried.value = true
   if (Object.keys(errors.value).length || props.saving) return
   const [category, sub] = categoryValue.value.split('||')
+  // 固定收入只算自己的
+  if (isIncome.value) {
+    emit('save', {
+      name: name.value.trim(),
+      amount: amount.value,
+      kind: 'income',
+      category,
+      subCategory: sub || null,
+      dayOfMonth: day.value,
+      intervalMonths: interval.value,
+      ...(firstPick.value || shiftedStart.value ? { startDate: firstPick.value ?? shiftedStart.value! } : {}),
+      payerUid: props.item?.payerUid ?? myUid.value,
+      type: 'personal',
+      ratio: 10,
+    })
+    return
+  }
   const shared = type.value === 'shared'
+  // 旧设置可能是「我付钱、TA 请客」，保存时付款人按请客的人
+  const payer = payerUid.value
   emit('save', {
     name: name.value.trim(),
     amount: amount.value,
+    kind: 'expense',
     category,
     subCategory: sub || null,
     dayOfMonth: day.value,
     intervalMonths: interval.value,
-    payerUid: payerUid.value,
+    ...(firstPick.value || shiftedStart.value ? { startDate: firstPick.value ?? shiftedStart.value! } : {}),
+    payerUid: payer,
     type: type.value,
     // 存「付款人份额」，和账单一致
-    ratio: shared ? (payerUid.value === myUid.value ? myShare.value : 10 - myShare.value) : 10,
+    ratio: shared ? (payer === myUid.value ? myShare.value : 10 - myShare.value) : 10,
   })
 }
 </script>
@@ -112,14 +196,21 @@ const submit = () => {
 <template>
   <BottomSheet :open="open" @close="emit('close')">
     <div class="head">
-      <h3>{{ item ? '编辑固定扣款' : '添加固定扣款' }}</h3>
+      <h3>{{ item ? (isIncome ? '编辑固定收入' : '编辑固定扣款') : '添加固定收支' }}</h3>
       <button v-if="item" class="del" @click="emit('delete')">删除</button>
     </div>
 
     <div class="form">
+      <div v-if="!item" class="field">
+        <span>收支</span>
+        <div class="seg">
+          <button :class="{ on: !isIncome }" @click="setKind('expense')">支出</button>
+          <button :class="{ on: isIncome }" @click="setKind('income')">收入</button>
+        </div>
+      </div>
       <label class="field">
         <span>名称</span>
-        <input v-model="name" :maxlength="NAME_MAX + 4" placeholder="如：房租" />
+        <input v-model="name" :maxlength="NAME_MAX + 4" :placeholder="isIncome ? '如：工资' : '如：房租'" />
       </label>
       <p v-if="tried && errors.name" class="err">{{ errors.name }}</p>
 
@@ -148,16 +239,29 @@ const submit = () => {
       </label>
 
       <label class="field">
-        <span>扣款日</span>
+        <span>{{ dueWord }}日</span>
         <select v-model.number="day">
           <option v-for="d in 31" :key="d" :value="d">{{ d }} 号</option>
         </select>
       </label>
+      <label class="field">
+        <span>{{ item ? `下次${dueWord}` : `首次${dueWord}` }}</span>
+        <select :value="firstPick ?? nextDue" @change="firstPick = ($event.target as HTMLSelectElement).value">
+          <option v-if="!firstOptions.includes(nextDue)" :value="nextDue">{{ formatFullDate(nextDue) }}</option>
+          <option v-for="d in firstOptions" :key="d" :value="d">{{ formatFullDate(d) }}</option>
+        </select>
+      </label>
       <p class="hint">
-        下次扣款：{{ formatFullDate(nextDue) }}<template v-if="interval > 1">，之后{{ intervalLabel(interval) }}一次</template>
-        <template v-if="day > 28">；没有 {{ day }} 号的月份按月底扣款</template>
+        <template v-if="isIncome">到这天打开 App 会自动记一笔收入并提醒你，金额不一样点进去改就好；这个月已经到账的话，选下一次的日期</template>
+        <template v-else>
+          <template v-if="interval > 1">从这天起{{ intervalLabel(interval) }}扣一次；</template>
+          <template v-else>从这天起每月扣一次；</template>
+          这个月已经扣过的话，选下一次的日期就好
+        </template>
+        <template v-if="day > 28">。没有 {{ day }} 号的月份按月底{{ dueWord }}</template>
       </p>
 
+      <template v-if="!isIncome">
       <div class="field">
         <span>类型</span>
         <div class="seg">
@@ -170,7 +274,10 @@ const submit = () => {
       <div class="field">
         <span>付款人</span>
         <div class="chips">
-          <button :class="['chip', 'me', { on: payerUid === myUid }]" @click="payerUid = myUid">
+          <button
+            :class="['chip', 'me', { on: payerUid === myUid }]"
+            @click="payerUid = myUid"
+          >
             <i class="dot" />{{ nameOf(myUid) }}
           </button>
           <button
@@ -191,6 +298,7 @@ const submit = () => {
         </div>
         <input v-model.number="myShare" type="range" min="0" max="10" step="1" class="slider" :style="sliderStyle" aria-label="AA 比例" />
       </div>
+      </template>
     </div>
 
     <button class="save" :disabled="saving" @click="submit">
@@ -304,6 +412,9 @@ const submit = () => {
   font-size: 13px;
   color: var(--text-soft);
   background: var(--card);
+}
+.chip:disabled {
+  opacity: 0.35;
 }
 .chip .dot {
   width: 7px;

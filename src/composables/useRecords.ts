@@ -3,7 +3,6 @@ import { supabase } from '../lib/supabase'
 import { createDemoRecords, isDemoMode } from '../lib/demo'
 import type { ConfirmStatus, LedgerRecord, NewRecord } from '../types'
 import { newEntry, parseDiscussion, stampConfirm } from '../utils/confirm'
-import { needsPartnerConfirm } from '../utils/settlement'
 import { formatSupabaseError, useBooks } from './useBooks'
 import { authUser } from './useSupabaseAuth'
 import { setSyncWarning } from './useRuntimeStatus'
@@ -49,6 +48,8 @@ const normalizeRecord = (row: Record<string, unknown>): LedgerRecord => ({
   ratio: Number(row.ratio ?? 5),
   settledOnSpot: !!row.settled_on_spot,
   settledAt: row.settled_at ? String(row.settled_at) : null,
+  paidClaimedAt: row.paid_claimed_at ? String(row.paid_claimed_at) : null,
+  paidNudgedAt: row.paid_nudged_at ? String(row.paid_nudged_at) : null,
   editedAt: row.edited_at ? String(row.edited_at) : String(row.created_at ?? ''),
   category: String(row.category ?? '其他'),
   subCategory: row.sub_category ? String(row.sub_category) : null,
@@ -69,17 +70,31 @@ const stampLocal = (next: LedgerRecord, prev: LedgerRecord | null, uid: string) 
     next,
     prev,
     uid,
-    !!partner.value && needsPartnerConfirm(next, uid, currentBook.value?.defaultRatio ?? 5),
+    // 记了就入账；对方觉得不对再点「有疑问」
+    false,
     CONTENT_KEYS,
   )
   const moneyChanged = !prev || CONTENT_KEYS.some((k) => prev[k] !== next[k])
-  return { ...stamped, editedAt: moneyChanged ? new Date().toISOString() : (prev?.editedAt ?? null) }
+  // 和数据库一致：记账人对「有疑问」的账单只改了分类 / 日期，也重新请对方确认
+  const fixedDispute =
+    !!prev &&
+    !moneyChanged &&
+    prev.confirmStatus === 'disputed' &&
+    prev.lastEditedBy === uid &&
+    (['category', 'subCategory', 'date'] as const).some((k) => prev[k] !== next[k])
+  return {
+    ...stamped,
+    ...(fixedDispute ? { confirmStatus: 'pending' as const } : {}),
+    // 钱变了：之前标的「已收到」不再对得上，取消结清
+    ...(prev && moneyChanged ? { settledOnSpot: false, settledAt: null, paidClaimedAt: null, paidNudgedAt: null } : {}),
+    editedAt: moneyChanged ? new Date().toISOString() : (prev?.editedAt ?? null),
+  }
 }
 
 const sortRecords = (list: LedgerRecord[]) =>
   [...list].sort((a, b) => (a.date === b.date ? b.createdAt.localeCompare(a.createdAt) : b.date.localeCompare(a.date)))
 
-const { currentBook, partner } = useBooks()
+const { currentBook } = useBooks()
 
 const loadRecords = async () => {
   if (isDemoMode) {
@@ -225,7 +240,8 @@ const updateRecord = async (id: string, input: NewRecord) => {
   if (isDemoMode || !supabase) {
     const uid = authUser.value?.id ?? ''
     records.value = sortRecords(
-      records.value.map((r) => (r.id === id ? stampLocal({ ...r, ...input, settledOnSpot: !!input.settledOnSpot }, { ...r, settledOnSpot: !!r.settledOnSpot }, uid) : r)),
+      // 结清只由 setSettled 改，编辑时保留原来的状态（钱变了的话 stampLocal 会取消结清）
+      records.value.map((r) => (r.id === id ? stampLocal({ ...r, ...input, settledOnSpot: r.settledOnSpot }, r, uid) : r)),
     )
     return { error: null }
   }
@@ -238,7 +254,6 @@ const updateRecord = async (id: string, input: NewRecord) => {
       type: input.type,
       payer_uid: input.payerUid,
       ratio: input.ratio,
-      settled_on_spot: !!input.settledOnSpot,
       category: input.category,
       sub_category: input.subCategory,
       note: input.note,
@@ -292,7 +307,15 @@ const setConfirm = async (ids: string[], status: ConfirmStatus, message?: { text
     return { error: null }
   }
   records.value = records.value.map((r) =>
-    ids.includes(r.id) ? { ...r, confirmStatus: status, ...(discussion && r.id === target?.id ? { discussion } : {}) } : r,
+    ids.includes(r.id)
+      ? {
+          ...r,
+          confirmStatus: status,
+          // 有疑问 / 等再看时不算入账，「我给了」的申请也作废（和数据库一致）
+          ...(status === 'confirmed' ? {} : { paidClaimedAt: null, paidNudgedAt: null }),
+          ...(discussion && r.id === target?.id ? { discussion } : {}),
+        }
+      : r,
   )
   return { error: null }
 }
@@ -317,7 +340,105 @@ const setSettled = async (ids: string[], settled: boolean) => {
     return { error: null }
   }
   const at = settled ? new Date().toISOString() : null
-  records.value = records.value.map((r) => (own.includes(r.id) ? { ...r, settledOnSpot: settled, settledAt: at } : r))
+  records.value = records.value.map((r) => (own.includes(r.id) ? { ...r, settledOnSpot: settled, settledAt: at, paidClaimedAt: null, paidNudgedAt: null } : r))
+  return { error: null }
+}
+
+/**
+ * 我说过「我给了」的账单（存在本机）：TA 点了「没收到」或者改了金额，申请会被清掉，
+ * 靠这个发现「被退回来了」，提醒我再看一下。
+ */
+const claimKey = computed(() => `couple-expense-claims:${currentBook.value?.id ?? ''}:${authUser.value?.id ?? ''}`)
+const readClaims = (key: string): string[] => {
+  try {
+    const list = JSON.parse(localStorage.getItem(key) ?? '[]')
+    return Array.isArray(list) ? list.map(String) : []
+  } catch {
+    return []
+  }
+}
+const myClaims = ref<string[]>([])
+watch(claimKey, (key) => (myClaims.value = readClaims(key)), { immediate: true })
+const saveClaims = (ids: string[]) => {
+  myClaims.value = ids
+  try {
+    localStorage.setItem(claimKey.value, JSON.stringify(ids))
+  } catch {
+    // 存不了就只在这次打开时提醒
+  }
+}
+// 结清了、删掉了的不用再记着
+watch(records, (list) => {
+  if (!list.length || !myClaims.value.length) return
+  const keep = myClaims.value.filter((id) => list.some((r) => r.id === id && !r.settledOnSpot))
+  if (keep.length !== myClaims.value.length) saveClaims(keep)
+})
+/** 我说给了、TA 没确认收到就退回来的（TA 说没收到，或者改了金额 / 比例） */
+const bouncedClaims = computed(() =>
+  records.value.filter(
+    (r) =>
+      myClaims.value.includes(r.id) &&
+      !r.paidClaimedAt &&
+      !r.settledOnSpot &&
+      // 和「我该给 TA」同样的范围，首页的提醒才能在结清页里点掉
+      r.kind === 'expense' &&
+      r.type === 'shared' &&
+      r.confirmStatus === 'confirmed' &&
+      r.ratio !== 10,
+  ),
+)
+const dismissBounced = () => saveClaims(myClaims.value.filter((id) => !bouncedClaims.value.some((r) => r.id === id)))
+
+/** 没付钱的那位说「我给了」/ 撤回；先垫钱的人点「没收到」也是清掉 */
+const setPaidClaim = async (ids: string[], claimed: boolean) => {
+  const uid = authUser.value?.id ?? ''
+  const target = records.value
+    .filter((r) => ids.includes(r.id) && r.type === 'shared' && !r.settledOnSpot && (!claimed || r.payerUid !== uid))
+    .map((r) => r.id)
+  if (!target.length) return { error: new Error('只有没付钱的那位能说已经给了') }
+  if (!isDemoMode && supabase) {
+    const { data, error } = await supabase
+      .from('records')
+      .update({ paid_claimed_at: claimed ? new Date().toISOString() : null })
+      .in('id', target)
+      .select()
+    if (error) {
+      console.error('结清申请失败：', error)
+      return { error: new Error(formatSupabaseError(error, '操作失败，请稍后重试。')) }
+    }
+    const next = new Map((data ?? []).map((row) => [String(row.id), normalizeRecord(row)]))
+    records.value = records.value.map((r) => next.get(r.id) ?? r)
+  } else {
+    const at = claimed ? new Date().toISOString() : null
+    records.value = records.value.map((r) => (target.includes(r.id) ? { ...r, paidClaimedAt: at, paidNudgedAt: null } : r))
+  }
+  // 记下我说过给了的；我自己撤回的就不算被退回
+  const mine = records.value.filter((r) => target.includes(r.id) && r.payerUid !== uid).map((r) => r.id)
+  if (claimed) saveClaims([...new Set([...myClaims.value, ...mine])])
+  else saveClaims(myClaims.value.filter((id) => !mine.includes(id)))
+  return { error: null }
+}
+
+/** 「提醒 TA」：说了我给了 12 小时对方还没确认，可以提醒；之后每 12 小时最多一次 */
+export const NUDGE_GAP_MS = 12 * 3600 * 1000
+export const nudgeReadyAt = (r: LedgerRecord) =>
+  r.paidClaimedAt ? new Date(r.paidNudgedAt ?? r.paidClaimedAt).getTime() + NUDGE_GAP_MS : Infinity
+const nudgeClaims = async (ids: string[]) => {
+  const uid = authUser.value?.id ?? ''
+  const now = Date.now()
+  const target = records.value
+    .filter((r) => ids.includes(r.id) && r.payerUid !== uid && r.paidClaimedAt && !r.settledOnSpot && nudgeReadyAt(r) <= now)
+    .map((r) => r.id)
+  if (!target.length) return { error: new Error('12 小时内只能提醒一次') }
+  if (!isDemoMode && supabase) {
+    const { data, error } = await supabase.from('records').update({ paid_nudged_at: new Date().toISOString() }).in('id', target).select()
+    if (error) return { error: new Error(formatSupabaseError(error, '提醒失败，请稍后重试。')) }
+    const next = new Map((data ?? []).map((row) => [String(row.id), normalizeRecord(row)]))
+    records.value = records.value.map((r) => next.get(r.id) ?? r)
+    return { error: null }
+  }
+  const at = new Date().toISOString()
+  records.value = records.value.map((r) => (target.includes(r.id) ? { ...r, paidNudgedAt: at } : r))
   return { error: null }
 }
 
@@ -333,14 +454,12 @@ watch(records, (list) => {
 })
 
 /**
- * 隐私边界：共同记录两人都能看；个人记录（含收入）只有付款人自己能看。
- * 列表、日历、详情、收入统计都用这个；「我们一共花了多少」这类总额才用全部记录。
+ * 隐私边界：两个人的账单（包括 TA 的个人记录）都能在列表、日历里看到；
+ * 统计和首页数字只算共同的 + 自己的，不汇总 TA 的个人消费和收入。
  */
-export const isVisibleTo = (r: LedgerRecord, uid: string) => r.type === 'shared' || r.payerUid === uid
 /** 对方的个人记录只能看、不能改删（共同记录两人都能改） */
 export const canModify = (r: LedgerRecord, uid: string) => r.type === 'shared' || r.payerUid === uid || r.createdBy === uid
-const visibleRecords = computed(() => records.value.filter((r) => isVisibleTo(r, authUser.value?.id ?? '')))
 
 export function useRecords() {
-  return { records, visibleRecords, recordsLoading, recordsError, loadRecords, addRecord, addRecordsBulk, updateRecord, deleteRecord, respondRecords, replyRecord, setSettled }
+  return { records, recordsLoading, recordsError, loadRecords, addRecord, addRecordsBulk, updateRecord, deleteRecord, respondRecords, replyRecord, setSettled, setPaidClaim, bouncedClaims, dismissBounced, nudgeClaims }
 }

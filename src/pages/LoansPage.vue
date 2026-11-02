@@ -44,7 +44,7 @@ const borrowed = computed(() => sumRemaining(active.value.filter((l) => l.borrow
 const showSettled = ref(false)
 
 /**
- * 互相抵消：同一种货币里，我借 TA 的和 TA 借我的可以对冲。
+ * 合并算账：同一种货币里，我借 TA 的和 TA 借我的可以对冲。
  * 只算两个人都确认过、还没还完的（等确认的还款先扣掉，免得重复抵）。
  */
 const offsets = computed(() => {
@@ -64,20 +64,15 @@ const offsets = computed(() => {
       const b = theyOwe.reduce((s, x) => s + x.avail, 0)
       const amount = Math.min(a, b)
       // 从最早的借款开始，一笔笔扣到 amount 为止
-      const allocate = (list: typeof open, total = amount) => {
-        let left = total
+      const allocate = (list: typeof open) => {
+        let left = amount
         return list.flatMap((x) => {
           const take = Math.min(left, x.avail)
           left = Math.round((left - take) * 100) / 100
           return take > 0 ? [{ loanId: x.loan.id, amount: take }] : []
         })
       }
-      const parts = amount > 0 ? [...allocate(iOwe), ...allocate(theyOwe)] : []
-      // 抵完我还欠 TA 的：比如我欠 5 万、TA 欠我 2 千，直接还 4.8 万就两清。按抵消后每笔还剩多少分下去
-      const net = Math.round((b - a) * 100) / 100
-      const afterOffset = iOwe.map((x) => ({ ...x, avail: Math.round((x.avail - (parts.find((p) => p.loanId === x.loan.id)?.amount ?? 0)) * 100) / 100 }))
-      const payParts = net < 0 ? allocate(afterOffset, -net) : []
-      return { currency, iOwe: a, theyOwe: b, amount, net, parts, payParts }
+      return { currency, iOwe: a, theyOwe: b, amount, net: b - a, parts: amount > 0 ? [...allocate(iOwe), ...allocate(theyOwe)] : [] }
     })
     .filter((o) => o.amount > 0)
 })
@@ -89,22 +84,12 @@ const netText = (o: { net: number; currency: string }) =>
       : '正好两清'
 
 const offsetting = ref(false)
-/** pay = true：抵消后把我还欠的差额一起记成还款（TA 收到后确认），一次两清 */
-const runOffset = async (o: (typeof offsets.value)[number], pay = false) => {
-  const net = formatMoney(-o.net, o.currency)
-  const ok = await confirmAction(
-    pay
-      ? {
-          title: `还 ${net}，两清？`,
-          message: `先互相抵消 ${formatMoney(o.amount, o.currency)}（马上生效），再记一笔 ${net} 的还款，${partnerName.value}确认收到后就全部还清了。`,
-          confirmText: '两清',
-        }
-      : {
-          title: `互相抵消 ${formatMoney(o.amount, o.currency)}？`,
-          message: `马上生效，不用${partnerName.value}同意，TA 那边会收到提示。抵消后${netText(o)}。记错了可以在借款里申请删除，两边一起撤销。`,
-          confirmText: '抵消',
-        },
-  )
+const runOffset = async (o: (typeof offsets.value)[number]) => {
+  const ok = await confirmAction({
+    title: '两边借款合并算账？',
+    message: `两边各扣掉 ${formatMoney(o.amount, o.currency)}，算完${netText(o)}。马上生效，不用${partnerName.value}同意，TA 那边会收到通知。记错了可以在借款里申请删除，两边一起撤销。`,
+    confirmText: '合并算账',
+  })
   if (!ok) return
   offsetting.value = true
   const { error } = await offsetLoans(o.parts)
@@ -115,19 +100,9 @@ const runOffset = async (o: (typeof offsets.value)[number], pay = false) => {
     toast.error(error.message)
     return
   }
-  if (pay) {
-    for (const p of o.payParts) {
-      const { error: payError } = await addRepayment(p.loanId, { amount: p.amount, date: todayKey(), note: '抵消后还清' })
-      if (payError) {
-        offsetting.value = false
-        toast.error(`已抵消，但还款没记上：${payError.message}`)
-        return
-      }
-    }
-  }
   offsetting.value = false
   haptic()
-  toast.success(pay ? `已抵消，${net} 的还款等${partnerName.value}确认收到` : `已抵消 ${formatMoney(o.amount, o.currency)}，${netText(o)}`)
+  toast.success(`已合并算账，${netText(o)}`)
 }
 
 const title = (l: Loan) => (l.lenderUid === myUid.value ? `借给${nameOf(l.borrowerUid)}` : `向${nameOf(l.lenderUid)}借`)
@@ -302,7 +277,7 @@ const onApproveDelete = async (l: Loan) => {
 }
 
 /**
- * 互相抵消的两笔还款是一起的：有人在其中一笔上申请删除，另一笔也显示出来，
+ * 合并算账的两笔还款是一起的：有人在其中一笔上申请删除，另一笔也显示出来，
  * 同意 / 撤回都作用在申请的那笔上（数据库会把另一笔一起删）
  */
 const delTarget = (r: LoanRepayment) =>
@@ -323,7 +298,7 @@ const onDeleteRepay = async (r: LoanRepayment) => {
   }
   const ok = await confirmAction({
     title: '申请删除这笔还款？',
-    message: `${formatMoney(r.amount, cur)} 已经确认过了，${partnerName.value}同意后才会删除。${r.offsetId ? '这是互相抵消记的，另一边的那笔也会一起删。' : ''}`,
+    message: `${formatMoney(r.amount, cur)} 已经确认过了，${partnerName.value}同意后才会删除。${r.offsetId ? '这是合并算账记的，另一边的那笔也会一起删。' : ''}`,
     confirmText: '申请删除',
     danger: true,
   })
@@ -335,7 +310,7 @@ const onDeleteRepay = async (r: LoanRepayment) => {
 const approveDeleteRepay = async (r: LoanRepayment) => {
   const ok = await confirmAction({
     title: '同意删除这笔还款？',
-    message: `${formatMoney(r.amount, detail.value?.currency)} 删除后会加回「还剩」，无法恢复。${r.offsetId ? '这是互相抵消记的，另一边的那笔也会一起删。' : ''}`,
+    message: `${formatMoney(r.amount, detail.value?.currency)} 删除后会加回「还剩」，无法恢复。${r.offsetId ? '这是合并算账记的，另一边的那笔也会一起删。' : ''}`,
     confirmText: '同意删除',
     danger: true,
   })
@@ -401,21 +376,15 @@ const cancelDeleteRepay = async (r: LoanRepayment) => {
       </button>
     </section>
 
-    <!-- 互相抵消：两边都有没还完的借款时出现 -->
+    <!-- 合并算账：两边都有没还完的借款时出现 -->
     <section v-for="o in offsets" :key="o.currency" class="offset">
       <div class="offset-rows">
         <span>我借{{ partnerName }}的 <b class="mono">{{ formatMoney(o.iOwe, o.currency) }}</b></span>
         <span>{{ partnerName }}借我的 <b class="mono">{{ formatMoney(o.theyOwe, o.currency) }}</b></span>
       </div>
-      <p class="offset-net">相互抵消后，{{ netText(o) }}</p>
-      <template v-if="o.payParts.length">
-        <button class="offset-btn" :disabled="offsetting" @click="runOffset(o, true)">
-          <AppIcon name="swap" :size="16" :stroke="2.2" />{{ offsetting ? '处理中…' : `我还 ${formatMoney(-o.net, o.currency)} 就两清` }}
-        </button>
-        <button class="offset-only" :disabled="offsetting" @click="runOffset(o)">只抵消 {{ formatMoney(o.amount, o.currency) }}，钱以后再还</button>
-      </template>
-      <button v-else class="offset-btn" :disabled="offsetting" @click="runOffset(o)">
-        <AppIcon name="swap" :size="16" :stroke="2.2" />{{ offsetting ? '处理中…' : `一键抵消 ${formatMoney(o.amount, o.currency)}` }}
+      <p class="offset-net">两边合并算账后，{{ netText(o) }}</p>
+      <button class="offset-btn" :disabled="offsetting" @click="runOffset(o)">
+        <AppIcon name="swap" :size="16" :stroke="2.2" />{{ offsetting ? '处理中…' : '合并算账' }}
       </button>
     </section>
 
@@ -726,13 +695,6 @@ const cancelDeleteRepay = async (r: LoanRepayment) => {
   align-items: center;
   justify-content: center;
   gap: 6px;
-}
-.offset-only {
-  width: 100%;
-  margin-top: 6px;
-  padding: 8px;
-  font-size: 13px;
-  color: var(--primary);
 }
 .toggle {
   display: flex;

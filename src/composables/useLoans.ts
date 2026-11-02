@@ -193,7 +193,7 @@ const addRepayment = async (loanId: string, input: { amount: number; date: strin
 }
 
 /**
- * 互相抵消：两边的还款一起记、马上生效（数据库里一个事务，要么都成功要么都不记）。
+ * 合并算账（两边借款互相抵掉）：两边的还款一起记、马上生效（数据库里一个事务，要么都成功要么都不记）。
  * parts 里我借 TA 的和 TA 借我的加起来要一样多。
  */
 const offsetLoans = async (parts: { loanId: string; amount: number }[]) => {
@@ -208,7 +208,7 @@ const offsetLoans = async (parts: { loanId: string; amount: number }[]) => {
       loanId: p.loanId,
       bookId,
       amount: p.amount,
-      note: '互相抵消',
+      note: '合并算账',
       date: todayKey(),
       createdBy: uid,
       createdAt: now,
@@ -225,7 +225,7 @@ const offsetLoans = async (parts: { loanId: string; amount: number }[]) => {
     p_book_id: bookId,
     p_parts: parts.map((p) => ({ loan_id: p.loanId, amount: p.amount })),
   })
-  if (error) return { error: new Error(formatSupabaseError(error, '抵消失败，请稍后重试。')) }
+  if (error) return { error: new Error(formatSupabaseError(error, '合并算账失败，请稍后重试。')) }
   repayments.value = byDateDesc([...((data ?? []) as Record<string, unknown>[]).map(normalizeRepayment), ...repayments.value])
   return { error: null }
 }
@@ -236,7 +236,7 @@ const removeRepayment = async (id: string) => {
     if (error) return { error: new Error(formatSupabaseError(error, '删除失败，请稍后重试。')) }
     if (!data?.length) return { error: new Error('确认过的还款要一个人申请删除、另一个人同意才能删') }
   }
-  // 抵消的另一边数据库里会一起删，这里同步
+  // 合并算账的另一边数据库里会一起删，这里同步
   const offsetId = repayments.value.find((r) => r.id === id)?.offsetId
   repayments.value = repayments.value.filter((r) => r.id !== id && !(offsetId && r.offsetId === offsetId))
   return { error: null }

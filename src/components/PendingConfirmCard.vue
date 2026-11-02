@@ -97,7 +97,7 @@ const rows = computed<Row[]>(() => {
       kind: 'repayment',
       id: p.id,
       title: loan ? `还款 · ${nameOf(loan.borrowerUid)}还给${nameOf(loan.lenderUid)}` : '还款',
-      // 备注带上，「互相抵消」的两笔一看就知道是一对
+      // 备注带上，「合并算账」的两笔一看就知道是一对
       sub: `${formatDateLabel(p.date)}${p.note ? ` · ${p.note}` : ''}`,
       amount: p.amount,
       currency: loan?.currency,
@@ -213,7 +213,7 @@ const news = computed(() =>
       last: '',
     })),
 )
-// ── 提醒：TA 把借款互相抵消了（马上生效，不用确认），点一下去借款页看，看过就不再提醒 ──
+// ── 提醒：TA 把两边的借款合并算账了（马上生效，不用确认），点一下去借款页看，看过就不再提醒 ──
 const offsetSeenKey = computed(() => `couple-expense-offset-seen:${currentBook.value?.id ?? ''}:${myUid.value}`)
 const offsetSeenAt = ref(readSeen(offsetSeenKey.value))
 watch(offsetSeenKey, (k) => (offsetSeenAt.value = readSeen(k)))
@@ -222,7 +222,7 @@ const offsetNews = computed(() => {
   for (const p of repayments.value) {
     if (!p.offsetId || p.createdBy === myUid.value || p.createdAt <= offsetSeenAt.value) continue
     const loan = loans.value.find((l) => l.id === p.loanId)
-    // 两边金额一样，只算我借出去那边的，就是抵消的金额
+    // 两边金额一样，只算我借出去那边的，就是两边各扣掉的金额
     const g = groups.get(p.offsetId) ?? { amount: 0, currency: loan?.currency }
     if (loan?.lenderUid === myUid.value) g.amount += p.amount
     groups.set(p.offsetId, g)
@@ -380,7 +380,7 @@ const open = (row: Row) => {
   </button>
 
   <button v-if="offsetNews.length" class="card news del-line" @click="openOffsetNews">
-    <span class="title"><AppIcon name="swap" :size="16" :stroke="2.2" />TA 把借款互相抵消了 <b class="mono">{{ offsetNewsText }}</b></span>
+    <span class="title"><AppIcon name="swap" :size="16" :stroke="2.2" />TA 把两边借款合并算账了 · 各扣 <b class="mono">{{ offsetNewsText }}</b></span>
     <span class="later">去看看 ›</span>
   </button>
 

@@ -1,4 +1,4 @@
--- 借款「互相抵消」：一次记两边的还款，马上生效
+-- 借款「合并算账」（以前叫「一键抵消」）：两边各扣掉相同的金额，一次记好，马上生效、不用对方同意
 -- 以前是一笔笔记还款、等对方确认，点了之后金额不变，看起来像没反应；两笔也不是一起成功或失败。
 -- 现在：
 --   1. offset_loans() 在一个事务里检查并记下两边的还款，直接算确认
@@ -81,10 +81,10 @@ begin
     raise exception '还没有加入账本。';
   end if;
   if jsonb_typeof(p_parts) <> 'array' or jsonb_array_length(p_parts) < 2 then
-    raise exception '两边都要有借款才能抵消';
+    raise exception '两边都要有借款才能合并算账';
   end if;
   if (select count(distinct p ->> 'loan_id') from jsonb_array_elements(p_parts) p) <> jsonb_array_length(p_parts) then
-    raise exception '同一笔借款不能重复抵消';
+    raise exception '同一笔借款不能重复算';
   end if;
 
   for v_part in select * from jsonb_array_elements(p_parts) loop
@@ -93,15 +93,15 @@ begin
       raise exception '借款不存在';
     end if;
     if v_uid not in (v_loan.lender_uid, v_loan.borrower_uid) then
-      raise exception '只能抵消自己和 TA 之间的借款';
+      raise exception '只能算自己和 TA 之间的借款';
     end if;
     if v_loan.confirm_status <> 'confirmed' or v_loan.delete_requested_by is not null then
-      raise exception '有借款在等确认或申请删除，先处理完再抵消';
+      raise exception '有借款在等确认或申请删除，先处理完再合并算账';
     end if;
     if v_currency is null then
       v_currency := v_loan.currency;
     elsif v_currency <> v_loan.currency then
-      raise exception '不同货币不能互相抵消';
+      raise exception '不同货币不能合并算账';
     end if;
     v_amount := round((v_part ->> 'amount')::numeric, 2);
     select v_loan.amount - coalesce(sum(r.amount), 0) into v_avail from public.loan_repayments r where r.loan_id = v_loan.id;
@@ -119,14 +119,14 @@ begin
   end loop;
 
   if v_i_owe <> v_they_owe then
-    raise exception '两边抵消的金额要一样';
+    raise exception '两边扣掉的金额要一样';
   end if;
 
   perform set_config('app.loan_offset', 'on', true);
   return query
     with ins as (
       insert into public.loan_repayments (loan_id, book_id, amount, date, note, created_by, offset_id)
-      select (p ->> 'loan_id')::uuid, p_book_id, round((p ->> 'amount')::numeric, 2), current_date, '互相抵消', v_uid, v_offset
+      select (p ->> 'loan_id')::uuid, p_book_id, round((p ->> 'amount')::numeric, 2), current_date, '合并算账', v_uid, v_offset
       from jsonb_array_elements(p_parts) p
       returning *
     )
@@ -153,7 +153,7 @@ begin
     group by 1, 2, 3
   )
   update public.loan_repayments r
-  set offset_id = g.oid, confirm_status = 'confirmed'
+  set offset_id = g.oid, confirm_status = 'confirmed', note = '合并算账'
   from groups g
   where r.note = '互相抵消' and r.offset_id is null and r.confirm_status <> 'confirmed'
     and r.book_id = g.book_id and r.created_by = g.created_by and date_trunc('minute', r.created_at) = g.at;

@@ -16,6 +16,12 @@ as $$
 begin
   if tg_op = 'UPDATE' then
     new.offset_id := old.offset_id;
+    -- 抵消的两笔要一致：不能单独把一笔改成「有疑问」，不对就申请删除，两边一起撤销
+    if old.offset_id is not null then
+      new.confirm_status := old.confirm_status;
+      new.amount := old.amount;
+      new.loan_id := old.loan_id;
+    end if;
     return new;
   end if;
   if coalesce(current_setting('app.loan_offset', true), '') = 'on' then
@@ -99,7 +105,10 @@ begin
     end if;
     v_amount := round((v_part ->> 'amount')::numeric, 2);
     select v_loan.amount - coalesce(sum(r.amount), 0) into v_avail from public.loan_repayments r where r.loan_id = v_loan.id;
-    if v_amount is null or v_amount <= 0 or v_amount > v_avail then
+    if v_amount is null or v_amount <= 0 then
+      raise exception '金额需要大于 0';
+    end if;
+    if v_amount > v_avail then
       raise exception '借款金额有变化，刷新后再试';
     end if;
     if v_loan.borrower_uid = v_uid then

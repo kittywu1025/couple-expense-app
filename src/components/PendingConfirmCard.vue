@@ -212,6 +212,36 @@ const news = computed(() =>
       last: '',
     })),
 )
+// ── 提醒：TA 把借款互相抵消了（马上生效，不用确认），点一下去借款页看，看过就不再提醒 ──
+const offsetSeenKey = computed(() => `couple-expense-offset-seen:${currentBook.value?.id ?? ''}:${myUid.value}`)
+const offsetSeenAt = ref(readSeen(offsetSeenKey.value))
+watch(offsetSeenKey, (k) => (offsetSeenAt.value = readSeen(k)))
+const offsetNews = computed(() => {
+  const groups = new Map<string, { amount: number; currency?: string }>()
+  for (const p of repayments.value) {
+    if (!p.offsetId || p.createdBy === myUid.value || p.createdAt <= offsetSeenAt.value) continue
+    const loan = loans.value.find((l) => l.id === p.loanId)
+    // 两边金额一样，只算我借出去那边的，就是抵消的金额
+    const g = groups.get(p.offsetId) ?? { amount: 0, currency: loan?.currency }
+    if (loan?.lenderUid === myUid.value) g.amount += p.amount
+    groups.set(p.offsetId, g)
+  }
+  return [...groups.values()]
+})
+const offsetNewsText = computed(() => {
+  const byCur = new Map<string | undefined, number>()
+  for (const g of offsetNews.value) byCur.set(g.currency, (byCur.get(g.currency) ?? 0) + g.amount)
+  return [...byCur.entries()].map(([c, v]) => formatMoney(v, c)).join(' · ')
+})
+const openOffsetNews = () => {
+  offsetSeenAt.value = new Date().toISOString()
+  try {
+    localStorage.setItem(offsetSeenKey.value, offsetSeenAt.value)
+  } catch {
+    // 存不了就只在这次生效
+  }
+  loansPageOpen.value = true
+}
 /** 有改过的就不只是「新记了」 */
 const newsHasEdits = computed(() => news.value.some((n) => n.sub.endsWith('改过')))
 const confirmDesc = computed(() => {
@@ -345,6 +375,11 @@ const open = (row: Row) => {
 
   <button v-if="deleteRequests.length" class="card warn del-line" @click="loansPageOpen = true">
     <span class="title"><AppIcon name="wallet" :size="16" :stroke="2.2" />TA 想删除 {{ deleteRequests.length }} 笔借款 / 还款</span>
+    <span class="later">去看看 ›</span>
+  </button>
+
+  <button v-if="offsetNews.length" class="card news del-line" @click="openOffsetNews">
+    <span class="title"><AppIcon name="swap" :size="16" :stroke="2.2" />TA 把借款互相抵消了 <b class="mono">{{ offsetNewsText }}</b></span>
     <span class="later">去看看 ›</span>
   </button>
 

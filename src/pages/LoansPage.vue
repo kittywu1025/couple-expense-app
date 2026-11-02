@@ -16,7 +16,7 @@ import { canRespond, confirmLabel, disputedByPartner } from '../utils/confirm'
 import { formatDateLabel, formatMoney, todayKey } from '../utils/format'
 
 const { myUid, partner, nameOf, currentBook } = useBooks()
-const { loans, progress, addLoan, removeLoan, requestDeleteLoan, cancelDeleteLoan, requestDeleteRepayment, cancelDeleteRepayment, addRepayment, offsetLoans, removeRepayment, respondLoans, respondRepayments, replyLoan, replyRepayment } =
+const { loans, repayments, progress, load, addLoan, removeLoan, requestDeleteLoan, cancelDeleteLoan, requestDeleteRepayment, cancelDeleteRepayment, addRepayment, offsetLoans, removeRepayment, respondLoans, respondRepayments, replyLoan, replyRepayment } =
   useLoans()
 const partnerName = computed(() => partner.value?.displayName ?? 'TA')
 
@@ -93,11 +93,14 @@ const runOffset = async (o: (typeof offsets.value)[number]) => {
   if (!ok) return
   offsetting.value = true
   const { error } = await offsetLoans(o.parts)
-  offsetting.value = false
   if (error) {
+    // 多半是 TA 刚记了还款、金额变了：刷新一下，卡片上的数字就是最新的
+    await load()
+    offsetting.value = false
     toast.error(error.message)
     return
   }
+  offsetting.value = false
   haptic()
   toast.success(`已抵消 ${formatMoney(o.amount, o.currency)}，${netText(o)}`)
 }
@@ -272,6 +275,13 @@ const onApproveDelete = async (l: Loan) => {
   detailId.value = null
   toast.success('已删除')
 }
+
+/**
+ * 互相抵消的两笔还款是一起的：有人在其中一笔上申请删除，另一笔也显示出来，
+ * 同意 / 撤回都作用在申请的那笔上（数据库会把另一笔一起删）
+ */
+const delTarget = (r: LoanRepayment) =>
+  r.deleteRequestedBy || !r.offsetId ? r : (repayments.value.find((x) => x.offsetId === r.offsetId && x.deleteRequestedBy) ?? r)
 
 /** 自己记的、还没确认的还款可以直接删；确认过的要申请，对方同意才删（和借款一样） */
 const canDeleteRepayNow = (r: LoanRepayment) => r.createdBy === myUid.value && r.confirmStatus !== 'confirmed'
@@ -469,15 +479,15 @@ const cancelDeleteRepay = async (r: LoanRepayment) => {
           <b class="mono">{{ formatMoney(r.amount, detail.currency) }}</b>
           <small>{{ formatDateLabel(r.date) }} · {{ nameOf(r.createdBy) }}记<template v-if="r.note"> · {{ r.note }}</template></small>
           <small v-if="r.discussion.length" class="said">{{ lastWord(r) }}</small>
-          <small v-if="r.deleteRequestedBy" class="del-note">
-            {{ r.deleteRequestedBy === myUid ? '已申请删除，等 TA 同意' : 'TA 想删除这笔还款' }}
+          <small v-if="delTarget(r).deleteRequestedBy" class="del-note">
+            {{ delTarget(r).deleteRequestedBy === myUid ? '已申请删除，等 TA 同意' : 'TA 想删除这笔还款' }}
           </small>
         </span>
-        <template v-if="r.deleteRequestedBy && r.deleteRequestedBy !== myUid">
-          <button class="mini ask" @click="cancelDeleteRepay(r)">先不删</button>
-          <button class="mini danger" @click="approveDeleteRepay(r)">同意删除</button>
+        <template v-if="delTarget(r).deleteRequestedBy && delTarget(r).deleteRequestedBy !== myUid">
+          <button class="mini ask" @click="cancelDeleteRepay(delTarget(r))">先不删</button>
+          <button class="mini danger" @click="approveDeleteRepay(delTarget(r))">同意删除</button>
         </template>
-        <button v-else-if="r.deleteRequestedBy" class="mini ask" @click="cancelDeleteRepay(r)">撤回</button>
+        <button v-else-if="delTarget(r).deleteRequestedBy" class="mini ask" @click="cancelDeleteRepay(delTarget(r))">撤回</button>
         <template v-else-if="canRespond(r, myUid)">
           <button class="mini ask" @click="talking = { kind: 'repayment', item: r, mode: 'dispute' }">有疑问</button>
           <button class="mini ok" @click="confirmRepay(r)">收到了</button>
@@ -486,7 +496,7 @@ const cancelDeleteRepay = async (r: LoanRepayment) => {
           回复
         </button>
         <em v-else :class="['status', r.confirmStatus]">{{ confirmLabel(r, myUid) }}</em>
-        <button v-if="!r.deleteRequestedBy" class="x" aria-label="删除这笔还款" @click="onDeleteRepay(r)">
+        <button v-if="!delTarget(r).deleteRequestedBy" class="x" aria-label="删除这笔还款" @click="onDeleteRepay(r)">
           <AppIcon name="close" :size="14" :stroke="2.2" />
         </button>
       </div>

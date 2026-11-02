@@ -97,7 +97,8 @@ const rows = computed<Row[]>(() => {
       kind: 'repayment',
       id: p.id,
       title: loan ? `还款 · ${nameOf(loan.borrowerUid)}还给${nameOf(loan.lenderUid)}` : '还款',
-      sub: formatDateLabel(p.date),
+      // 备注带上，「互相抵消」的两笔一看就知道是一对
+      sub: `${formatDateLabel(p.date)}${p.note ? ` · ${p.note}` : ''}`,
       amount: p.amount,
       currency: loan?.currency,
       icon: 'transfer',

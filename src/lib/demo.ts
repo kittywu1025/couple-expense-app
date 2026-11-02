@@ -13,7 +13,7 @@ export const DEMO_PARTNER_UID = 'demo-partner'
 export const demoUser = {
   id: DEMO_MY_UID,
   email: 'demo@example.com',
-  user_metadata: { full_name: '小吴' },
+  user_metadata: { full_name: '小猫' },
 }
 
 export const demoBook: Book = {
@@ -28,8 +28,8 @@ export const demoBook: Book = {
 }
 
 export const demoMembers: BookMember[] = [
-  { id: 'm1', bookId: demoBook.id, userId: DEMO_MY_UID, displayName: '小吴', gender: 'female', color: 'pink', joinedAt: '2026-10-01' },
-  { id: 'm2', bookId: demoBook.id, userId: DEMO_PARTNER_UID, displayName: '阿健', gender: 'male', color: 'blue', joinedAt: '2026-10-02' },
+  { id: 'm1', bookId: demoBook.id, userId: DEMO_MY_UID, displayName: '小猫', gender: 'female', color: 'pink', joinedAt: '2026-10-01' },
+  { id: 'm2', bookId: demoBook.id, userId: DEMO_PARTNER_UID, displayName: '小狗', gender: 'male', color: 'blue', joinedAt: '2026-10-02' },
 ]
 
 const daysAgo = (n: number) => {
@@ -79,7 +79,7 @@ export const createDemoRecords = (): LedgerRecord[] => [
   rec(4, 980, '医疗', '药局', { type: 'personal', ratio: 10 }),
   rec(5, 5200, '固定开销', '电费', { payerUid: DEMO_PARTNER_UID }),
   rec(5, 3700, '固定开销', '水费', { payerUid: DEMO_PARTNER_UID }),
-  // 我点了「有疑问」，阿健回复后等我再看
+  // 我点了「有疑问」，小狗回复后等我再看
   rec(6, 1850, '交通', '打车', {
     ratio: 7,
     payerUid: DEMO_PARTNER_UID,
@@ -118,7 +118,7 @@ export const createDemoLoans = (): { loans: Loan[]; repayments: LoanRepayment[] 
         borrowerUid: DEMO_PARTNER_UID,
         amount: 30000,
         currency: 'JPY',
-        // 演示：阿健申请删除这笔，等我同意
+        // 演示：小狗申请删除这笔，等我同意
         deleteRequestedBy: DEMO_PARTNER_UID,
         note: '换手机',
         date: daysAgo(3),

@@ -142,6 +142,8 @@ export interface LoanRepayment extends Confirmable {
   loanId: string
   /** 已确认的还款要删，由一个人申请、另一个人同意 */
   deleteRequestedBy: string | null
+  /** 「互相抵消」时两边的还款共用一个 id，删一笔另一笔也删 */
+  offsetId: string | null
   bookId: string
   amount: number
   note: string | null

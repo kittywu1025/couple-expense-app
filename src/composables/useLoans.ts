@@ -6,6 +6,7 @@ import { isCurrencyCode } from '../utils/currency'
 import { formatSupabaseError, useBooks } from './useBooks'
 import { authUser } from './useSupabaseAuth'
 import { newEntry, parseDiscussion, stampConfirm } from '../utils/confirm'
+import { todayKey } from '../utils/format'
 
 const loans = ref<Loan[]>([])
 const repayments = ref<LoanRepayment[]>([])
@@ -39,6 +40,7 @@ const normalizeRepayment = (row: Record<string, unknown>): LoanRepayment => ({
   loanId: String(row.loan_id),
   bookId: String(row.book_id),
   deleteRequestedBy: row.delete_requested_by ? String(row.delete_requested_by) : null,
+  offsetId: row.offset_id ? String(row.offset_id) : null,
   amount: Number(row.amount),
   note: row.note ? String(row.note) : null,
   date: String(row.date),
@@ -175,6 +177,7 @@ const addRepayment = async (loanId: string, input: { amount: number; date: strin
       lastEditedBy: uid,
       discussion: [],
       deleteRequestedBy: null,
+      offsetId: null,
     }
     repayments.value = byDateDesc([stampConfirm(local, null, uid, !!partner.value, []), ...repayments.value])
     return { error: null }
@@ -189,13 +192,53 @@ const addRepayment = async (loanId: string, input: { amount: number; date: strin
   return { error: null }
 }
 
+/**
+ * 互相抵消：两边的还款一起记、马上生效（数据库里一个事务，要么都成功要么都不记）。
+ * parts 里我借 TA 的和 TA 借我的加起来要一样多。
+ */
+const offsetLoans = async (parts: { loanId: string; amount: number }[]) => {
+  const bookId = currentBook.value?.id
+  const uid = authUser.value?.id
+  if (!bookId || !uid) return { error: new Error('还没有加入账本。') }
+  if (isDemoMode || !supabase) {
+    const offsetId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    const local: LoanRepayment[] = parts.map((p) => ({
+      id: crypto.randomUUID(),
+      loanId: p.loanId,
+      bookId,
+      amount: p.amount,
+      note: '互相抵消',
+      date: todayKey(),
+      createdBy: uid,
+      createdAt: now,
+      confirmStatus: 'confirmed',
+      lastEditedBy: uid,
+      discussion: [],
+      deleteRequestedBy: null,
+      offsetId,
+    }))
+    repayments.value = byDateDesc([...local, ...repayments.value])
+    return { error: null }
+  }
+  const { data, error } = await supabase.rpc('offset_loans', {
+    p_book_id: bookId,
+    p_parts: parts.map((p) => ({ loan_id: p.loanId, amount: p.amount })),
+  })
+  if (error) return { error: new Error(formatSupabaseError(error, '抵消失败，请稍后重试。')) }
+  repayments.value = byDateDesc([...((data ?? []) as Record<string, unknown>[]).map(normalizeRepayment), ...repayments.value])
+  return { error: null }
+}
+
 const removeRepayment = async (id: string) => {
   if (!isDemoMode && supabase) {
     const { data, error } = await supabase.from('loan_repayments').delete().eq('id', id).select('id')
     if (error) return { error: new Error(formatSupabaseError(error, '删除失败，请稍后重试。')) }
     if (!data?.length) return { error: new Error('确认过的还款要一个人申请删除、另一个人同意才能删') }
   }
-  repayments.value = repayments.value.filter((r) => r.id !== id)
+  // 抵消的另一边数据库里会一起删，这里同步
+  const offsetId = repayments.value.find((r) => r.id === id)?.offsetId
+  repayments.value = repayments.value.filter((r) => r.id !== id && !(offsetId && r.offsetId === offsetId))
   return { error: null }
 }
 
@@ -257,5 +300,5 @@ watch(
 )
 
 export function useLoans() {
-  return { loans, repayments, loading, progress, load, addLoan, removeLoan, requestDeleteLoan, cancelDeleteLoan, requestDeleteRepayment, cancelDeleteRepayment, addRepayment, removeRepayment, respondLoans, respondRepayments, replyLoan, replyRepayment }
+  return { loans, repayments, loading, progress, load, addLoan, removeLoan, requestDeleteLoan, cancelDeleteLoan, requestDeleteRepayment, cancelDeleteRepayment, addRepayment, offsetLoans, removeRepayment, respondLoans, respondRepayments, replyLoan, replyRepayment }
 }

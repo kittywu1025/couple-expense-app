@@ -16,7 +16,7 @@ import { canRespond, confirmLabel, disputedByPartner } from '../utils/confirm'
 import { formatDateLabel, formatMoney, todayKey } from '../utils/format'
 
 const { myUid, partner, nameOf, currentBook } = useBooks()
-const { loans, progress, addLoan, removeLoan, requestDeleteLoan, cancelDeleteLoan, requestDeleteRepayment, cancelDeleteRepayment, addRepayment, removeRepayment, respondLoans, respondRepayments, replyLoan, replyRepayment } =
+const { loans, progress, addLoan, removeLoan, requestDeleteLoan, cancelDeleteLoan, requestDeleteRepayment, cancelDeleteRepayment, addRepayment, offsetLoans, removeRepayment, respondLoans, respondRepayments, replyLoan, replyRepayment } =
   useLoans()
 const partnerName = computed(() => partner.value?.displayName ?? 'TA')
 
@@ -87,23 +87,19 @@ const offsetting = ref(false)
 const runOffset = async (o: (typeof offsets.value)[number]) => {
   const ok = await confirmAction({
     title: `互相抵消 ${formatMoney(o.amount, o.currency)}？`,
-    message: `会给双方的借款各记一笔 ${formatMoney(o.amount, o.currency)} 的还款（备注「互相抵消」），${partnerName.value}确认后生效。抵消后${netText(o)}。`,
+    message: `两边的借款各记一笔 ${formatMoney(o.amount, o.currency)} 的还款（备注「互相抵消」），马上生效。抵消后${netText(o)}。记错了可以在借款里申请删除，两边一起撤销。`,
     confirmText: '抵消',
   })
   if (!ok) return
   offsetting.value = true
-  const today = todayKey()
-  for (const p of o.parts) {
-    const { error } = await addRepayment(p.loanId, { amount: p.amount, date: today, note: '互相抵消' })
-    if (error) {
-      offsetting.value = false
-      toast.error(error.message)
-      return
-    }
-  }
+  const { error } = await offsetLoans(o.parts)
   offsetting.value = false
+  if (error) {
+    toast.error(error.message)
+    return
+  }
   haptic()
-  toast.success(`已记下抵消，等${partnerName.value}确认`)
+  toast.success(`已抵消 ${formatMoney(o.amount, o.currency)}，${netText(o)}`)
 }
 
 const title = (l: Loan) => (l.lenderUid === myUid.value ? `借给${nameOf(l.borrowerUid)}` : `向${nameOf(l.lenderUid)}借`)
@@ -292,7 +288,7 @@ const onDeleteRepay = async (r: LoanRepayment) => {
   }
   const ok = await confirmAction({
     title: '申请删除这笔还款？',
-    message: `${formatMoney(r.amount, cur)} 已经确认过了，${partnerName.value}同意后才会删除。`,
+    message: `${formatMoney(r.amount, cur)} 已经确认过了，${partnerName.value}同意后才会删除。${r.offsetId ? '这是互相抵消记的，另一边的那笔也会一起删。' : ''}`,
     confirmText: '申请删除',
     danger: true,
   })
@@ -304,7 +300,7 @@ const onDeleteRepay = async (r: LoanRepayment) => {
 const approveDeleteRepay = async (r: LoanRepayment) => {
   const ok = await confirmAction({
     title: '同意删除这笔还款？',
-    message: `${formatMoney(r.amount, detail.value?.currency)} 删除后会加回「还剩」，无法恢复。`,
+    message: `${formatMoney(r.amount, detail.value?.currency)} 删除后会加回「还剩」，无法恢复。${r.offsetId ? '这是互相抵消记的，另一边的那笔也会一起删。' : ''}`,
     confirmText: '同意删除',
     danger: true,
   })

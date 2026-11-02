@@ -133,6 +133,7 @@ export const createDemoLoans = (): { loans: Loan[]; repayments: LoanRepayment[] 
         id: 'demo-repay-1',
         loanId: 'demo-loan-1',
         deleteRequestedBy: null,
+        offsetId: null,
         amount: 50000,
         date: daysAgo(10),
         confirmStatus: 'confirmed',

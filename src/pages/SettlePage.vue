@@ -210,6 +210,63 @@ const undo = async (r: LedgerRecord) => {
   else toast.success('已撤销')
 }
 
+// ── 算总账：两边都有没结清的，月末一次算净额，不用一笔笔勾 ──
+/** 正数：TA 净给我；负数：我净给 TA */
+const net = computed(() => sum(toReceive.value) - sum(toPay.value))
+const netText = computed(() =>
+  Math.abs(net.value) < 0.005
+    ? '两边刚好抵平'
+    : net.value > 0
+      ? `${partnerName.value}给我 ${formatMoney(net.value)}`
+      : `我给${partnerName.value} ${formatMoney(-net.value)}`,
+)
+const settleAll = async () => {
+  if (saving.value) return
+  const ok = await confirmAction({
+    title: Math.abs(net.value) < 0.005 ? '两边抵平，全部结清？' : net.value > 0 ? `收到${partnerName.value} ${formatMoney(net.value)} 了？` : `给了${partnerName.value} ${formatMoney(-net.value)}？`,
+    message: `${partnerName.value}该给我 ${formatMoney(sum(toReceive.value))}，我该给${partnerName.value} ${formatMoney(sum(toPay.value))}，合在一起算是${netText.value}。我这边 ${toReceive.value.length} 笔直接结清；我该给的 ${toPay.value.length} 笔告诉 TA，TA 点一下确认收到就全部结清。`,
+    confirmText: '算总账',
+  })
+  if (!ok) return
+  saving.value = true
+  const receiveIds = toReceive.value.map((r) => r.id)
+  const payIds = payable.value.map((r) => r.id)
+  if (!(await stillSame([...receiveIds, ...toPay.value.map((r) => r.id)]))) {
+    saving.value = false
+    return
+  }
+  const text = netText.value
+  const a = await setSettled(receiveIds, true)
+  const b = a.error || !payIds.length ? { error: null } : await setPaidClaim(payIds, true)
+  saving.value = false
+  const error = a.error ?? b.error
+  if (error) {
+    toast.error(error.message)
+    return
+  }
+  haptic()
+  picked.value = []
+  toast.success(`已算总账，${text}，等 TA 确认收到`)
+}
+
+/**
+ * TA 那边算了总账：TA 把 TA 先垫的都结清了，同时说给了我先垫的。
+ * 确认的时候告诉我实际是净给了多少，不然「TA 说给了 ¥3,704」看着对不上。
+ */
+const mergedByThem = computed(() => {
+  const times = claimedToMe.value.map((r) => new Date(r.paidClaimedAt!).getTime())
+  if (!times.length) return null
+  const near = settled.value.filter(
+    (r) => r.payerUid !== myUid.value && r.settledAt && times.some((t) => Math.abs(new Date(r.settledAt!).getTime() - t) < 120_000),
+  )
+  if (!near.length) return null
+  const diff = sum(claimedToMe.value) - sum(near)
+  return {
+    off: sum(near),
+    text: Math.abs(diff) < 0.005 ? '两边刚好抵平' : diff > 0 ? `${partnerName.value}实际给你 ${formatMoney(diff)}` : `你实际给${partnerName.value} ${formatMoney(-diff)}`,
+  }
+})
+
 const title = (r: LedgerRecord) => r.note || r.subCategory || r.category
 const settledDay = (r: LedgerRecord) => (r.settledAt ? formatDateLabel(toDateKey(new Date(r.settledAt))) : '')
 </script>
@@ -230,6 +287,14 @@ const settledDay = (r: LedgerRecord) => (r.settledAt ? formatDateLabel(toDateKey
     </section>
     <p class="tip">AA 的那份给了之后，给钱的人勾「我给了」告诉对方，先垫钱的人确认收到就算结清；结清的照常算各自花了多少，只是不再进月末差额。</p>
 
+    <div v-if="toReceive.length && toPay.length" class="total">
+      <p>
+        <span>两边合在一起算</span>
+        <b>{{ netText }}</b>
+      </p>
+      <button :disabled="saving" @click="settleAll">算总账</button>
+    </div>
+
     <div class="tabs">
       <button :class="{ on: tab === 'receive' }" @click="tab = 'receive'">{{ partnerName }}该给我</button>
       <button :class="{ on: tab === 'pay' }" @click="tab = 'pay'">我该给{{ partnerName }}</button>
@@ -246,6 +311,7 @@ const settledDay = (r: LedgerRecord) => (r.settledAt ? formatDateLabel(toDateKey
           <b>{{ partnerName }} 说已经给了 {{ claimedToMe.length }} 笔</b>
           <span class="mono">{{ formatMoney(sum(claimedToMe)) }}</span>
         </p>
+        <p v-if="mergedByThem" class="claim-sub">TA 算了总账：你该给 TA 的 {{ formatMoney(mergedByThem.off) }} 已经扣掉，{{ mergedByThem.text }}</p>
         <div class="claim-actions">
           <button class="ghost" @click="rejectClaims">没收到</button>
           <button class="solid" :disabled="saving" @click="confirmClaims">确认收到</button>
@@ -390,6 +456,40 @@ const settledDay = (r: LedgerRecord) => (r.settledAt ? formatDateLabel(toDateKey
   font-size: 11px;
   line-height: 1.5;
   color: var(--text-faint);
+}
+.total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px 12px 12px 14px;
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.total p {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+.total span {
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.total b {
+  font-size: 15px;
+}
+.total button {
+  flex-shrink: 0;
+  height: 38px;
+  padding: 0 18px;
+  border-radius: 12px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+.total button:disabled {
+  opacity: 0.6;
 }
 .tabs {
   display: grid;

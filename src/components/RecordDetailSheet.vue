@@ -9,7 +9,7 @@ import { recordColor, recordIcon } from '../utils/categories'
 import { formatFullDate, formatMoney } from '../utils/format'
 import { amountSplitText, isAmountSplit, isFullyOwed, isTreat, shareOf, treaterOf } from '../utils/settlement'
 import { useBooks } from '../composables/useBooks'
-import { canModify, useRecords } from '../composables/useRecords'
+import { canModify, payloadOf, useRecords } from '../composables/useRecords'
 import { confirmAction, haptic, openEditSheet } from '../composables/useUi'
 import AppIcon from './AppIcon.vue'
 import { toast } from '../composables/useToast'
@@ -19,7 +19,7 @@ const props = defineProps<{ record: LedgerRecord | null }>()
 const emit = defineEmits<{ close: [] }>()
 
 const { myUid, nameOf, otherUid } = useBooks()
-const { deleteRecord, respondRecords, replyRecord, updateRecord } = useRecords()
+const { addRecord, deleteRecord, respondRecords, replyRecord, updateRecord } = useRecords()
 const deleting = ref(false)
 const editable = computed(() => (r.value ? canModify(r.value, myUid.value) : false))
 
@@ -121,7 +121,8 @@ const onDelete = async () => {
     return
   }
   haptic()
-  toast.success('已删除')
+  // 撤销：照原样再记一次
+  toast.undoable('已删除', () => addRecord(payloadOf(rec)))
   emit('close')
 }
 </script>

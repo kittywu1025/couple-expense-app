@@ -8,7 +8,7 @@ import type { IconName } from '../utils/icons'
 import { isAmountSplit, partOf, shareOf } from '../utils/settlement'
 import { activeCurrencyInfo, formatDateLabel, formatMoney, todayKey } from '../utils/format'
 import { useBooks } from '../composables/useBooks'
-import { useRecords } from '../composables/useRecords'
+import { payloadOf, useRecords } from '../composables/useRecords'
 import { confirmAction, haptic } from '../composables/useUi'
 import { toast } from '../composables/useToast'
 import AppIcon from '../components/AppIcon.vue'
@@ -20,7 +20,7 @@ const emit = defineEmits<{ close: [] }>()
 const editing = props.record ?? null
 
 const { currentBook, myUid, partner, updateBookSettings } = useBooks()
-const { addRecord, updateRecord } = useRecords()
+const { addRecord, updateRecord, deleteRecord } = useRecords()
 
 const partnerName = computed(() => partner.value?.displayName ?? 'TA')
 const MAX_AMOUNT = 99_999_999
@@ -374,19 +374,26 @@ const save = async (closeAfter: boolean) => {
   }
   const payload = buildPayload()
   saving.value = true
-  const { error } = editing ? await updateRecord(editing.id, payload) : await addRecord(payload)
-  saving.value = false
-  if (error) {
-    toast.error(error.message, { title: '保存失败' })
+  if (editing) {
+    const { error } = await updateRecord(editing.id, payload)
+    saving.value = false
+    if (error) return toast.error(error.message, { title: '保存失败' })
+    haptic(12)
+    savedCount.value++
+    // 撤销：改回原来的内容
+    const before = payloadOf(editing)
+    toast.undoable('已保存修改', () => updateRecord(editing.id, before))
+    emit('close')
     return
   }
+  const { error, record } = await addRecord(payload)
+  saving.value = false
+  if (error) return toast.error(error.message, { title: '保存失败' })
   haptic(12)
   savedCount.value++
-  if (editing) {
-    toast.success('已保存修改')
-    emit('close')
-  } else if (closeAfter) {
-    toast.success(`已记一笔 ${formatMoney(value)}`)
+  // 撤销：删掉刚记的这笔
+  if (record) toast.undoable(`已记一笔 ${formatMoney(value)}`, () => deleteRecord(record.id))
+  if (closeAfter) {
     emit('close')
   } else {
     expr.value = ''

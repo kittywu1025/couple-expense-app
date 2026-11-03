@@ -184,7 +184,7 @@ const saveRepayment = async (all = false) => {
     return
   }
   repaySaving.value = true
-  const { error } = await addRepayment(l.id, { amount: value, date: repayDate.value, note: null })
+  const { error, record } = await addRepayment(l.id, { amount: value, date: repayDate.value, note: null })
   repaySaving.value = false
   if (error) {
     toast.error(error.message)
@@ -192,7 +192,9 @@ const saveRepayment = async (all = false) => {
   }
   haptic()
   repayText.value = ''
-  toast.success(`已记下 ${formatMoney(value, l.currency)}，等${partnerName.value}确认`)
+  const msg = `已记下 ${formatMoney(value, l.currency)}，等${partnerName.value}确认`
+  if (record) toast.undoable(msg, () => removeRepayment(record.id))
+  else toast.success(msg)
 }
 
 const confirmLoan = async (l: Loan) => {
@@ -252,12 +254,14 @@ const onRequestDelete = async (l: Loan) => {
   if (!ok) return
   const { error } = await requestDeleteLoan(l.id)
   if (error) toast.error(error.message)
-  else toast.success(`已申请，等${partnerName.value}同意`)
+  else toast.undoable(`已申请，等${partnerName.value}同意`, () => cancelDeleteLoan(l.id))
 }
 const onCancelDelete = async (l: Loan, mine: boolean) => {
   const { error } = await cancelDeleteLoan(l.id)
   if (error) toast.error(error.message)
-  else toast.success(mine ? '已撤回删除申请' : `已告诉${partnerName.value}先不删`)
+  // 拒绝 TA 的申请撤销不了（不能替 TA 再申请一次）
+  else if (mine) toast.undoable('已撤回删除申请', () => requestDeleteLoan(l.id))
+  else toast.success(`已告诉${partnerName.value}先不删`)
 }
 const onApproveDelete = async (l: Loan) => {
   const ok = await confirmAction({
@@ -293,7 +297,7 @@ const onDeleteRepay = async (r: LoanRepayment) => {
     if (!ok) return
     const { error } = await removeRepayment(r.id)
     if (error) toast.error(error.message)
-    else toast.success('已删除')
+    else toast.undoable('已删除', () => addRepayment(r.loanId, { amount: r.amount, date: r.date, note: r.note }))
     return
   }
   const ok = await confirmAction({
@@ -305,7 +309,7 @@ const onDeleteRepay = async (r: LoanRepayment) => {
   if (!ok) return
   const { error } = await requestDeleteRepayment(r.id)
   if (error) toast.error(error.message)
-  else toast.success(`已申请，等${partnerName.value}同意`)
+  else toast.undoable(`已申请，等${partnerName.value}同意`, () => cancelDeleteRepayment(r.id))
 }
 const approveDeleteRepay = async (r: LoanRepayment) => {
   const ok = await confirmAction({
@@ -320,9 +324,11 @@ const approveDeleteRepay = async (r: LoanRepayment) => {
   else toast.success('已删除')
 }
 const cancelDeleteRepay = async (r: LoanRepayment) => {
+  const mine = r.deleteRequestedBy === myUid.value
   const { error } = await cancelDeleteRepayment(r.id)
   if (error) toast.error(error.message)
-  else toast.success(r.deleteRequestedBy === myUid.value ? '已撤回删除申请' : `已告诉${partnerName.value}先不删`)
+  else if (mine) toast.undoable('已撤回删除申请', () => requestDeleteRepayment(r.id))
+  else toast.success(`已告诉${partnerName.value}先不删`)
 }
 </script>
 

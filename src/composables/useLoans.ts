@@ -179,8 +179,9 @@ const addRepayment = async (loanId: string, input: { amount: number; date: strin
       deleteRequestedBy: null,
       offsetId: null,
     }
-    repayments.value = byDateDesc([stampConfirm(local, null, uid, !!partner.value, []), ...repayments.value])
-    return { error: null }
+    const record = stampConfirm(local, null, uid, !!partner.value, [])
+    repayments.value = byDateDesc([record, ...repayments.value])
+    return { error: null, record }
   }
   const { data, error } = await supabase
     .from('loan_repayments')
@@ -188,8 +189,9 @@ const addRepayment = async (loanId: string, input: { amount: number; date: strin
     .select()
     .single()
   if (error) return { error: new Error(formatSupabaseError(error, '保存失败，请稍后重试。')) }
-  repayments.value = byDateDesc([normalizeRepayment(data), ...repayments.value])
-  return { error: null }
+  const record = normalizeRepayment(data)
+  repayments.value = byDateDesc([record, ...repayments.value])
+  return { error: null, record }
 }
 
 /**

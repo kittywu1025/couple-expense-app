@@ -152,7 +152,7 @@ const addRecord = async (input: NewRecord) => {
       uid,
     )
     records.value = sortRecords([local, ...records.value])
-    return { error: null }
+    return { error: null, record: local }
   }
   if (!supabase || !bookId || !uid) return { error: new Error('还没有加入账本。') }
 
@@ -179,9 +179,24 @@ const addRecord = async (input: NewRecord) => {
     console.error('保存账单失败：', error)
     return { error: new Error(formatSupabaseError(error, '保存失败，请稍后重试。')) }
   }
-  records.value = sortRecords([normalizeRecord(data), ...records.value])
-  return { error: null }
+  const record = normalizeRecord(data)
+  records.value = sortRecords([record, ...records.value])
+  return { error: null, record }
 }
+
+/** 一笔账单的内容（撤销删除时照原样再记一次） */
+export const payloadOf = (r: LedgerRecord): NewRecord => ({
+  amount: r.amount,
+  kind: r.kind,
+  type: r.type,
+  payerUid: r.payerUid,
+  ratio: r.ratio,
+  settledOnSpot: !!r.settledOnSpot,
+  category: r.category,
+  subCategory: r.subCategory,
+  note: r.note,
+  date: r.date,
+})
 
 /** 批量插入（测试数据用） */
 const addRecordsBulk = async (inputs: NewRecord[]) => {

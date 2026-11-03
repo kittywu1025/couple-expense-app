@@ -18,9 +18,18 @@ const handleAction = async (toastItem: ToastItem, action: ToastAction) => {
             <strong v-if="item.title" class="title">{{ item.title }}</strong>
             <p class="message">{{ item.message }}</p>
           </div>
-          <button v-if="item.dismissible" class="close" aria-label="关闭提示" @click="dismissToast(item.id)">×</button>
+          <!-- 只有一个按钮（比如「撤销」）就放在同一行，像系统的提示条 -->
+          <button
+            v-if="item.actions.length === 1"
+            :class="['action', 'inline', item.actions[0].kind || 'secondary']"
+            :disabled="item.actions[0].disabled"
+            @click="handleAction(item, item.actions[0])"
+          >
+            {{ item.actions[0].label }}
+          </button>
+          <button v-else-if="item.dismissible" class="close" aria-label="关闭提示" @click="dismissToast(item.id)">×</button>
         </div>
-        <div v-if="item.actions.length" class="actions">
+        <div v-if="item.actions.length > 1" class="actions">
           <button
             v-for="action in item.actions"
             :key="action.label"
@@ -91,6 +100,10 @@ const handleAction = async (toastItem: ToastItem, action: ToastAction) => {
   border-radius: 999px;
   font-size: 13px;
   background: var(--bg);
+}
+.action.inline {
+  flex-shrink: 0;
+  align-self: center;
 }
 .action.primary {
   background: var(--primary);

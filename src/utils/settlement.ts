@@ -86,3 +86,48 @@ export const shiftMonth = (month: string, delta: number) => {
 
 export const inPeriod = (r: LedgerRecord, range: { start: string; end: string }) =>
   r.date >= range.start && r.date < range.end
+
+/** 这一天属于哪个结算周期（'YYYY-MM'，按结算日划分） */
+export const periodMonthOf = (dateKey: string, settleDay: number) => {
+  const [y, m, d] = dateKey.split('-').map(Number)
+  return currentPeriodMonth(settleDay, new Date(y, m - 1, d))
+}
+
+/** 「10月」；不是今年的写「2025年10月」 */
+export const periodMonthLabel = (month: string, now = new Date()) => {
+  const [y, m] = month.split('-').map(Number)
+  return y === now.getFullYear() ? `${m}月` : `${y}年${m}月`
+}
+
+/** 还要结清的 AA：两个人都确认过、不是请客、还没结清 */
+export const isUnsettledAA = (r: LedgerRecord) =>
+  r.kind === 'expense' && r.type === 'shared' && isAgreed(r) && !isTreat(r) && !r.settledOnSpot
+
+export interface UnsettledMonth {
+  month: string
+  /** 我先垫的：TA 那份等我收 */
+  receive: LedgerRecord[]
+  /** TA 先垫的：我那份等 TA 收 */
+  pay: LedgerRecord[]
+  /** 正数：TA 净给我；负数：我净给 TA */
+  net: number
+}
+
+/** 还没结清的 AA 按结算周期分组，新的月份在前 */
+export const unsettledByMonth = (records: LedgerRecord[], myUid: string, settleDay: number): UnsettledMonth[] => {
+  const map = new Map<string, UnsettledMonth>()
+  for (const r of records) {
+    if (!isUnsettledAA(r)) continue
+    const month = periodMonthOf(r.date, settleDay)
+    const g = map.get(month) ?? { month, receive: [], pay: [], net: 0 }
+    if (r.payerUid === myUid) {
+      g.receive.push(r)
+      g.net += otherPart(r)
+    } else {
+      g.pay.push(r)
+      g.net -= otherPart(r)
+    }
+    map.set(month, g)
+  }
+  return [...map.values()].map((g) => ({ ...g, net: round2(g.net) })).sort((a, b) => b.month.localeCompare(a.month))
+}

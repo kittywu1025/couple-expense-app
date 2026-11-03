@@ -14,7 +14,19 @@ import type { IconName } from '../utils/icons'
 import { recordColor, recordIcon } from '../utils/categories'
 import { disputedByPartner, waitingForMe, waitingForPartner } from '../utils/confirm'
 import { formatDateLabel, formatMoney } from '../utils/format'
-import { amountSplitText, isAgreed, isAmountSplit, isFullyOwed, isTreat, otherPart, shareOf, treaterOf } from '../utils/settlement'
+import {
+  amountSplitText,
+  currentPeriodMonth,
+  isAgreed,
+  isAmountSplit,
+  isFullyOwed,
+  isTreat,
+  otherPart,
+  periodMonthLabel,
+  shareOf,
+  treaterOf,
+  unsettledByMonth,
+} from '../utils/settlement'
 
 /**
  * 首页「待你确认」：TA 记的共同账单 / 借款 / 还款要我点过才算数，
@@ -243,6 +255,23 @@ const openOffsetNews = () => {
   }
   loansPageOpen.value = true
 }
+/**
+ * 过了结算日，之前的月份还有没结清的 AA，而且我这边有要做的（不算 TA 说给了、等我确认的，上面另有提醒）：
+ * 提醒去结清页按月算账
+ */
+const dueMonths = computed(() => {
+  const now = currentPeriodMonth(currentBook.value?.settleDay ?? 1)
+  return unsettledByMonth(records.value, myUid.value, currentBook.value?.settleDay ?? 1).filter(
+    (m) => m.month < now && [...m.receive, ...m.pay].some((r) => !r.paidClaimedAt),
+  )
+})
+const dueText = computed(() => {
+  const list = dueMonths.value
+  const net = list.reduce((s, m) => s + m.net, 0)
+  const money = Math.abs(net) < 0.005 ? '两边刚好抵平' : net > 0 ? `TA 给你 ${formatMoney(net)}` : `你给 TA ${formatMoney(-net)}`
+  return list.length === 1 ? `${periodMonthLabel(list[0].month)}还没算账 · ${money}` : `${list.length} 个月还没算账 · 合起来${money}`
+})
+
 /** 有改过的就不只是「新记了」 */
 const newsHasEdits = computed(() => news.value.some((n) => n.sub.endsWith('改过')))
 const confirmDesc = computed(() => {
@@ -387,6 +416,11 @@ const open = (row: Row) => {
   <button v-if="paidClaims.length" class="card news del-line" @click="settlePageOpen = true">
     <span class="title"><AppIcon name="check" :size="16" :stroke="2.2" />TA 说给了你 {{ paidClaims.length }} 笔 AA · <b class="mono">{{ formatMoney(paidClaimsTotal) }}</b></span>
     <span class="later">去确认 ›</span>
+  </button>
+
+  <button v-if="dueMonths.length" class="card news del-line" @click="settlePageOpen = true">
+    <span class="title"><AppIcon name="wallet" :size="16" :stroke="2.2" />{{ dueText }}</span>
+    <span class="later">去算账 ›</span>
   </button>
 
   <button v-if="bouncedClaims.length" class="card warn del-line" @click="settlePageOpen = true">

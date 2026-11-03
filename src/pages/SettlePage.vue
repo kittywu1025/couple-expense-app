@@ -11,14 +11,25 @@ import { toast } from '../composables/useToast'
 import type { LedgerRecord } from '../types'
 import { recordColor, recordIcon } from '../utils/categories'
 import { formatDateLabel, formatMoney, toDateKey } from '../utils/format'
-import { amountSplitText, isAgreed, isAmountSplit, isTreat, otherPart } from '../utils/settlement'
+import {
+  amountSplitText,
+  isAgreed,
+  isAmountSplit,
+  isTreat,
+  otherPart,
+  periodMonthLabel,
+  periodMonthOf,
+  unsettledByMonth,
+} from '../utils/settlement'
 
 /**
  * 结清（像报销）：AA 账单里没付钱那位的那份，给了之后由先垫钱的人勾选「已收到」。
  * 没付钱的那位也可以先勾「我给了」告诉对方，对方确认收到或说没收到。
  * 已收到的照常算各自承担，但不再进月末差额。只看两个人都确认过的 AA。
  */
-const { myUid, partner, nameOf } = useBooks()
+const { myUid, partner, nameOf, currentBook } = useBooks()
+const settleDay = computed(() => currentBook.value?.settleDay ?? 1)
+const monthOf = (r: LedgerRecord) => periodMonthOf(r.date, settleDay.value)
 const { records, loadRecords, setSettled, setPaidClaim, bouncedClaims, dismissBounced, nudgeClaims } = useRecords()
 const partnerName = computed(() => partner.value?.displayName ?? 'TA')
 
@@ -28,8 +39,14 @@ const theirPart = (r: LedgerRecord) => otherPart(r)
 const aa = computed(() =>
   records.value.filter((r) => r.kind === 'expense' && r.type === 'shared' && isAgreed(r) && !isTreat(r)),
 )
-/** TA 说已经给了的排在前面 */
-const claimedFirst = (list: LedgerRecord[]) => [...list].sort((a, b) => Number(!!b.paidClaimedAt) - Number(!!a.paidClaimedAt))
+/** 按月分开，新的月份在前；同一个月里 TA 说已经给了的排在前面 */
+const claimedFirst = (list: LedgerRecord[]) =>
+  [...list].sort(
+    (a, b) => monthOf(b).localeCompare(monthOf(a)) || Number(!!b.paidClaimedAt) - Number(!!a.paidClaimedAt) || b.date.localeCompare(a.date),
+  )
+/** 列表里每个月第一笔前面加月份标题 */
+const monthHead = (list: LedgerRecord[], i: number) => (i === 0 || monthOf(list[i - 1]) !== monthOf(list[i]) ? monthOf(list[i]) : null)
+const monthSum = (list: LedgerRecord[], month: string) => sum(list.filter((r) => monthOf(r) === month))
 /** 我先垫的：TA 那份等我收 */
 const toReceive = computed(() => claimedFirst(aa.value.filter((r) => r.payerUid === myUid.value && !r.settledOnSpot)))
 /** TA 先垫的：我那份等 TA 收 */
@@ -120,19 +137,19 @@ const markReceived = async () => {
   if (!ok) return
   saving.value = true
   // 结清后列表会变，先记下笔数
-  const count = picked.value.length
-  if (!(await stillSame(picked.value))) {
+  const ids = [...picked.value]
+  if (!(await stillSame(ids))) {
     saving.value = false
     return
   }
-  const { error } = await setSettled(picked.value, true)
+  const { error } = await setSettled(ids, true)
   saving.value = false
   if (error) {
     toast.error(error.message)
     return
   }
   haptic()
-  toast.success(`已结清 ${count} 笔`)
+  toast.undoable(`已结清 ${ids.length} 笔`, () => setSettled(ids, false))
   picked.value = []
 }
 
@@ -146,25 +163,25 @@ const markPaid = async () => {
   })
   if (!ok) return
   saving.value = true
-  const count = picked.value.length
-  if (!(await stillSame(picked.value))) {
+  const ids = [...picked.value]
+  if (!(await stillSame(ids))) {
     saving.value = false
     return
   }
-  const { error } = await setPaidClaim(picked.value, true)
+  const { error } = await setPaidClaim(ids, true)
   saving.value = false
   if (error) {
     toast.error(error.message)
     return
   }
   haptic()
-  toast.success(`已告诉${partnerName.value}，等 TA 确认收到 ${count} 笔`)
+  toast.undoable(`已告诉${partnerName.value}，等 TA 确认收到 ${ids.length} 笔`, () => setPaidClaim(ids, false))
   picked.value = []
 }
 const withdrawClaim = async (r: LedgerRecord) => {
   const { error } = await setPaidClaim([r.id], false)
   if (error) toast.error(error.message)
-  else toast.success('已撤回')
+  else toast.undoable('已撤回', () => setPaidClaim([r.id], true))
 }
 
 /** TA 说给了：一键确认收到，或者说没收到 */
@@ -176,7 +193,6 @@ const confirmClaims = async () => {
     saving.value = false
     return
   }
-  const count = ids.length
   const { error } = await setSettled(ids, true)
   saving.value = false
   if (error) {
@@ -184,7 +200,8 @@ const confirmClaims = async () => {
     return
   }
   haptic()
-  toast.success(`已结清 ${count} 笔`)
+  // 撤销后回到「还没给」，TA 的「我给了」不会恢复
+  toast.undoable(`已结清 ${ids.length} 笔`, () => setSettled(ids, false))
 }
 const rejectClaims = async () => {
   const ok = await confirmAction({
@@ -207,36 +224,44 @@ const undo = async (r: LedgerRecord) => {
   if (!ok) return
   const { error } = await setSettled([r.id], false)
   if (error) toast.error(error.message)
-  else toast.success('已撤销')
+  else toast.undoable('已撤销结清', () => setSettled([r.id], true))
 }
 
-// ── 算总账：两边都有没结清的，月末一次算净额，不用一笔笔勾 ──
+// ── 算账：月末按月一次算净额，不用一笔笔勾；也可以几个月一起算 ──
+const months = computed(() => unsettledByMonth(records.value, myUid.value, settleDay.value))
 /** 正数：TA 净给我；负数：我净给 TA */
-const net = computed(() => sum(toReceive.value) - sum(toPay.value))
-const netText = computed(() =>
-  Math.abs(net.value) < 0.005
-    ? '两边刚好抵平'
-    : net.value > 0
-      ? `${partnerName.value}给我 ${formatMoney(net.value)}`
-      : `我给${partnerName.value} ${formatMoney(-net.value)}`,
-)
-const settleAll = async () => {
+const netText = (net: number) =>
+  Math.abs(net) < 0.005 ? '两边刚好抵平' : net > 0 ? `${partnerName.value}给我 ${formatMoney(net)}` : `我给${partnerName.value} ${formatMoney(-net)}`
+const allNet = computed(() => months.value.reduce((s, m) => s + m.net, 0))
+/** 这个月我这边还有要做的：有我先垫的要结清，或者有我该给、还没说给了的 */
+const needsMe = (receive: LedgerRecord[], pay: LedgerRecord[]) => receive.length > 0 || pay.some((r) => !r.paidClaimedAt)
+
+/**
+ * 点的人：自己先垫的直接结清，该给 TA 的告诉 TA「我给了」，TA 点一次确认收到就全部结清。
+ * label 是「10月」或者「全部」
+ */
+const settleGroup = async (receive: LedgerRecord[], pay: LedgerRecord[], label: string) => {
   if (saving.value) return
+  const net = sum(receive) - sum(pay)
+  const text = netText(net)
   const ok = await confirmAction({
-    title: Math.abs(net.value) < 0.005 ? '两边抵平，全部结清？' : net.value > 0 ? `收到${partnerName.value} ${formatMoney(net.value)} 了？` : `给了${partnerName.value} ${formatMoney(-net.value)}？`,
-    message: `${partnerName.value}该给我 ${formatMoney(sum(toReceive.value))}，我该给${partnerName.value} ${formatMoney(sum(toPay.value))}，合在一起算是${netText.value}。我这边 ${toReceive.value.length} 笔直接结清；我该给的 ${toPay.value.length} 笔告诉 TA，TA 点一下确认收到就全部结清。`,
-    confirmText: '算总账',
+    title: Math.abs(net) < 0.005 ? `${label}两边抵平，结清？` : net > 0 ? `${label}：收到${partnerName.value} ${formatMoney(net)} 了？` : `${label}：给了${partnerName.value} ${formatMoney(-net)}？`,
+    message: [
+      `${partnerName.value}该给我 ${formatMoney(sum(receive))}，我该给${partnerName.value} ${formatMoney(sum(pay))}，合在一起是${text}。`,
+      receive.length ? `我先垫的 ${receive.length} 笔直接结清。` : '',
+      pay.length ? `我该给的 ${pay.length} 笔告诉 TA，TA 点一下确认收到就结清。` : '',
+    ].join(''),
+    confirmText: '结清',
   })
   if (!ok) return
   saving.value = true
-  const receiveIds = toReceive.value.map((r) => r.id)
-  const payIds = payable.value.map((r) => r.id)
-  if (!(await stillSame([...receiveIds, ...toPay.value.map((r) => r.id)]))) {
+  const receiveIds = receive.map((r) => r.id)
+  const payIds = pay.filter((r) => !r.paidClaimedAt).map((r) => r.id)
+  if (!(await stillSame([...receiveIds, ...pay.map((r) => r.id)]))) {
     saving.value = false
     return
   }
-  const text = netText.value
-  const a = await setSettled(receiveIds, true)
+  const a = receiveIds.length ? await setSettled(receiveIds, true) : { error: null }
   const b = a.error || !payIds.length ? { error: null } : await setPaidClaim(payIds, true)
   saving.value = false
   const error = a.error ?? b.error
@@ -246,8 +271,14 @@ const settleAll = async () => {
   }
   haptic()
   picked.value = []
-  toast.success(`已算总账，${text}，等 TA 确认收到`)
+  toast.undoable(`${label}已算好，${text}${payIds.length ? '，等 TA 确认收到' : ''}`, async () => {
+    const x = receiveIds.length ? await setSettled(receiveIds, false) : { error: null }
+    if (x.error || !payIds.length) return x
+    return setPaidClaim(payIds, false)
+  })
 }
+const settleMonth = (m: (typeof months.value)[number]) => settleGroup(m.receive, m.pay, periodMonthLabel(m.month))
+const settleAll = () => settleGroup(toReceive.value, toPay.value, '全部')
 
 /**
  * TA 那边算了总账：TA 把 TA 先垫的都结清了，同时说给了我先垫的。
@@ -287,13 +318,24 @@ const settledDay = (r: LedgerRecord) => (r.settledAt ? formatDateLabel(toDateKey
     </section>
     <p class="tip">AA 的那份给了之后，给钱的人勾「我给了」告诉对方，先垫钱的人确认收到就算结清；结清的照常算各自花了多少，只是不再进月末差额。</p>
 
-    <div v-if="toReceive.length && toPay.length" class="total">
-      <p>
-        <span>两边合在一起算</span>
-        <b>{{ netText }}</b>
-      </p>
-      <button :disabled="saving" @click="settleAll">算总账</button>
-    </div>
+    <!-- 按月算账：每个月两边合在一起只给差额 -->
+    <section v-if="months.length" class="months">
+      <div v-for="m in months" :key="m.month" class="month-row">
+        <p>
+          <span>{{ periodMonthLabel(m.month) }} · {{ m.receive.length + m.pay.length }} 笔</span>
+          <b>{{ netText(m.net) }}</b>
+        </p>
+        <button v-if="needsMe(m.receive, m.pay)" :disabled="saving" @click="settleMonth(m)">算这个月</button>
+        <small v-else>等 TA 确认</small>
+      </div>
+      <div v-if="months.length > 1 && needsMe(toReceive, toPay)" class="month-row all">
+        <p>
+          <span>{{ months.length }} 个月一起</span>
+          <b>{{ netText(allNet) }}</b>
+        </p>
+        <button class="ghost" :disabled="saving" @click="settleAll">全部算清</button>
+      </div>
+    </section>
 
     <div class="tabs">
       <button :class="{ on: tab === 'receive' }" @click="tab = 'receive'">{{ partnerName }}该给我</button>
@@ -322,7 +364,11 @@ const settledDay = (r: LedgerRecord) => (r.settledAt ? formatDateLabel(toDateKey
           <i :class="['box', { on: allPicked }]"><AppIcon v-if="allPicked" name="check" :size="12" :stroke="3" /></i>
           全选
         </button>
-        <button v-for="r in toReceive" :key="r.id" class="item" @click="toggle(r.id)">
+        <template v-for="(r, i) in toReceive" :key="r.id">
+        <p v-if="monthHead(toReceive, i)" class="month-head">
+          {{ periodMonthLabel(monthHead(toReceive, i)!) }}<span class="mono">{{ formatMoney(monthSum(toReceive, monthHead(toReceive, i)!)) }}</span>
+        </p>
+        <button class="item" @click="toggle(r.id)">
           <i :class="['box', { on: picked.includes(r.id) }]">
             <AppIcon v-if="picked.includes(r.id)" name="check" :size="12" :stroke="3" />
           </i>
@@ -334,6 +380,7 @@ const settledDay = (r: LedgerRecord) => (r.settledAt ? formatDateLabel(toDateKey
             </span>
           </span>
         </button>
+        </template>
       </section>
     </template>
 
@@ -364,7 +411,10 @@ const settledDay = (r: LedgerRecord) => (r.settledAt ? formatDateLabel(toDateKey
             <i :class="['box', { on: allPicked }]"><AppIcon v-if="allPicked" name="check" :size="12" :stroke="3" /></i>
             全选
           </button>
-          <template v-for="r in toPay" :key="r.id">
+          <template v-for="(r, i) in toPay" :key="r.id">
+            <p v-if="monthHead(toPay, i)" class="month-head">
+              {{ periodMonthLabel(monthHead(toPay, i)!) }}<span class="mono">{{ formatMoney(monthSum(toPay, monthHead(toPay, i)!)) }}</span>
+            </p>
             <div v-if="r.paidClaimedAt" class="item static">
               <i class="box sent"><AppIcon name="check" :size="12" :stroke="3" /></i>
               <CategoryIcon :name="recordIcon(r.category, r.subCategory)" :color="recordColor(r.category)" :size="34" />
@@ -457,39 +507,64 @@ const settledDay = (r: LedgerRecord) => (r.settledAt ? formatDateLabel(toDateKey
   line-height: 1.5;
   color: var(--text-faint);
 }
-.total {
+.months {
+  margin-bottom: 12px;
+  padding: 0 14px;
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.month-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
-  padding: 12px 12px 12px 14px;
-  border-radius: var(--radius);
-  background: var(--card);
+  padding: 11px 0;
 }
-.total p {
+.month-row + .month-row {
+  border-top: 1px solid var(--line);
+}
+.month-row p {
   display: flex;
   flex-direction: column;
   margin: 0;
 }
-.total span {
+.month-row span {
   font-size: 12px;
   color: var(--text-soft);
 }
-.total b {
+.month-row b {
   font-size: 15px;
 }
-.total button {
+.month-row button {
   flex-shrink: 0;
-  height: 38px;
-  padding: 0 18px;
-  border-radius: 12px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 10px;
   background: var(--primary);
   color: #fff;
+  font-size: 13px;
   font-weight: 600;
 }
-.total button:disabled {
+.month-row button.ghost {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+.month-row button:disabled {
   opacity: 0.6;
+}
+.month-row small {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.month-head {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  padding: 10px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-faint);
 }
 .tabs {
   display: grid;

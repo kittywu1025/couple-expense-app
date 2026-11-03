@@ -1,7 +1,12 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { dismissToast, useToast, type ToastAction, type ToastItem } from '../composables/useToast'
 
 const { toasts } = useToast()
+const groups = computed(() => [
+  ['top', toasts.value.filter((t) => t.placement !== 'bottom')],
+  ['bottom', toasts.value.filter((t) => t.placement === 'bottom')],
+] as const)
 
 const handleAction = async (toastItem: ToastItem, action: ToastAction) => {
   await action.onClick()
@@ -10,9 +15,10 @@ const handleAction = async (toastItem: ToastItem, action: ToastAction) => {
 </script>
 
 <template>
-  <div class="viewport" aria-live="polite">
-    <transition-group name="toast" tag="div" class="stack">
-      <section v-for="item in toasts" :key="item.id" :class="['toast', item.type]" role="status">
+  <!-- 普通提示在上方；带「撤销」的在下方，手指够得着 -->
+  <div v-for="[place, list] in groups" :key="place" :class="['viewport', place]" aria-live="polite">
+    <transition-group :name="`toast-${place}`" tag="div" class="stack">
+      <section v-for="item in list" :key="item.id" :class="['toast', item.type]" role="status">
         <div class="body">
           <div>
             <strong v-if="item.title" class="title">{{ item.title }}</strong>
@@ -54,6 +60,11 @@ const handleAction = async (toastItem: ToastItem, action: ToastAction) => {
   width: min(calc(100% - 24px), 440px);
   z-index: 100000; /* 永远在弹窗上面（弹窗按打开顺序递增） */
   pointer-events: none;
+}
+/* 下方：让开底部导航栏、记账的 + 按钮和结清页的操作条 */
+.viewport.bottom {
+  top: auto;
+  bottom: calc(144px + env(safe-area-inset-bottom, 0px));
 }
 .stack {
   display: grid;
@@ -109,13 +120,20 @@ const handleAction = async (toastItem: ToastItem, action: ToastAction) => {
   background: var(--primary);
   color: #fff;
 }
-.toast-enter-active,
-.toast-leave-active {
+.toast-top-enter-active,
+.toast-top-leave-active,
+.toast-bottom-enter-active,
+.toast-bottom-leave-active {
   transition: all 0.2s ease;
 }
-.toast-enter-from,
-.toast-leave-to {
+.toast-top-enter-from,
+.toast-top-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+.toast-bottom-enter-from,
+.toast-bottom-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
 }
 </style>

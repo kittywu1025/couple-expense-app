@@ -17,6 +17,8 @@ export interface ToastItem {
   duration: number
   dismissible: boolean
   actions: readonly ToastAction[]
+  /** 撤销提示放在屏幕下方，手指够得着 */
+  placement: 'top' | 'bottom'
 }
 
 interface ToastOptions {
@@ -25,6 +27,7 @@ interface ToastOptions {
   duration?: number
   dismissible?: boolean
   actions?: ToastAction[]
+  placement?: 'top' | 'bottom'
 }
 
 const DEFAULT_DURATION = 3000
@@ -71,6 +74,7 @@ export const showToast = (type: ToastType, message: string, options: ToastOption
     duration: options.duration ?? DEFAULT_DURATION,
     dismissible: options.dismissible ?? true,
     actions: options.actions ?? [],
+    placement: options.placement ?? 'top',
   }
 
   for (const old of toasts.value) {
@@ -95,6 +99,7 @@ const undoable = (message: string, undo: () => Promise<{ error: Error | null }>,
   let used = false
   return showToast('success', message, {
     duration: UNDO_DURATION,
+    placement: 'bottom',
     ...options,
     actions: [
       {
@@ -104,8 +109,8 @@ const undoable = (message: string, undo: () => Promise<{ error: Error | null }>,
           if (used) return
           used = true
           const { error } = await undo()
-          if (error) showToast('error', error.message, { title: '撤销失败' })
-          else showToast('info', '已撤销')
+          if (error) showToast('error', error.message, { title: '撤销失败', placement: 'bottom' })
+          else showToast('info', '已撤销', { placement: 'bottom' })
         },
       },
     ],

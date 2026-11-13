@@ -16,7 +16,7 @@ import { canRespond, confirmLabel, disputedByPartner } from '../utils/confirm'
 import { formatDateLabel, formatMoney, todayKey } from '../utils/format'
 
 const { myUid, partner, nameOf, currentBook } = useBooks()
-const { loans, progress, addLoan, removeLoan, requestDeleteLoan, cancelDeleteLoan, requestDeleteRepayment, cancelDeleteRepayment, addRepayment, removeRepayment, respondLoans, respondRepayments, replyLoan, replyRepayment } =
+const { loans, repayments, progress, load, addLoan, removeLoan, requestDeleteLoan, cancelDeleteLoan, requestDeleteRepayment, cancelDeleteRepayment, addRepayment, offsetLoans, removeRepayment, respondLoans, respondRepayments, replyLoan, replyRepayment } =
   useLoans()
 const partnerName = computed(() => partner.value?.displayName ?? 'TA')
 
@@ -44,7 +44,7 @@ const borrowed = computed(() => sumRemaining(active.value.filter((l) => l.borrow
 const showSettled = ref(false)
 
 /**
- * 互相抵消：同一种货币里，我借 TA 的和 TA 借我的可以对冲。
+ * 合并算账：同一种货币里，我借 TA 的和 TA 借我的可以对冲。
  * 只算两个人都确认过、还没还完的（等确认的还款先扣掉，免得重复抵）。
  */
 const offsets = computed(() => {
@@ -86,24 +86,23 @@ const netText = (o: { net: number; currency: string }) =>
 const offsetting = ref(false)
 const runOffset = async (o: (typeof offsets.value)[number]) => {
   const ok = await confirmAction({
-    title: `互相抵消 ${formatMoney(o.amount, o.currency)}？`,
-    message: `会给双方的借款各记一笔 ${formatMoney(o.amount, o.currency)} 的还款（备注「互相抵消」），${partnerName.value}确认后生效。抵消后${netText(o)}。`,
-    confirmText: '抵消',
+    title: '两边借款合并算账？',
+    message: `两边各扣掉 ${formatMoney(o.amount, o.currency)}，算完${netText(o)}。马上生效，不用${partnerName.value}同意，TA 那边会收到通知。记错了可以在借款里申请删除，两边一起撤销。`,
+    confirmText: '合并算账',
   })
   if (!ok) return
   offsetting.value = true
-  const today = todayKey()
-  for (const p of o.parts) {
-    const { error } = await addRepayment(p.loanId, { amount: p.amount, date: today, note: '互相抵消' })
-    if (error) {
-      offsetting.value = false
-      toast.error(error.message)
-      return
-    }
+  const { error } = await offsetLoans(o.parts)
+  if (error) {
+    // 多半是 TA 刚记了还款、金额变了：刷新一下，卡片上的数字就是最新的
+    await load()
+    offsetting.value = false
+    toast.error(error.message)
+    return
   }
   offsetting.value = false
   haptic()
-  toast.success(`已记下抵消，等${partnerName.value}确认`)
+  toast.success(`已合并算账，${netText(o)}`)
 }
 
 const title = (l: Loan) => (l.lenderUid === myUid.value ? `借给${nameOf(l.borrowerUid)}` : `向${nameOf(l.lenderUid)}借`)
@@ -185,7 +184,7 @@ const saveRepayment = async (all = false) => {
     return
   }
   repaySaving.value = true
-  const { error } = await addRepayment(l.id, { amount: value, date: repayDate.value, note: null })
+  const { error, record } = await addRepayment(l.id, { amount: value, date: repayDate.value, note: null })
   repaySaving.value = false
   if (error) {
     toast.error(error.message)
@@ -193,7 +192,9 @@ const saveRepayment = async (all = false) => {
   }
   haptic()
   repayText.value = ''
-  toast.success(`已记下 ${formatMoney(value, l.currency)}，等${partnerName.value}确认`)
+  const msg = `已记下 ${formatMoney(value, l.currency)}，等${partnerName.value}确认`
+  if (record) toast.undoable(msg, () => removeRepayment(record.id))
+  else toast.success(msg)
 }
 
 const confirmLoan = async (l: Loan) => {
@@ -253,12 +254,14 @@ const onRequestDelete = async (l: Loan) => {
   if (!ok) return
   const { error } = await requestDeleteLoan(l.id)
   if (error) toast.error(error.message)
-  else toast.success(`已申请，等${partnerName.value}同意`)
+  else toast.undoable(`已申请，等${partnerName.value}同意`, () => cancelDeleteLoan(l.id))
 }
 const onCancelDelete = async (l: Loan, mine: boolean) => {
   const { error } = await cancelDeleteLoan(l.id)
   if (error) toast.error(error.message)
-  else toast.success(mine ? '已撤回删除申请' : `已告诉${partnerName.value}先不删`)
+  // 拒绝 TA 的申请撤销不了（不能替 TA 再申请一次）
+  else if (mine) toast.undoable('已撤回删除申请', () => requestDeleteLoan(l.id))
+  else toast.success(`已告诉${partnerName.value}先不删`)
 }
 const onApproveDelete = async (l: Loan) => {
   const ok = await confirmAction({
@@ -277,6 +280,13 @@ const onApproveDelete = async (l: Loan) => {
   toast.success('已删除')
 }
 
+/**
+ * 合并算账的两笔还款是一起的：有人在其中一笔上申请删除，另一笔也显示出来，
+ * 同意 / 撤回都作用在申请的那笔上（数据库会把另一笔一起删）
+ */
+const delTarget = (r: LoanRepayment) =>
+  r.deleteRequestedBy || !r.offsetId ? r : (repayments.value.find((x) => x.offsetId === r.offsetId && x.deleteRequestedBy) ?? r)
+
 /** 自己记的、还没确认的还款可以直接删；确认过的要申请，对方同意才删（和借款一样） */
 const canDeleteRepayNow = (r: LoanRepayment) => r.createdBy === myUid.value && r.confirmStatus !== 'confirmed'
 
@@ -287,24 +297,24 @@ const onDeleteRepay = async (r: LoanRepayment) => {
     if (!ok) return
     const { error } = await removeRepayment(r.id)
     if (error) toast.error(error.message)
-    else toast.success('已删除')
+    else toast.undoable('已删除', () => addRepayment(r.loanId, { amount: r.amount, date: r.date, note: r.note }))
     return
   }
   const ok = await confirmAction({
     title: '申请删除这笔还款？',
-    message: `${formatMoney(r.amount, cur)} 已经确认过了，${partnerName.value}同意后才会删除。`,
+    message: `${formatMoney(r.amount, cur)} 已经确认过了，${partnerName.value}同意后才会删除。${r.offsetId ? '这是合并算账记的，另一边的那笔也会一起删。' : ''}`,
     confirmText: '申请删除',
     danger: true,
   })
   if (!ok) return
   const { error } = await requestDeleteRepayment(r.id)
   if (error) toast.error(error.message)
-  else toast.success(`已申请，等${partnerName.value}同意`)
+  else toast.undoable(`已申请，等${partnerName.value}同意`, () => cancelDeleteRepayment(r.id))
 }
 const approveDeleteRepay = async (r: LoanRepayment) => {
   const ok = await confirmAction({
     title: '同意删除这笔还款？',
-    message: `${formatMoney(r.amount, detail.value?.currency)} 删除后会加回「还剩」，无法恢复。`,
+    message: `${formatMoney(r.amount, detail.value?.currency)} 删除后会加回「还剩」，无法恢复。${r.offsetId ? '这是合并算账记的，另一边的那笔也会一起删。' : ''}`,
     confirmText: '同意删除',
     danger: true,
   })
@@ -314,9 +324,11 @@ const approveDeleteRepay = async (r: LoanRepayment) => {
   else toast.success('已删除')
 }
 const cancelDeleteRepay = async (r: LoanRepayment) => {
+  const mine = r.deleteRequestedBy === myUid.value
   const { error } = await cancelDeleteRepayment(r.id)
   if (error) toast.error(error.message)
-  else toast.success(r.deleteRequestedBy === myUid.value ? '已撤回删除申请' : `已告诉${partnerName.value}先不删`)
+  else if (mine) toast.undoable('已撤回删除申请', () => requestDeleteRepayment(r.id))
+  else toast.success(`已告诉${partnerName.value}先不删`)
 }
 </script>
 
@@ -370,15 +382,15 @@ const cancelDeleteRepay = async (r: LoanRepayment) => {
       </button>
     </section>
 
-    <!-- 互相抵消：两边都有没还完的借款时出现 -->
+    <!-- 合并算账：两边都有没还完的借款时出现 -->
     <section v-for="o in offsets" :key="o.currency" class="offset">
       <div class="offset-rows">
         <span>我借{{ partnerName }}的 <b class="mono">{{ formatMoney(o.iOwe, o.currency) }}</b></span>
         <span>{{ partnerName }}借我的 <b class="mono">{{ formatMoney(o.theyOwe, o.currency) }}</b></span>
       </div>
-      <p class="offset-net">相互抵消后，{{ netText(o) }}</p>
+      <p class="offset-net">两边合并算账后，{{ netText(o) }}</p>
       <button class="offset-btn" :disabled="offsetting" @click="runOffset(o)">
-        <AppIcon name="swap" :size="16" :stroke="2.2" />{{ offsetting ? '处理中…' : `一键抵消 ${formatMoney(o.amount, o.currency)}` }}
+        <AppIcon name="swap" :size="16" :stroke="2.2" />{{ offsetting ? '处理中…' : '合并算账' }}
       </button>
     </section>
 
@@ -473,15 +485,15 @@ const cancelDeleteRepay = async (r: LoanRepayment) => {
           <b class="mono">{{ formatMoney(r.amount, detail.currency) }}</b>
           <small>{{ formatDateLabel(r.date) }} · {{ nameOf(r.createdBy) }}记<template v-if="r.note"> · {{ r.note }}</template></small>
           <small v-if="r.discussion.length" class="said">{{ lastWord(r) }}</small>
-          <small v-if="r.deleteRequestedBy" class="del-note">
-            {{ r.deleteRequestedBy === myUid ? '已申请删除，等 TA 同意' : 'TA 想删除这笔还款' }}
+          <small v-if="delTarget(r).deleteRequestedBy" class="del-note">
+            {{ delTarget(r).deleteRequestedBy === myUid ? '已申请删除，等 TA 同意' : 'TA 想删除这笔还款' }}
           </small>
         </span>
-        <template v-if="r.deleteRequestedBy && r.deleteRequestedBy !== myUid">
-          <button class="mini ask" @click="cancelDeleteRepay(r)">先不删</button>
-          <button class="mini danger" @click="approveDeleteRepay(r)">同意删除</button>
+        <template v-if="delTarget(r).deleteRequestedBy && delTarget(r).deleteRequestedBy !== myUid">
+          <button class="mini ask" @click="cancelDeleteRepay(delTarget(r))">先不删</button>
+          <button class="mini danger" @click="approveDeleteRepay(delTarget(r))">同意删除</button>
         </template>
-        <button v-else-if="r.deleteRequestedBy" class="mini ask" @click="cancelDeleteRepay(r)">撤回</button>
+        <button v-else-if="delTarget(r).deleteRequestedBy" class="mini ask" @click="cancelDeleteRepay(delTarget(r))">撤回</button>
         <template v-else-if="canRespond(r, myUid)">
           <button class="mini ask" @click="talking = { kind: 'repayment', item: r, mode: 'dispute' }">有疑问</button>
           <button class="mini ok" @click="confirmRepay(r)">收到了</button>
@@ -490,7 +502,7 @@ const cancelDeleteRepay = async (r: LoanRepayment) => {
           回复
         </button>
         <em v-else :class="['status', r.confirmStatus]">{{ confirmLabel(r, myUid) }}</em>
-        <button v-if="!r.deleteRequestedBy" class="x" aria-label="删除这笔还款" @click="onDeleteRepay(r)">
+        <button v-if="!delTarget(r).deleteRequestedBy" class="x" aria-label="删除这笔还款" @click="onDeleteRepay(r)">
           <AppIcon name="close" :size="14" :stroke="2.2" />
         </button>
       </div>

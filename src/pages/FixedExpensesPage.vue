@@ -86,9 +86,10 @@ const onDelete = async () => {
 }
 
 const togglePause = async (f: FixedExpense) => {
-  const { error } = await setPaused(f.id, !f.paused)
+  const was = f.paused
+  const { error } = await setPaused(f.id, !was)
   if (error) toast.error(error.message)
-  else toast.success(f.paused ? `已恢复「${f.name}」，从今天起继续自动记账` : `已暂停「${f.name}」`)
+  else toast.undoable(was ? `已恢复「${f.name}」，从今天起继续自动记账` : `已暂停「${f.name}」`, () => setPaused(f.id, was))
 }
 </script>
 

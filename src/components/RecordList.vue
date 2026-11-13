@@ -5,7 +5,7 @@ import CategoryIcon from './CategoryIcon.vue'
 import type { LedgerRecord } from '../types'
 import { recordColor, recordIcon } from '../utils/categories'
 import { formatDateLabel, formatMoney, formatMoneyShort, formatWeekday } from '../utils/format'
-import { canModify, useRecords } from '../composables/useRecords'
+import { canModify, payloadOf, useRecords } from '../composables/useRecords'
 import { confirmAction, haptic } from '../composables/useUi'
 import { toast } from '../composables/useToast'
 import { isAmountSplit, isFullyOwed, isTreat, shareOf, treaterOf } from '../utils/settlement'
@@ -14,9 +14,9 @@ import { confirmLabel } from '../utils/confirm'
 
 const props = defineProps<{ records: LedgerRecord[] }>()
 
-const { myUid, otherUid } = useBooks()
+const { myUid, otherUid, nameOf } = useBooks()
 const selectedId = ref<string | null>(null)
-const { deleteRecord } = useRecords()
+const { addRecord, deleteRecord } = useRecords()
 
 // 长按快速删除（对方的个人记录不能删）；长按后松手那次点击不打开详情
 let pressTimer: ReturnType<typeof setTimeout> | undefined
@@ -40,7 +40,8 @@ const startPress = (r: LedgerRecord) => {
     if (!ok) return
     const { error } = await deleteRecord(r.id)
     if (error) toast.error(error.message, { title: '删除失败' })
-    else toast.success('已删除')
+    // 撤销：照原样再记一次
+    else toast.undoable('已删除', () => addRecord(payloadOf(r)))
   }, 550)
 }
 const cancelPress = () => clearTimeout(pressTimer)
@@ -69,7 +70,8 @@ const groups = computed(() => {
 })
 
 const tag = (r: LedgerRecord) => {
-  if (r.type === 'personal') return { text: '个人', cls: 'personal' }
+  // TA 的个人记录写「杰杰的」，免得以为是自己花的
+  if (r.type === 'personal') return r.payerUid === myUid.value ? { text: '个人', cls: 'personal' } : { text: `${nameOf(r.payerUid)}的`, cls: 'partner' }
   if (isTreat(r)) {
     const mine = treaterOf(r, otherUid) === myUid.value
     return { text: mine ? '我请客' : 'TA请客', cls: 'treat' }
@@ -249,6 +251,10 @@ const tag = (r: LedgerRecord) => {
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.05);
   color: var(--text-soft);
+}
+.tag.partner {
+  background: var(--partner-bg);
+  color: var(--partner-text);
 }
 .tag.shared {
   background: var(--primary-soft);

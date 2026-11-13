@@ -14,7 +14,19 @@ import type { IconName } from '../utils/icons'
 import { recordColor, recordIcon } from '../utils/categories'
 import { disputedByPartner, waitingForMe, waitingForPartner } from '../utils/confirm'
 import { formatDateLabel, formatMoney } from '../utils/format'
-import { amountSplitText, isAgreed, isAmountSplit, isFullyOwed, isTreat, otherPart, shareOf, treaterOf } from '../utils/settlement'
+import {
+  amountSplitText,
+  currentPeriodMonth,
+  isAgreed,
+  isAmountSplit,
+  isFullyOwed,
+  isTreat,
+  otherPart,
+  periodMonthLabel,
+  shareOf,
+  treaterOf,
+  unsettledByMonth,
+} from '../utils/settlement'
 
 /**
  * 首页「待你确认」：TA 记的共同账单 / 借款 / 还款要我点过才算数，
@@ -97,7 +109,8 @@ const rows = computed<Row[]>(() => {
       kind: 'repayment',
       id: p.id,
       title: loan ? `还款 · ${nameOf(loan.borrowerUid)}还给${nameOf(loan.lenderUid)}` : '还款',
-      sub: formatDateLabel(p.date),
+      // 备注带上，「合并算账」的两笔一看就知道是一对
+      sub: `${formatDateLabel(p.date)}${p.note ? ` · ${p.note}` : ''}`,
       amount: p.amount,
       currency: loan?.currency,
       icon: 'transfer',
@@ -191,6 +204,27 @@ const readSeen = (key: string) => {
 }
 const seenAt = ref(readSeen(seenKey.value))
 watch(seenKey, (k) => (seenAt.value = readSeen(k)))
+/** 一笔一笔点了「没问题」的：记下当时那笔的时间，TA 之后再改还会提醒 */
+const seenIdsKey = computed(() => `couple-expense-seen-ids:${currentBook.value?.id ?? ''}:${myUid.value}`)
+const readSeenIds = (key: string): Record<string, string> => {
+  try {
+    const v = JSON.parse(localStorage.getItem(key) ?? '{}')
+    return v && typeof v === 'object' ? v : {}
+  } catch {
+    return {}
+  }
+}
+const seenIds = ref(readSeenIds(seenIdsKey.value))
+watch(seenIdsKey, (k) => (seenIds.value = readSeenIds(k)))
+const saveSeenIds = (map: Record<string, string>) => {
+  seenIds.value = map
+  try {
+    localStorage.setItem(seenIdsKey.value, JSON.stringify(map))
+  } catch {
+    // 存不了就只在这次生效
+  }
+}
+const stampOf = (r: { editedAt?: string | null; createdAt: string }) => r.editedAt || r.createdAt
 const news = computed(() =>
   records.value
     .filter(
@@ -198,7 +232,8 @@ const news = computed(() =>
         r.type === 'shared' &&
         r.confirmStatus === 'confirmed' &&
         r.lastEditedBy !== myUid.value &&
-        (r.editedAt || r.createdAt) > seenAt.value,
+        stampOf(r) > seenAt.value &&
+        stampOf(r) > (seenIds.value[r.id] ?? ''),
     )
     .map<Row>((r) => ({
       kind: 'record',
@@ -212,6 +247,53 @@ const news = computed(() =>
       last: '',
     })),
 )
+// ── 提醒：TA 把两边的借款合并算账了（马上生效，不用确认），点一下去借款页看，看过就不再提醒 ──
+const offsetSeenKey = computed(() => `couple-expense-offset-seen:${currentBook.value?.id ?? ''}:${myUid.value}`)
+const offsetSeenAt = ref(readSeen(offsetSeenKey.value))
+watch(offsetSeenKey, (k) => (offsetSeenAt.value = readSeen(k)))
+const offsetNews = computed(() => {
+  const groups = new Map<string, { amount: number; currency?: string }>()
+  for (const p of repayments.value) {
+    if (!p.offsetId || p.createdBy === myUid.value || p.createdAt <= offsetSeenAt.value) continue
+    const loan = loans.value.find((l) => l.id === p.loanId)
+    // 两边金额一样，只算我借出去那边的，就是两边各扣掉的金额
+    const g = groups.get(p.offsetId) ?? { amount: 0, currency: loan?.currency }
+    if (loan?.lenderUid === myUid.value) g.amount += p.amount
+    groups.set(p.offsetId, g)
+  }
+  return [...groups.values()]
+})
+const offsetNewsText = computed(() => {
+  const byCur = new Map<string | undefined, number>()
+  for (const g of offsetNews.value) byCur.set(g.currency, (byCur.get(g.currency) ?? 0) + g.amount)
+  return [...byCur.entries()].map(([c, v]) => formatMoney(v, c)).join(' · ')
+})
+const openOffsetNews = () => {
+  offsetSeenAt.value = new Date().toISOString()
+  try {
+    localStorage.setItem(offsetSeenKey.value, offsetSeenAt.value)
+  } catch {
+    // 存不了就只在这次生效
+  }
+  loansPageOpen.value = true
+}
+/**
+ * 过了结算日，之前的月份还有没结清的 AA，而且我这边有要做的（不算 TA 说给了、等我确认的，上面另有提醒）：
+ * 提醒去结清页按月算账
+ */
+const dueMonths = computed(() => {
+  const now = currentPeriodMonth(currentBook.value?.settleDay ?? 1)
+  return unsettledByMonth(records.value, myUid.value, currentBook.value?.settleDay ?? 1).filter(
+    (m) => m.month < now && [...m.receive, ...m.pay].some((r) => !r.paidClaimedAt),
+  )
+})
+const dueText = computed(() => {
+  const list = dueMonths.value
+  const net = list.reduce((s, m) => s + m.net, 0)
+  const money = Math.abs(net) < 0.005 ? '两边刚好抵平' : net > 0 ? `TA 给你 ${formatMoney(net)}` : `你给 TA ${formatMoney(-net)}`
+  return list.length === 1 ? `${periodMonthLabel(list[0].month)}还没算账 · ${money}` : `${list.length} 个月还没算账 · 合起来${money}`
+})
+
 /** 有改过的就不只是「新记了」 */
 const newsHasEdits = computed(() => news.value.some((n) => n.sub.endsWith('改过')))
 const confirmDesc = computed(() => {
@@ -227,6 +309,15 @@ const markSeen = () => {
   } catch {
     // 存不了就只在这次生效
   }
+  // 全部看过了，一笔笔的记录用不着了
+  saveSeenIds({})
+}
+/** 单独一笔看过没问题：只让这笔消失，其他的还留着 */
+const markOneSeen = (id: string) => {
+  const r = records.value.find((x) => x.id === id)
+  if (!r) return
+  saveSeenIds({ ...seenIds.value, [id]: stampOf(r) })
+  haptic()
 }
 
 // 有疑问：先写留言（账单还能提议比例）再发
@@ -309,15 +400,19 @@ const open = (row: Row) => {
       <button class="all" @click="markSeen">知道了</button>
     </div>
     <template v-if="!newsCollapsed">
-      <p class="desc">已经入账；不对的话点进去「有疑问」，那笔就退回成未入账</p>
-      <button v-for="row in news" :key="row.id" class="row main" @click="open(row)">
-        <CategoryIcon :name="row.icon" :color="row.color" :size="36" />
-        <span class="info">
-          <span class="line"><span class="name">{{ row.title }}</span><span class="mono amount">{{ formatMoney(row.amount) }}</span></span>
-          <span class="sub">{{ row.sub }}</span>
-        </span>
-        <AppIcon name="chevronRight" :size="16" class="chev" />
-      </button>
+      <p class="desc">已经入账；看过没问题的点 ✓ 就不再提醒，不对的点进去「有疑问」，那笔就退回成未入账</p>
+      <div v-for="row in news" :key="row.id" class="row news-row">
+        <button class="main" @click="open(row)">
+          <CategoryIcon :name="row.icon" :color="row.color" :size="36" />
+          <span class="info">
+            <span class="line"><span class="name">{{ row.title }}</span><span class="mono amount">{{ formatMoney(row.amount) }}</span></span>
+            <span class="sub">{{ row.sub }}</span>
+          </span>
+        </button>
+        <button class="seen" aria-label="这笔没问题" @click="markOneSeen(row.id)">
+          <AppIcon name="check" :size="15" :stroke="2.6" />
+        </button>
+      </div>
     </template>
   </section>
 
@@ -348,9 +443,19 @@ const open = (row: Row) => {
     <span class="later">去看看 ›</span>
   </button>
 
+  <button v-if="offsetNews.length" class="card news del-line" @click="openOffsetNews">
+    <span class="title"><AppIcon name="swap" :size="16" :stroke="2.2" />TA 把两边借款合并算账了 · 各扣 <b class="mono">{{ offsetNewsText }}</b></span>
+    <span class="later">去看看 ›</span>
+  </button>
+
   <button v-if="paidClaims.length" class="card news del-line" @click="settlePageOpen = true">
     <span class="title"><AppIcon name="check" :size="16" :stroke="2.2" />TA 说给了你 {{ paidClaims.length }} 笔 AA · <b class="mono">{{ formatMoney(paidClaimsTotal) }}</b></span>
     <span class="later">去确认 ›</span>
+  </button>
+
+  <button v-if="dueMonths.length" class="card news del-line" @click="settlePageOpen = true">
+    <span class="title"><AppIcon name="wallet" :size="16" :stroke="2.2" />{{ dueText }}</span>
+    <span class="later">去算账 ›</span>
   </button>
 
   <button v-if="bouncedClaims.length" class="card warn del-line" @click="settlePageOpen = true">
@@ -362,7 +467,7 @@ const open = (row: Row) => {
     <AppIcon name="check" :size="13" :stroke="2.4" />你记的 {{ waitingCount }} 笔已保存，等 TA 同意后入账
   </p>
 
-  <RecordDetailSheet :record="detail" @close="detailId = null" />
+  <RecordDetailSheet :record="detail" :reviewing="!!detail && news.some((n) => n.id === detail!.id)" @seen="markOneSeen(detailId!)" @close="detailId = null" />
   <DisputeSheet
     :open="!!disputing"
     mode="dispute"
@@ -530,6 +635,26 @@ button:disabled {
 }
 .chev {
   color: var(--text-faint);
+}
+.news-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.news-row .main {
+  flex: 1;
+  min-width: 0;
+}
+/* 单独一笔「没问题」：点了这笔就从提醒里消失 */
+.seen {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #2a9b76;
+  background: rgba(42, 155, 118, 0.12);
 }
 .mono {
   font-family: var(--mono);

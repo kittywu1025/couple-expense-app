@@ -8,6 +8,7 @@ import { useSupabaseAuth } from '../composables/useSupabaseAuth'
 import { toast } from '../composables/useToast'
 import {
   aboutPageOpen,
+  apiPageOpen,
   bookSettingsOpen,
   confirmAction,
   inviteSheetOpen,
@@ -174,6 +175,12 @@ const onSeed = async () => {
       <span class="row-icon"><AppIcon name="book" :size="18" :stroke="2" /></span>
       <span class="grow">账本设置</span>
       <small class="faint">结算日 · AA · 分类</small>
+      <AppIcon name="chevronRight" :size="16" class="chev" />
+    </button>
+    <button class="row" @click="apiPageOpen = true">
+      <span class="row-icon"><AppIcon name="key" :size="18" :stroke="2" /></span>
+      <span class="grow">API 接口</span>
+      <small class="faint">让 agent 帮忙记账</small>
       <AppIcon name="chevronRight" :size="16" class="chev" />
     </button>
     <button class="row" @click="aboutPageOpen = true">

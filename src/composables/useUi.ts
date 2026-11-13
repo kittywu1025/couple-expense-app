@@ -48,6 +48,9 @@ export const calendarPageOpen = ref(false)
 export const aboutPageOpen = ref(false)
 export const rulesPageOpen = ref(false)
 
+/** API 接口（给 agent 记账用的密钥，从「我的」进入） */
+export const apiPageOpen = ref(false)
+
 interface ConfirmOptions {
   title: string
   message?: string

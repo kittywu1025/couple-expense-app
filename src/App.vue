@@ -15,6 +15,7 @@ import { useLoans } from './composables/useLoans'
 import AboutPage from './pages/AboutPage.vue'
 import CalendarPage from './pages/CalendarPage.vue'
 import BookSettingsPage from './pages/BookSettingsPage.vue'
+import ApiPage from './pages/ApiPage.vue'
 import MonthRecap from './components/MonthRecap.vue'
 import InviteSheet from './components/InviteSheet.vue'
 import AppIcon from './components/AppIcon.vue'
@@ -38,6 +39,7 @@ import { toast } from './composables/useToast'
 import { isDemoMode } from './lib/demo'
 import {
   aboutPageOpen,
+  apiPageOpen,
   addSheetOpen,
   bookSettingsOpen,
   calendarPageOpen,
@@ -84,6 +86,7 @@ watch(screen, (next) => {
   settlePageOpen.value = false
   aboutPageOpen.value = false
   rulesPageOpen.value = false
+  apiPageOpen.value = false
   calendarPageOpen.value = false
   bookSettingsOpen.value = false
   closeAddSheet()
@@ -299,6 +302,9 @@ watch(updateAvailable, (visible) => {
     </transition>
     <transition name="push">
       <BookSettingsPage v-if="bookSettingsOpen" />
+    </transition>
+    <transition name="push">
+      <ApiPage v-if="apiPageOpen" />
     </transition>
     <transition name="push">
       <SettlementRulesPage v-if="rulesPageOpen" />

@@ -1,5 +1,14 @@
 # 更新记录
 
+## 2026-11-14 · 记账接口（给 agent 用）
+
+> ⚠️ 需要在 Supabase 执行 `supabase/migrations/20261114_agent_api.sql`（可重复执行）。
+
+- 「我的 → API 接口」：生成密钥给 agent（脚本、快捷指令、AI 助手），它就能帮你记账、批量导入账单。密钥只显示一次，不用了可以撤销，退出账本后自动失效。
+- 「复制给 agent 的说明」：一键复制地址、密钥、字段和例子，直接贴给 agent。
+- 三个接口：`api_info` 看分类和谁是谁，`api_add_records` 记一笔或一次导入最多 200 笔（有一笔不对整批都不记，`external_id` 一样的只记一次，重复导入不会记重），`api_delete_records` 删掉记错的。说明在 `docs/API.md`。
+- 用 agent 记的账和自己在 App 里记的一样，共同账对方首页会提醒「TA 新记了」。
+
 ## 2026-11-02 · 借款「合并算账」马上生效
 
 > ⚠️ 需要在 Supabase 执行 `supabase/migrations/20261102_loan_offset.sql`（可重复执行）。

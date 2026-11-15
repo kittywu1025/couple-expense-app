@@ -45,6 +45,16 @@ const byDay = computed(() => {
 // 打开时今天有记录就直接展开今天
 if (byDay.value.has(today)) selected.value = today
 
+/** 热力图：按这个月花得最多的那天算深浅，一眼看出哪几天花得多 */
+const maxExpense = computed(() => Math.max(0, ...[...byDay.value.values()].map((d) => d.expense)))
+const heat = (key: string) => {
+  const e = byDay.value.get(key)?.expense ?? 0
+  if (!e || !maxExpense.value || !key.startsWith(month.value)) return undefined
+  // 开根号让小额的日子也看得出来，最深不超过 0.32，数字还能看清
+  const level = 0.06 + 0.26 * Math.sqrt(e / maxExpense.value)
+  return { background: `color-mix(in srgb, var(--expense) ${Math.round(level * 100)}%, transparent)` }
+}
+
 const monthExpense = computed(() => [...byDay.value.values()].reduce((s, d) => s + d.expense, 0))
 const monthIncome = computed(() => [...byDay.value.values()].reduce((s, d) => s + d.income, 0))
 
@@ -98,6 +108,7 @@ const pick = (key: string) => {
           :key="d"
           :class="['day', { out: !d.startsWith(month), today: d === today, on: d === selected, has: byDay.has(d) }]"
           :disabled="!d.startsWith(month)"
+          :style="d === selected ? undefined : heat(d)"
           @click="pick(d)"
         >
           <span class="num">{{ parseKey(d).getDate() }}</span>
@@ -105,7 +116,7 @@ const pick = (key: string) => {
           <span v-else-if="d.startsWith(month) && byDay.get(d)?.income" class="amt inc mono">+{{ short(byDay.get(d)!.income) }}</span>
         </button>
       </div>
-      <p class="tip">点有记录的日子看当天账单 · 金额只算共同的和你自己的</p>
+      <p class="tip">颜色越深花得越多 · 点有记录的日子看当天账单 · 金额只算共同的和你自己的</p>
     </section>
 
     <transition name="fade" mode="out-in">

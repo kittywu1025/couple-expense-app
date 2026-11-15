@@ -6,17 +6,28 @@ export const addSheetOpen = ref(false)
 /** 正在编辑的记录；为 null 时是新增 */
 export const editingRecord = ref<LedgerRecord | null>(null)
 
+/** 「再记一笔」：照这笔的分类、金额、分法预填一笔新的，日期是今天 */
+export const addTemplate = ref<LedgerRecord | null>(null)
+
 export const openAddSheet = () => {
   editingRecord.value = null
+  addTemplate.value = null
+  addSheetOpen.value = true
+}
+export const openCopySheet = (record: LedgerRecord) => {
+  editingRecord.value = null
+  addTemplate.value = record
   addSheetOpen.value = true
 }
 export const openEditSheet = (record: LedgerRecord) => {
   editingRecord.value = record
+  addTemplate.value = null
   addSheetOpen.value = true
 }
 export const closeAddSheet = () => {
   addSheetOpen.value = false
   editingRecord.value = null
+  addTemplate.value = null
 }
 
 /** 个人资料详情页（从「我的」顶部卡片进入） */
@@ -43,6 +54,9 @@ export const bookSettingsOpen = ref(false)
 
 /** 收支日历（首页右上角） */
 export const calendarPageOpen = ref(false)
+
+/** 搜索账单（首页右上角） */
+export const searchPageOpen = ref(false)
 
 /** 关于应用 / 结算算法说明（从「我的」进入） */
 export const aboutPageOpen = ref(false)

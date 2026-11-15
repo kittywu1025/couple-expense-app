@@ -48,7 +48,7 @@ create or replace function public.create_api_token(p_book_id uuid, p_name text)
 returns text
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   v_token text := 'cek_' || replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', '');
@@ -76,7 +76,7 @@ create or replace function public.revoke_api_token(p_id uuid)
 returns void
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 begin
   update public.api_tokens set revoked_at = now()
@@ -91,7 +91,7 @@ $$;
 create or replace function public.api_auth(p_token text, out o_user uuid, out o_book uuid)
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   v_id uuid;
@@ -145,7 +145,7 @@ returns jsonb
 language sql
 stable
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
   select jsonb_build_object(
     'expense', (public.api_builtin_categories() -> 'expense') || coalesce((
@@ -164,7 +164,7 @@ create or replace function public.api_info(token text)
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   v_user uuid;
@@ -199,7 +199,7 @@ create or replace function public.api_add_records(token text, items jsonb)
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   v_user uuid;
@@ -270,8 +270,11 @@ begin
     if v_date is null then
       raise exception '%缺 date（YYYY-MM-DD）', v_where;
     end if;
-    if v_date > v_today + 1 then
-      raise exception '%日期不能晚于今天', v_where;
+    if v_date > v_today then
+      raise exception '%日期不能晚于今天（日本时间 %）', v_where, v_today;
+    end if;
+    if v_date < date '2000-01-01' then
+      raise exception '%日期太早了，检查一下年份', v_where;
     end if;
 
     -- 支出 / 收入、个人 / 共同
@@ -296,6 +299,9 @@ begin
       when 'partner' then v_payer := v_partner;
       else raise exception '%payer 只能是 me 或 partner', v_where;
     end case;
+    if v_payer is null then
+      raise exception '%TA 还没加入账本，payer 只能是 me', v_where;
+    end if;
     if v_type = 'personal' and v_payer <> v_user then
       raise exception '%不能替 TA 记个人账', v_where;
     end if;
@@ -354,9 +360,15 @@ begin
       v_seen := v_seen || v_ext;
     end if;
 
+    -- 两个请求同时导入同一笔：后到的那笔当成重复跳过，不让整批失败
     insert into public.records (book_id, amount, kind, type, payer_uid, ratio, category, sub_category, note, date, created_by, external_id)
     values (v_book, v_amount, v_kind, v_type, v_payer, v_ratio, v_cat, v_sub, v_note, v_date, v_user, v_ext)
+    on conflict (book_id, external_id) where external_id is not null do nothing
     returning * into v_row;
+    if not found then
+      v_skipped := v_skipped || jsonb_build_object('index', v_i, 'external_id', v_ext);
+      continue;
+    end if;
     v_added := v_added || jsonb_build_object('index', v_i, 'id', v_row.id, 'external_id', v_ext);
   end loop;
 
@@ -370,7 +382,7 @@ create or replace function public.api_delete_records(token text, ids jsonb)
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   v_user uuid;

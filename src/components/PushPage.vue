@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import AppIcon from './AppIcon.vue'
+import { useBackLayerWhileMounted } from '../composables/useBackStack'
 
 /** 从右侧推入的全屏二级页：左上返回 + 标题 + 内容 */
 defineProps<{ title: string; backLabel?: string }>()
-defineEmits<{ back: [] }>()
+const emit = defineEmits<{ back: [] }>()
+// 手机返回键 / 返回手势等于点左上角返回
+useBackLayerWhileMounted(() => emit('back'))
 </script>
 
 <template>
   <div class="page">
     <header class="nav">
-      <button class="back" aria-label="返回" @click="$emit('back')">
+      <button class="back" aria-label="返回" @click="emit('back')">
         <AppIcon name="chevronLeft" :size="22" :stroke="2.2" />{{ backLabel ?? '返回' }}
       </button>
       <h1>{{ title }}</h1>

@@ -16,10 +16,12 @@ import AboutPage from './pages/AboutPage.vue'
 import CalendarPage from './pages/CalendarPage.vue'
 import BookSettingsPage from './pages/BookSettingsPage.vue'
 import ApiPage from './pages/ApiPage.vue'
+import SearchPage from './pages/SearchPage.vue'
 import MonthRecap from './components/MonthRecap.vue'
 import InviteSheet from './components/InviteSheet.vue'
 import AppIcon from './components/AppIcon.vue'
 import { usePullToRefresh } from './composables/usePullToRefresh'
+import { useLiveSync } from './composables/useLiveSync'
 import { clearPendingInvite, pendingInvite } from './composables/useInvite'
 import SettlementRulesPage from './pages/SettlementRulesPage.vue'
 import { useFixedExpenses } from './composables/useFixedExpenses'
@@ -46,16 +48,18 @@ import {
   closeAddSheet,
   confirmAction,
   editingRecord,
+  addTemplate,
   fixedPageOpen,
   loansPageOpen,
   openAddSheet,
   settlePageOpen,
   profilePageOpen,
   rulesPageOpen,
+  searchPageOpen,
 } from './composables/useUi'
 
 const { authUser, authLoading, authGender, isSupabaseEnabled } = useSupabaseAuth()
-const { currentBook, booksLoading, loadBook, me, partner } = useBooks()
+const { currentBook, booksLoading, bookLoadFailed, loadBook, me, partner } = useBooks()
 const partnerName = computed(() => partner.value?.displayName ?? 'TA')
 const { loadRecords } = useRecords()
 const { load: loadLoans } = useLoans()
@@ -72,6 +76,8 @@ const screen = computed(() => {
   if (authLoading.value) return 'loading'
   if (!authUser.value) return 'auth'
   if (booksLoading.value && !currentBook.value) return 'loading'
+  // 读账本失败（多半是没网）：给「重试」，不要当成还没有账本
+  if (!currentBook.value && bookLoadFailed.value) return 'offline'
   if (needsProfile.value) return 'profile'
   if (!currentBook.value) return 'setup'
   return 'app'
@@ -88,6 +94,7 @@ watch(screen, (next) => {
   rulesPageOpen.value = false
   apiPageOpen.value = false
   calendarPageOpen.value = false
+  searchPageOpen.value = false
   bookSettingsOpen.value = false
   closeAddSheet()
   activeTab.value = 'home'
@@ -198,6 +205,13 @@ const refreshOnVisible = () => {
 }
 onMounted(() => document.addEventListener('visibilitychange', refreshOnVisible))
 
+// 对方记账、改账、记还款：实时刷新，不用等切回前台
+useLiveSync(
+  () => (screen.value === 'app' ? (currentBook.value?.id ?? null) : null),
+  () => authUser.value?.id,
+  { records: loadRecords, loans: loadLoans },
+)
+
 // 首页、统计页下拉刷新：重新拉账本、账单，顺便检查固定扣款
 const pullEnabled = computed(() => screen.value === 'app' && activeTab.value !== 'me')
 const pull = usePullToRefresh(pullEnabled, async () => {
@@ -243,6 +257,13 @@ watch(updateAvailable, (visible) => {
   </div>
   <div v-else-if="screen === 'loading'" class="center">
     <div class="spinner" />
+  </div>
+  <div v-else-if="screen === 'offline'" class="center offline">
+    <div>
+      <p>连不上服务器，账本还没读出来</p>
+      <small>检查一下网络，再点重试</small>
+      <button class="retry" :disabled="booksLoading" @click="loadBook">{{ booksLoading ? '正在重试…' : '重试' }}</button>
+    </div>
   </div>
   <AuthPage v-else-if="screen === 'auth'" />
   <ProfileSetupPage v-else-if="screen === 'profile'" />
@@ -301,6 +322,9 @@ watch(updateAvailable, (visible) => {
       <CalendarPage v-if="calendarPageOpen" />
     </transition>
     <transition name="push">
+      <SearchPage v-if="searchPageOpen" />
+    </transition>
+    <transition name="push">
       <BookSettingsPage v-if="bookSettingsOpen" />
     </transition>
     <transition name="push">
@@ -310,7 +334,13 @@ watch(updateAvailable, (visible) => {
       <SettlementRulesPage v-if="rulesPageOpen" />
     </transition>
     <transition name="slide-up">
-      <AddRecordPage v-if="addSheetOpen" :key="editingRecord?.id ?? 'new'" :record="editingRecord" @close="closeAddSheet" />
+      <AddRecordPage
+        v-if="addSheetOpen"
+        :key="editingRecord?.id ?? (addTemplate ? `copy-${addTemplate.id}` : 'new')"
+        :record="editingRecord"
+        :template="addTemplate"
+        @close="closeAddSheet"
+      />
     </transition>
   </template>
 </template>
@@ -351,6 +381,24 @@ watch(updateAvailable, (visible) => {
   padding: 24px;
   text-align: center;
   color: var(--text-soft);
+}
+.offline p {
+  margin: 0 0 4px;
+  color: var(--text);
+  font-size: 16px;
+}
+.offline small {
+  display: block;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+.retry {
+  margin-top: 18px;
+  padding: 10px 28px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
 }
 .spinner {
   width: 32px;

@@ -6,36 +6,62 @@ import CategoryEditorSheet from '../components/CategoryEditorSheet.vue'
 import CategoryDetailSheet from '../components/CategoryDetailSheet.vue'
 import type { IconName } from '../utils/icons'
 import { isAmountSplit, partOf, shareOf } from '../utils/settlement'
-import { activeCurrencyInfo, formatDateLabel, formatMoney, todayKey } from '../utils/format'
+import { activeCurrencyInfo, formatDateLabel, formatMoney, formatMoneyShort, todayKey } from '../utils/format'
+import { noteSuggestions } from '../utils/noteSuggest'
 import { useBooks } from '../composables/useBooks'
-import { payloadOf, useRecords } from '../composables/useRecords'
+import { useRecords } from '../composables/useRecords'
 import { confirmAction, haptic } from '../composables/useUi'
 import { toast } from '../composables/useToast'
 import AppIcon from '../components/AppIcon.vue'
+import { useBackLayerWhileMounted } from '../composables/useBackStack'
 
-const props = defineProps<{ record?: LedgerRecord | null }>()
+const props = defineProps<{ record?: LedgerRecord | null; template?: LedgerRecord | null }>()
 const emit = defineEmits<{ close: [] }>()
 
 /** 编辑模式：预填当前记录的值 */
 const editing = props.record ?? null
+/** 「再记一笔」：照这笔预填（日期用今天），存的是一笔新的 */
+const tpl = editing ? null : (props.template ?? null)
+/** 预填的来源：编辑的那笔，或者照着记的那笔 */
+const src = editing ?? tpl
 
 const { currentBook, myUid, partner, updateBookSettings } = useBooks()
-const { addRecord, updateRecord, deleteRecord } = useRecords()
+const { records, addRecord, updateRecord, deleteRecord, restoreRecord } = useRecords()
 
 const partnerName = computed(() => partner.value?.displayName ?? 'TA')
 const MAX_AMOUNT = 99_999_999
 
+// ── 上次记账的选择：新记一笔时沿用（分类、子分类、个人 / 共同），连着记同一类不用每次重选 ──
+interface LastPick {
+  kind: RecordKind
+  category: string
+  sub: string | null
+  type: RecordType
+}
+const lastPickKey = `couple-expense-last-pick:${currentBook.value?.id ?? ''}`
+const readLastPick = (): LastPick | null => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(lastPickKey) ?? 'null')
+    return raw && (raw.kind === 'expense' || raw.kind === 'income') ? raw : null
+  } catch {
+    return null
+  }
+}
+const last = src ? null : readLastPick()
+
 // ── 分类 ──
-const kind = ref<RecordKind>(editing?.kind ?? 'expense')
+const kind = ref<RecordKind>(src?.kind ?? last?.kind ?? 'expense')
 const categories = computed(() => categoriesFor(kind.value))
-const initialCatIndex = editing ? categoriesFor(editing.kind).findIndex((c) => c.name === editing.category) : 0
+const initialCatName = src?.category ?? last?.category
+const initialCatIndex = initialCatName ? categoriesFor(kind.value).findIndex((c) => c.name === initialCatName) : 0
 const catIndex = ref(
   initialCatIndex >= 0 ? initialCatIndex : Math.max(0, categoriesFor(kind.value).findIndex((c) => c.name === '其他')),
 )
 const category = computed(() => categories.value[catIndex.value] ?? categories.value[0])
+const initialSub = src ? src.subCategory : last?.sub
 const subName = ref<string | null>(
-  editing && category.value.subs.some((s) => s.name === editing.subCategory)
-    ? editing.subCategory
+  initialSub && category.value.subs.some((s) => s.name === initialSub)
+    ? initialSub
     : (category.value.subs[0]?.name ?? null),
 )
 const popKey = ref(0)
@@ -149,15 +175,18 @@ const deleteCustomSub = async (name: string) => {
 }
 
 // ── 个人 / 共同 ──
-const type = ref<RecordType>(editing?.type ?? 'personal')
-const payerUid = ref(editing?.type === 'shared' ? editing.payerUid : myUid.value)
+const type = ref<RecordType>(
+  editing?.type ??
+    ((tpl?.type ?? last?.type) === 'shared' && partner.value && kind.value === 'expense' ? 'shared' : 'personal'),
+)
+const payerUid = ref(src?.type === 'shared' ? src.payerUid : myUid.value)
 /** 我承担的份额 0-10（滑条左端=我） */
 const myShare = ref(
-  editing?.type === 'shared' ? Math.round(shareOf(editing, myUid.value)) : (currentBook.value?.defaultRatio ?? 5),
+  src?.type === 'shared' ? Math.round(shareOf(src, myUid.value)) : (currentBook.value?.defaultRatio ?? 5),
 )
 /** 分法：按比例（滑条，整成）或按金额（直接填我那份，比如 2200 里我吃了 800） */
-const splitMode = ref<'ratio' | 'amount'>(editing && isAmountSplit(editing) ? 'amount' : 'ratio')
-const myPartText = ref(editing && isAmountSplit(editing) ? String(partOf(editing, myUid.value)) : '')
+const splitMode = ref<'ratio' | 'amount'>(src && isAmountSplit(src) ? 'amount' : 'ratio')
+const myPartText = ref(src && isAmountSplit(src) ? String(partOf(src, myUid.value)) : '')
 const myPart = computed(() => Math.round(Number.parseFloat(myPartText.value) * 100) / 100)
 
 watch(kind, () => {
@@ -195,7 +224,7 @@ const sliderStyle = computed(() => {
 })
 
 // ── 计算器 ──
-const expr = ref(editing ? String(editing.amount) : '')
+const expr = ref(src ? String(src.amount) : '')
 const MAX_LEN = 24
 
 const evaluate = (s: string) => {
@@ -290,8 +319,26 @@ watch(
 
 // ── 时间 / 备注 ──
 const date = ref(editing?.date ?? todayKey())
-const note = ref(editing?.note ?? '')
+const note = ref(src?.note ?? '')
 const dateLabel = computed(() => formatDateLabel(date.value))
+
+/** 这个分类以前写过的备注：点一下填上，金额还空着就顺手带上次的金额 */
+const suggestions = computed(() =>
+  editing
+    ? []
+    : noteSuggestions(records.value, {
+        kind: kind.value,
+        category: category.value.name,
+        sub: subName.value,
+        myUid: myUid.value,
+        typed: note.value,
+      }),
+)
+const useSuggestion = (s: { text: string; amount: number }) => {
+  haptic(6)
+  note.value = s.text
+  if (!expr.value) expr.value = String(s.amount)
+}
 
 // ── 实时说明（一行）──
 const shareText = computed(() => {
@@ -381,14 +428,20 @@ const save = async (closeAfter: boolean) => {
     haptic(12)
     savedCount.value++
     // 撤销：改回原来的内容
-    const before = payloadOf(editing)
-    toast.undoable('已保存修改', () => updateRecord(editing.id, before))
+    // 撤销：照原样放回去（改金额时取消掉的结清也会回来）
+    toast.undoable('已保存修改', () => restoreRecord(editing))
     emit('close')
     return
   }
   const { error, record } = await addRecord(payload)
   saving.value = false
   if (error) return toast.error(error.message, { title: '保存失败' })
+  try {
+    const pick: LastPick = { kind: kind.value, category: category.value.name, sub: subName.value, type: type.value }
+    localStorage.setItem(lastPickKey, JSON.stringify(pick))
+  } catch {
+    // 存不了下次就从头选
+  }
   haptic(12)
   savedCount.value++
   // 撤销：删掉刚记的这笔
@@ -415,10 +468,13 @@ const requestClose = async () => {
             danger: true,
           },
     )
-    if (!ok) return
+    if (!ok) return false
   }
   emit('close')
+  return true
 }
+// 手机返回键 / 返回手势：和点关闭一样，填了内容会先问一下
+useBackLayerWhileMounted(requestClose)
 </script>
 
 <template>
@@ -430,7 +486,7 @@ const requestClose = async () => {
         <button :class="{ on: kind === 'expense' }" @click="kind = 'expense'">支出</button>
         <button :class="{ on: kind === 'income' }" @click="kind = 'income'">收入</button>
       </div>
-      <span class="book">{{ editing ? '编辑账单' : '默认账本' }}</span>
+      <span class="book">{{ editing ? '编辑账单' : tpl ? '照着再记一笔' : '默认账本' }}</span>
     </header>
 
     <!-- 分类区 -->
@@ -553,6 +609,11 @@ const requestClose = async () => {
           <input v-model="date" type="date" :max="todayKey()" aria-label="日期" />
         </label>
         <input v-model="note" class="note" maxlength="40" placeholder="添加备注…" enterkeyhint="done" />
+      </div>
+      <div v-if="suggestions.length" class="suggest" aria-label="常用备注">
+        <button v-for="s in suggestions" :key="s.text" class="suggest-chip" @click="useSuggestion(s)">
+          {{ s.text }}<small v-if="!expr" class="mono">{{ formatMoneyShort(s.amount) }}</small>
+        </button>
       </div>
       <div class="pad">
         <button
@@ -1089,6 +1150,37 @@ const requestClose = async () => {
   display: flex;
   gap: 8px;
   margin: 6px 0 10px;
+}
+.suggest {
+  display: flex;
+  gap: 6px;
+  margin: -4px -12px 10px;
+  padding: 0 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.suggest::-webkit-scrollbar {
+  display: none;
+}
+.suggest-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-soft);
+  background: var(--bg);
+  white-space: nowrap;
+}
+.suggest-chip small {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.suggest-chip:active {
+  background: var(--primary-soft);
+  color: var(--primary);
 }
 .date {
   position: relative;

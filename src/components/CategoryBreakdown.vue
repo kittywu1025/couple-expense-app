@@ -11,7 +11,13 @@ import type { IconName } from '../utils/icons'
 import { bearAmount } from '../utils/settlement'
 import { useBooks } from '../composables/useBooks'
 
-const props = defineProps<{ records: LedgerRecord[]; periodWord?: string }>()
+const props = defineProps<{
+  records: LedgerRecord[]
+  periodWord?: string
+  /** 上一期的记录（统计页传），用来显示「比上个月同期多花 / 少花」 */
+  compareRecords?: LedgerRecord[]
+  compareWord?: string
+}>()
 
 const kind = ref<RecordKind>('expense')
 const expanded = ref<string | null>(null)
@@ -60,6 +66,44 @@ interface CatRow extends SubRow {
 }
 
 const total = computed(() => scoped.value.reduce((s, x) => s + x.w, 0))
+
+// ── 和上一期比：口径和这一期完全一样（同一个视角、同一个收支） ──
+const prevByCat = computed(() => {
+  const map = new Map<string, number>()
+  for (const r of props.compareRecords ?? []) {
+    if (r.kind !== kind.value) continue
+    const w = weightOf(r)
+    if (w > 0) map.set(r.category, (map.get(r.category) ?? 0) + w)
+  }
+  return map
+})
+const prevTotal = computed(() => [...prevByCat.value.values()].reduce((s, v) => s + v, 0))
+const compareLine = computed(() => {
+  if (!props.compareRecords || !props.compareWord) return null
+  const word = props.compareWord
+  const verb = kind.value === 'expense' ? '花' : '收入'
+  if (!prevTotal.value) return total.value ? { text: `${word}没有记录，没法比`, tone: 'flat' } : null
+  const diff = total.value - prevTotal.value
+  if (Math.abs(diff) < 0.5) return { text: `和${word}一样`, tone: 'flat' }
+  const pct = Math.round((Math.abs(diff) / prevTotal.value) * 100)
+  const more = diff > 0
+  // 支出多了用提醒色，收入多了是好事
+  const tone = more === (kind.value === 'expense') ? 'up' : 'down'
+  return {
+    text: `比${word}${more ? '多' : '少'}${verb} ${formatMoney(Math.abs(diff))}${pct ? `（${more ? '+' : '-'}${pct}%）` : ''}`,
+    tone,
+  }
+})
+/** 分类行上的小字：比上一期多 / 少多少，变化不大的不显示 */
+const catDelta = (name: string, value: number) => {
+  // 上一期整个没记录时每行都是「新」，没意义，不标
+  if (!props.compareRecords || !prevTotal.value) return null
+  const prev = prevByCat.value.get(name) ?? 0
+  if (!prev) return value ? { text: '新', up: true } : null
+  const diff = value - prev
+  if (Math.abs(diff) / prev < 0.1) return null
+  return { text: `${diff > 0 ? '↑' : '↓'}${formatMoneyShort(Math.abs(diff))}`, up: diff > 0 }
+}
 const tweenedTotal = useTweened(total)
 
 const rows = computed<CatRow[]>(() => {
@@ -195,6 +239,8 @@ const toggleKind = () => (kind.value = kind.value === 'expense' ? 'income' : 'ex
       </g>
     </svg>
 
+    <p v-if="compareLine && rows.length" :class="['compare', compareLine.tone]">{{ compareLine.text }}</p>
+
     <div class="scope-switch" role="tablist" aria-label="统计视角">
       <button :class="{ on: scope === 'all' }" @click="scope = 'all'">全体</button>
       <button :class="{ on: scope === 'me' }" @click="scope = 'me'">只看我</button>
@@ -226,7 +272,13 @@ const toggleKind = () => (kind.value = kind.value === 'expense' ? 'income' : 'ex
         <span class="main">
           <!-- 金额模式：分类名 + 金额 -->
           <span v-if="display === 'amount'" class="top">
-            <span class="name">{{ row.name }} <small>{{ row.count }} 笔</small></span>
+            <span class="name">
+              {{ row.name }} <small>{{ row.count }} 笔</small>
+              <small
+                v-if="catDelta(row.name, row.value)"
+                :class="['delta', { up: catDelta(row.name, row.value)!.up === (kind === 'expense') }]"
+              >{{ catDelta(row.name, row.value)!.text }}</small>
+            </span>
             <span class="mono amount">{{ formatMoney(row.value) }}</span>
           </span>
           <!-- 占比模式：分类名 + 百分比 + 进度条 -->
@@ -266,6 +318,26 @@ const toggleKind = () => (kind.value = kind.value === 'expense' ? 'income' : 'ex
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+.compare {
+  margin: 2px 0 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.compare.up {
+  color: #e8590c;
+}
+.compare.down {
+  color: var(--primary);
+}
+.name .delta {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--primary);
+}
+.name .delta.up {
+  color: #e8590c;
 }
 .scope-switch {
   display: grid;

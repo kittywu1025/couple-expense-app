@@ -9,7 +9,7 @@ import AppIcon from '../components/AppIcon.vue'
 import PendingConfirmCard from '../components/PendingConfirmCard.vue'
 import { useBooks } from '../composables/useBooks'
 import { useRecords } from '../composables/useRecords'
-import { calendarPageOpen, inviteSheetOpen, openAddSheet } from '../composables/useUi'
+import { calendarPageOpen, inviteSheetOpen, openAddSheet, searchPageOpen } from '../composables/useUi'
 import { HOME_CARDS, homeCardPref, type HomeCard } from '../composables/usePrefs'
 import { toast } from '../composables/useToast'
 import type { LedgerRecord } from '../types'
@@ -61,6 +61,28 @@ const weightOf = (card: HomeCard, r: LedgerRecord) => {
 }
 
 const monthRecords = computed(() => records.value.filter((r) => inPeriod(r, period.value)))
+
+/**
+ * 共同月预算（账本设置里两个人一起定）：只算共同支出，两个人看到的数一样。
+ * 看本月时顺便算剩下的每天大概还能花多少。
+ */
+const budget = computed(() => {
+  const limit = currentBook.value?.monthlyBudget
+  if (!limit) return null
+  const spent = monthRecords.value
+    .filter((r) => r.kind === 'expense' && r.type === 'shared')
+    .reduce((s, r) => s + r.amount, 0)
+  const left = limit - spent
+  const pct = Math.min(100, (spent / limit) * 100)
+  let text: string
+  if (left < 0) text = `共同预算 ${formatMoneyShort(limit)} · 超了 ${formatMoneyShort(-left)}`
+  else if (isThisMonth.value) {
+    const today = toDateKey(new Date())
+    const days = Math.max(1, Math.round((new Date(`${period.value.end}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) / 86400000))
+    text = `共同预算还剩 ${formatMoneyShort(left)} · 每天约 ${formatMoneyShort(Math.floor(left / days))}`
+  } else text = `共同预算 ${formatMoneyShort(limit)} · 用了 ${Math.round(pct)}%`
+  return { pct, over: left < 0, warn: left >= 0 && pct >= 80, text }
+})
 
 const cards = computed(() =>
   HOME_CARDS.map((c) => {
@@ -183,9 +205,14 @@ const retry = async () => {
       </button>
       <button v-if="!isThisMonth" class="back-now" @click="shiftView(thisMonthDelta)">回到本月</button>
     </div>
-    <button class="icon-btn" aria-label="收支日历" @click="calendarPageOpen = true">
-      <AppIcon name="calendar" :size="20" :stroke="2" />
-    </button>
+    <div class="top-btns">
+      <button class="icon-btn" aria-label="搜索账单" @click="searchPageOpen = true">
+        <AppIcon name="search" :size="19" :stroke="2" />
+      </button>
+      <button class="icon-btn" aria-label="收支日历" @click="calendarPageOpen = true">
+        <AppIcon name="calendar" :size="20" :stroke="2" />
+      </button>
+    </div>
   </header>
 
   <section class="hero">
@@ -194,6 +221,10 @@ const retry = async () => {
         <p class="caption">{{ c.label }}</p>
         <p :class="['total', { income: c.key === 'income' }]">{{ formatMoney(displayTotal(i)) }}</p>
         <p class="sub">{{ c.sub }}</p>
+        <div v-if="c.key === 'together' && budget" :class="['budget', { warn: budget.warn, over: budget.over }]">
+          <span class="budget-track"><span class="budget-bar" :style="{ width: budget.pct + '%' }" /></span>
+          <span class="budget-text">{{ budget.text }}</span>
+        </div>
       </div>
     </div>
     <!-- 图上快速左右一划也能切卡片（慢慢拖是看每天的数） -->
@@ -296,6 +327,10 @@ const retry = async () => {
   margin: 0;
   font-size: 22px;
 }
+.top-btns {
+  display: flex;
+  gap: 8px;
+}
 .icon-btn {
   width: 38px;
   height: 38px;
@@ -355,6 +390,35 @@ const retry = async () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.budget {
+  margin: 8px 0 10px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.budget-track {
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--bg);
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.budget-bar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 0.4s ease;
+}
+.budget.warn .budget-bar {
+  background: #ff9f0a;
+}
+.budget.over .budget-bar {
+  background: var(--danger);
+}
+.budget.over .budget-text {
+  color: var(--danger);
 }
 .dots {
   display: flex;

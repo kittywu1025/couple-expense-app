@@ -44,6 +44,8 @@ export interface Book {
   currency: CurrencyCode
   /** 两人共用的自定义分类 */
   customCategories: CustomCategory[]
+  /** 每个结算周期的共同支出预算，没设是 null */
+  monthlyBudget: number | null
   createdBy: string
   createdAt: string
 }

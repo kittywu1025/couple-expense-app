@@ -43,6 +43,8 @@ npm install
 npm run dev
 ```
 
+单元测试（结算、结算周期、按月算账、搜索，直接用 Node 跑 `src` 里的 .ts）：`npm test`
+
 ## 项目结构
 
 - `src/App.vue` — 登录 / 建账本 / 主界面切换，`activeTab` 条件渲染

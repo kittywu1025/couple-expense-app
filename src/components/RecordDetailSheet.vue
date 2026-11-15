@@ -9,8 +9,8 @@ import { recordColor, recordIcon } from '../utils/categories'
 import { formatFullDate, formatMoney } from '../utils/format'
 import { amountSplitText, isAmountSplit, isFullyOwed, isTreat, shareOf, treaterOf } from '../utils/settlement'
 import { useBooks } from '../composables/useBooks'
-import { canModify, payloadOf, useRecords } from '../composables/useRecords'
-import { confirmAction, haptic, openEditSheet } from '../composables/useUi'
+import { canModify, useRecords } from '../composables/useRecords'
+import { confirmAction, haptic, openCopySheet, openEditSheet } from '../composables/useUi'
 import AppIcon from './AppIcon.vue'
 import { toast } from '../composables/useToast'
 import { canRespond, confirmLabel, disputedByPartner, pendingProposal } from '../utils/confirm'
@@ -24,7 +24,7 @@ const onSeen = () => {
 }
 
 const { myUid, nameOf, otherUid } = useBooks()
-const { addRecord, deleteRecord, respondRecords, replyRecord, updateRecord } = useRecords()
+const { restoreRecord, deleteRecord, respondRecords, replyRecord, updateRecord } = useRecords()
 const deleting = ref(false)
 const editable = computed(() => (r.value ? canModify(r.value, myUid.value) : false))
 
@@ -108,6 +108,14 @@ const onEdit = () => {
   openEditSheet(rec)
 }
 
+/** 照这笔再记一笔：同样的分类、金额、分法，日期是今天，金额可以改 */
+const onCopy = () => {
+  const rec = r.value
+  if (!rec) return
+  emit('close')
+  openCopySheet(rec)
+}
+
 const onDelete = async () => {
   const rec = r.value
   if (!rec) return
@@ -126,8 +134,8 @@ const onDelete = async () => {
     return
   }
   haptic()
-  // 撤销：照原样再记一次
-  toast.undoable('已删除', () => addRecord(payloadOf(rec)))
+  // 撤销：照原样放回去
+  toast.undoable('已删除', () => restoreRecord(rec))
   emit('close')
 }
 </script>
@@ -197,6 +205,7 @@ const onDelete = async () => {
           这笔不对？有疑问
         </button>
         <p v-if="!editable" class="readonly">这是 {{ nameOf(r.payerUid) }} 的个人记录，只能看，不能修改</p>
+        <button class="copy" @click="onCopy"><AppIcon name="plus" :size="14" :stroke="2.4" />照这笔再记一笔</button>
         <button class="delete" :disabled="deleting || !editable" @click="onDelete">
           <AppIcon name="close" :size="16" :stroke="2.2" />{{ deleting ? '删除中…' : '删除' }}
         </button>
@@ -320,6 +329,13 @@ dd {
 .delete {
   background: #fff0f3;
   color: #f0547a;
+}
+.copy {
+  grid-column: 1 / -1;
+  height: 40px !important;
+  font-size: 14px;
+  color: var(--primary);
+  background: var(--primary-soft);
 }
 .question {
   grid-column: 1 / -1;

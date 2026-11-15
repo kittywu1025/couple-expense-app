@@ -30,7 +30,7 @@ import {
 const { myUid, partner, nameOf, currentBook } = useBooks()
 const settleDay = computed(() => currentBook.value?.settleDay ?? 1)
 const monthOf = (r: LedgerRecord) => periodMonthOf(r.date, settleDay.value)
-const { records, loadRecords, setSettled, setPaidClaim, bouncedClaims, dismissBounced, nudgeClaims } = useRecords()
+const { records, loadRecords, setSettled, setPaidClaim, settleBatch, rejectClaims: rejectClaimsIn, bouncedClaims, dismissBounced, nudgeClaims } = useRecords()
 const partnerName = computed(() => partner.value?.displayName ?? 'TA')
 
 /** 没付钱那位的那份 */
@@ -210,7 +210,8 @@ const rejectClaims = async () => {
     confirmText: '没收到',
   })
   if (!ok) return
-  const { error } = await setPaidClaim(claimedToMe.value.map((r) => r.id), false)
+  // 同一次算账里 TA 先垫、已经结清的也一起退回，两边的数才对得上
+  const { error } = await rejectClaimsIn(claimedToMe.value.map((r) => r.id))
   if (error) toast.error(error.message)
   else toast.success(`已告诉${partnerName.value}还没收到`)
 }
@@ -261,10 +262,8 @@ const settleGroup = async (receive: LedgerRecord[], pay: LedgerRecord[], label: 
     saving.value = false
     return
   }
-  const a = receiveIds.length ? await setSettled(receiveIds, true) : { error: null }
-  const b = a.error || !payIds.length ? { error: null } : await setPaidClaim(payIds, true)
+  const { error } = await settleBatch(receiveIds, payIds)
   saving.value = false
-  const error = a.error ?? b.error
   if (error) {
     toast.error(error.message)
     return
@@ -272,6 +271,10 @@ const settleGroup = async (receive: LedgerRecord[], pay: LedgerRecord[], label: 
   haptic()
   picked.value = []
   toast.undoable(`${label}已算好，${text}${payIds.length ? '，等 TA 确认收到' : ''}`, async () => {
+    // TA 手快已经确认收到了：说清楚，不要只撤一半
+    if (records.value.some((r) => payIds.includes(r.id) && r.settledOnSpot)) {
+      return { error: new Error(`${partnerName.value}已经确认收到了，要改的话去「已结清」里撤销`) }
+    }
     const x = receiveIds.length ? await setSettled(receiveIds, false) : { error: null }
     if (x.error || !payIds.length) return x
     return setPaidClaim(payIds, false)

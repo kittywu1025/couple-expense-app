@@ -23,6 +23,7 @@ export const demoBook: Book = {
   defaultRatio: 5,
   currency: 'JPY',
   customCategories: [],
+  monthlyBudget: 150000,
   createdBy: DEMO_MY_UID,
   createdAt: new Date().toISOString(),
 }

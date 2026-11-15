@@ -6,6 +6,7 @@ import ColorPicker from '../components/ColorPicker.vue'
 import { useBooks } from '../composables/useBooks'
 import { useSupabaseAuth } from '../composables/useSupabaseAuth'
 import { closeProfilePage, confirmAction } from '../composables/useUi'
+import { useBackLayerWhileMounted } from '../composables/useBackStack'
 import { toast } from '../composables/useToast'
 import type { MemberColor } from '../types'
 import { swatchOf } from '../utils/palette'
@@ -90,6 +91,8 @@ const onSignOut = async () => {
   if (error) toast.error('退出登录失败，请稍后重试')
   else closeProfilePage()
 }
+// 手机返回键 / 返回手势
+useBackLayerWhileMounted(closeProfilePage)
 </script>
 
 <template>

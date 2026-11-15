@@ -123,6 +123,27 @@ export const shiftPeriod = (p: PeriodState, dir: 1 | -1): PeriodState => {
   }
 }
 
+/**
+ * 拿来对比的上一期：没过完的周期只取上一期的同样天数（11 月 1–15 日对 10 月 1–15 日），
+ * 不然半个月对一整个月，永远是「少花了」。
+ */
+export const compareRangeOf = (p: PeriodState, settleDay: number, today = toDateKey(new Date())): DateRange => {
+  const cur = rangeOf(p, settleDay)
+  const prev = rangeOf(shiftPeriod(p, -1), settleDay)
+  if (!(cur.start <= today && today < cur.end)) return prev
+  const elapsed = Math.round((parseKey(today).getTime() - parseKey(cur.start).getTime()) / 86400000) + 1
+  const end = addDays(prev.start, elapsed)
+  return { start: prev.start, end: end < prev.end ? end : prev.end }
+}
+
+/** 对比的那一期叫什么 */
+export const compareWordOf = (p: PeriodState, settleDay: number, today = toDateKey(new Date())) => {
+  const cur = rangeOf(p, settleDay)
+  const ongoing = cur.start <= today && today < cur.end
+  const word = { week: '上周', month: '上个月', year: '去年', custom: '前一段' }[p.mode]
+  return ongoing && p.mode !== 'custom' ? `${word}同期` : word
+}
+
 /** 下一个周期是否已经完全在未来（不让往后翻） */
 export const isLatest = (p: PeriodState, settleDay: number) => {
   const next = rangeOf(shiftPeriod(p, 1), settleDay)

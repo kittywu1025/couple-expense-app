@@ -96,7 +96,10 @@ const sortRecords = (list: LedgerRecord[]) =>
 
 const { currentBook } = useBooks()
 
-const loadRecords = async () => {
+/** 每次加载编号：晚回来的旧请求不能盖掉新的 */
+let loadSeq = 0
+
+const loadRecords = async (retried = false): Promise<void> => {
   if (isDemoMode) {
     if (!records.value.length) records.value = sortRecords(createDemoRecords())
     return
@@ -107,29 +110,46 @@ const loadRecords = async () => {
     return
   }
 
-  // 先用缓存把页面填起来，避免每次打开都是骨架屏
+  // 换了账本：先清掉上一个账本的，再用缓存把页面填起来，避免每次打开都是骨架屏
+  if (records.value.length && records.value[0].bookId !== bookId) records.value = []
   if (!records.value.length) {
     const cached = readCache(bookId)
     if (cached?.length) records.value = cached
   }
 
+  const seq = ++loadSeq
+  const before = records.value
   recordsLoading.value = true
   recordsError.value = false
   try {
-    const { data, error } = await supabase
-      .from('records')
-      .select('*')
-      .eq('book_id', bookId)
-      .order('date', { ascending: false })
-      .order('created_at', { ascending: false })
-    if (error) throw error
-    records.value = (data ?? []).map(normalizeRecord)
+    // Supabase 一次最多返回 1000 条，记得多了要分几次拉，不然早的账会悄悄少掉（统计、导出都不对）
+    const PAGE = 1000
+    const data: Record<string, unknown>[] = []
+    for (let from = 0; ; from += PAGE) {
+      const { data: page, error } = await supabase
+        .from('records')
+        .select('*')
+        .eq('book_id', bookId)
+        .order('date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(from, from + PAGE - 1)
+      if (error) throw error
+      data.push(...(page ?? []))
+      if (!page || page.length < PAGE || seq !== loadSeq) break
+    }
+    // 已经有更新的请求，或者账本换了：这次的结果作废
+    if (seq !== loadSeq || currentBook.value?.id !== bookId) return
+    // 请求途中本地刚改过（比如点了「已收到」）：这次的结果可能是改之前的，再拉一次
+    if (records.value !== before && !retried) return await loadRecords(true)
+    records.value = data.map(normalizeRecord)
   } catch (error) {
+    if (seq !== loadSeq) return
     console.error('加载账单失败：', error)
     recordsError.value = true
     setSyncWarning(formatSupabaseError(error, '账单读取失败，请检查网络后再试。'))
   } finally {
-    recordsLoading.value = false
+    if (seq === loadSeq) recordsLoading.value = false
   }
 }
 
@@ -301,6 +321,31 @@ const deleteRecord = async (id: string) => {
   return { error: null }
 }
 
+/**
+ * 撤销删除 / 撤销修改：照原样放回去（同一个 id，结清、有疑问、留言、导入编号都在）。
+ * 数据库里没有 restore_record（还没执行 20261115_polish.sql）时，退回到以前的做法：再记一次 / 改回去。
+ */
+const restoreRecord = async (before: LedgerRecord): Promise<{ error: Error | null }> => {
+  const putBack = () => {
+    records.value = sortRecords([...records.value.filter((r) => r.id !== before.id), before])
+  }
+  if (isDemoMode || !supabase) {
+    putBack()
+    return { error: null }
+  }
+  const { error } = await supabase.rpc('restore_record', { p_id: before.id })
+  if (error) {
+    const missing = error.code === 'PGRST202' || /restore_record/.test(error.message ?? '')
+    if (!missing) return { error: new Error(formatSupabaseError(error, '撤销失败，请稍后重试。')) }
+    return records.value.some((r) => r.id === before.id)
+      ? updateRecord(before.id, payloadOf(before))
+      : addRecord(payloadOf(before)).then(({ error }) => ({ error }))
+  }
+  putBack()
+  void loadRecords()
+  return { error: null }
+}
+
 /** 改确认状态，可以顺便追加一条留言（留言只用在单笔上） */
 const setConfirm = async (ids: string[], status: ConfirmStatus, message?: { text: string; ratio?: number | null }) => {
   if (!ids.length) return { error: null }
@@ -434,6 +479,45 @@ const setPaidClaim = async (ids: string[], claimed: boolean) => {
   return { error: null }
 }
 
+/** 数据库里还没有这个函数（还没执行新的 SQL） */
+const isMissingFn = (error: { code?: string; message?: string }, name: string) =>
+  error.code === 'PGRST202' || (error.message ?? '').includes(name)
+
+/**
+ * 按月算账：我先垫的结清 + 我该给的告诉 TA，在数据库里一次做完，记成同一批。
+ * TA 点「没收到」时同一批的一起退回，不会只退一半。
+ */
+const settleBatch = async (receiveIds: string[], payIds: string[]): Promise<{ error: Error | null }> => {
+  if (!isDemoMode && supabase) {
+    const { error } = await supabase.rpc('settle_batch', { p_receive: receiveIds, p_pay: payIds })
+    if (!error) {
+      await loadRecords()
+      const uid = authUser.value?.id ?? ''
+      const mine = records.value.filter((r) => payIds.includes(r.id) && r.payerUid !== uid).map((r) => r.id)
+      saveClaims([...new Set([...myClaims.value, ...mine])])
+      return { error: null }
+    }
+    if (!isMissingFn(error, 'settle_batch')) return { error: new Error(formatSupabaseError(error, '操作失败，请稍后重试。')) }
+  }
+  // 演示模式 / 旧数据库：分两步
+  const a = receiveIds.length ? await setSettled(receiveIds, true) : { error: null }
+  if (a.error) return a
+  return payIds.length ? setPaidClaim(payIds, true) : { error: null }
+}
+
+/** TA 说给了、我没收到：清掉申请，同一次算账里 TA 先垫、已经结清的也一起退回 */
+const rejectClaims = async (ids: string[]): Promise<{ error: Error | null }> => {
+  if (!isDemoMode && supabase) {
+    const { error } = await supabase.rpc('reject_paid_claims', { p_ids: ids })
+    if (!error) {
+      await loadRecords()
+      return { error: null }
+    }
+    if (!isMissingFn(error, 'reject_paid_claims')) return { error: new Error(formatSupabaseError(error, '操作失败，请稍后重试。')) }
+  }
+  return setPaidClaim(ids, false)
+}
+
 /** 「提醒 TA」：说了我给了 12 小时对方还没确认，可以提醒；之后每 12 小时最多一次 */
 export const NUDGE_GAP_MS = 12 * 3600 * 1000
 export const nudgeReadyAt = (r: LedgerRecord) =>
@@ -460,12 +544,12 @@ const nudgeClaims = async (ids: string[]) => {
 /** 记账人回复对方的疑问，重新请 TA 确认 */
 const replyRecord = (id: string, text: string) => setConfirm([id], 'pending', { text })
 
-watch(() => currentBook.value?.id, loadRecords, { immediate: true })
+watch(() => currentBook.value?.id, () => loadRecords(), { immediate: true })
 
-// 记录有变化就写缓存（演示模式不写）
+// 记录有变化就写缓存（演示模式不写）；不是这个账本的不写
 watch(records, (list) => {
   const bookId = currentBook.value?.id
-  if (bookId && !isDemoMode) writeCache(bookId, list)
+  if (bookId && !isDemoMode && list.every((r) => r.bookId === bookId)) writeCache(bookId, list)
 })
 
 /**
@@ -476,5 +560,5 @@ watch(records, (list) => {
 export const canModify = (r: LedgerRecord, uid: string) => r.type === 'shared' || r.payerUid === uid || r.createdBy === uid
 
 export function useRecords() {
-  return { records, recordsLoading, recordsError, loadRecords, addRecord, addRecordsBulk, updateRecord, deleteRecord, respondRecords, replyRecord, setSettled, setPaidClaim, bouncedClaims, dismissBounced, nudgeClaims }
+  return { records, recordsLoading, recordsError, loadRecords, addRecord, restoreRecord, settleBatch, rejectClaims, addRecordsBulk, updateRecord, deleteRecord, respondRecords, replyRecord, setSettled, setPaidClaim, bouncedClaims, dismissBounced, nudgeClaims }
 }

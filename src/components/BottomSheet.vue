@@ -8,6 +8,7 @@ let layerSeq = 0
 
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
+import { useBackLayer } from '../composables/useBackStack'
 
 const props = defineProps<{ open: boolean }>()
 
@@ -35,6 +36,9 @@ watch(
   { immediate: true },
 )
 const zBase = () => 300 + layer.value * 2
+
+// 手机返回键 / 返回手势关掉弹窗
+useBackLayer(() => props.open, () => emit('close'))
 
 const begin = (y: number, target: EventTarget | null) => {
   const el = sheet.value

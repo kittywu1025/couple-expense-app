@@ -8,6 +8,7 @@ import FixedExpenseEditorSheet from '../components/FixedExpenseEditorSheet.vue'
 import { intervalLabel, nextDueDate, useFixedExpenses } from '../composables/useFixedExpenses'
 import { useBooks } from '../composables/useBooks'
 import { closeFixedPage, confirmAction } from '../composables/useUi'
+import { useBackLayerWhileMounted } from '../composables/useBackStack'
 import { toast } from '../composables/useToast'
 import type { FixedExpense, FixedExpenseInput } from '../types'
 import { recordColor, recordIcon } from '../utils/categories'
@@ -91,6 +92,8 @@ const togglePause = async (f: FixedExpense) => {
   if (error) toast.error(error.message)
   else toast.undoable(was ? `已恢复「${f.name}」，从今天起继续自动记账` : `已暂停「${f.name}」`, () => setPaused(f.id, was))
 }
+// 手机返回键 / 返回手势
+useBackLayerWhileMounted(closeFixedPage)
 </script>
 
 <template>

@@ -13,6 +13,8 @@ import { inPeriod } from '../utils/settlement'
 import { computeStats } from '../utils/stats'
 import {
   PERIOD_MODES,
+  compareRangeOf,
+  compareWordOf,
   initialPeriod,
   isLatest,
   rangeOf,
@@ -47,6 +49,10 @@ const shift = (dir: 1 | -1) => {
 }
 
 const periodRecords = computed(() => records.value.filter((r) => inPeriod(r, range.value)))
+/** 和上一期（没过完就是上一期同样的天数）比 */
+const compareRange = computed(() => compareRangeOf(period.value, settleDay.value))
+const compareRecords = computed(() => records.value.filter((r) => inPeriod(r, compareRange.value)))
+const compareWord = computed(() => compareWordOf(period.value, settleDay.value))
 const stats = computed(() => computeStats(periodRecords.value, myUid.value, otherUid))
 const partnerName = computed(() => partner.value?.displayName ?? 'TA')
 const myName = computed(() => nameOf(myUid.value))
@@ -110,7 +116,14 @@ const openShared = ref(false)
   />
 
   <SkeletonList v-if="recordsLoading && !records.length" class="breakdown" />
-  <CategoryBreakdown v-else :records="periodRecords" :period-word="periodWord" class="breakdown" />
+  <CategoryBreakdown
+    v-else
+    :records="periodRecords"
+    :compare-records="compareRecords"
+    :compare-word="compareWord"
+    :period-word="periodWord"
+    class="breakdown"
+  />
 
   <section class="card fold">
     <button class="fold-head" :aria-expanded="openSettle" @click="openSettle = !openSettle">

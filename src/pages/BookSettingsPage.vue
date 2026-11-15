@@ -11,6 +11,7 @@ import { bookSettingsOpen, confirmAction } from '../composables/useUi'
 import type { CustomCategory, RecordKind } from '../types'
 import { isCategoryNameTaken } from '../utils/categories'
 import { CURRENCIES, isCurrencyCode } from '../utils/currency'
+import { activeCurrencyInfo, formatMoney } from '../utils/format'
 import type { IconName } from '../utils/icons'
 
 const { currentBook, updateBookSettings, bookActionLoading } = useBooks()
@@ -37,6 +38,27 @@ const onCurrency = async (e: Event) => {
   const { error } = await updateBookSettings({ currency: code })
   if (error) toast.error(error.message)
   else toast.success('货币已切换')
+}
+
+// ── 共同月预算：空着就是不设 ──
+const budgetText = ref(currentBook.value?.monthlyBudget ? String(currentBook.value.monthlyBudget) : '')
+const onBudget = async () => {
+  const raw = budgetText.value.replace(/[,，\s]/g, '')
+  const next = raw ? Math.round(Number(raw)) : null
+  if (next !== null && !(next > 0 && next <= 99_999_999)) {
+    toast.warning('预算要是大于 0 的数字')
+    budgetText.value = currentBook.value?.monthlyBudget ? String(currentBook.value.monthlyBudget) : ''
+    return
+  }
+  if (next === (currentBook.value?.monthlyBudget ?? null)) return
+  const { error } = await updateBookSettings({ monthlyBudget: next })
+  if (error) {
+    toast.error(error.message)
+    budgetText.value = currentBook.value?.monthlyBudget ? String(currentBook.value.monthlyBudget) : ''
+    return
+  }
+  budgetText.value = next ? String(next) : ''
+  toast.success(next ? `每月共同预算 ${formatMoney(next)}，首页会显示还剩多少` : '已取消预算')
 }
 
 // ── 自定义分类 ──
@@ -96,6 +118,23 @@ const onDelete = async (c: CustomCategory) => {
           <button :disabled="bookActionLoading" aria-label="增加" @click="changeRatio(1)"><AppIcon name="plus" :size="16" :stroke="2.2" /></button>
         </div>
       </div>
+      <label class="row">
+        <span class="grow">每月共同预算<small class="hint">每个周期一起花的钱，空着就是不设</small></span>
+        <span class="budget">
+          <small>{{ activeCurrencyInfo.symbol }}</small>
+          <input
+            v-model="budgetText"
+            class="mono"
+            inputmode="numeric"
+            enterkeyhint="done"
+            placeholder="不设"
+            aria-label="每月共同预算"
+            :disabled="bookActionLoading"
+            @change="onBudget"
+            @keydown.enter="($event.target as HTMLInputElement).blur()"
+          />
+        </span>
+      </label>
       <label class="row">
         <span class="grow">记账货币<small class="hint">只改变显示单位，不会换算已有金额</small></span>
         <select :value="currentBook?.currency" :disabled="bookActionLoading" @change="onCurrency">
@@ -209,6 +248,28 @@ select {
   font-size: 14px;
   color: var(--primary);
   max-width: 50%;
+}
+.budget {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: var(--primary);
+}
+.budget small {
+  font-size: 13px;
+}
+.budget input {
+  width: 96px;
+  border: none;
+  background: none;
+  padding: 6px 0;
+  font-size: 15px;
+  text-align: right;
+  color: var(--primary);
+  outline: none;
 }
 .stepper {
   display: flex;

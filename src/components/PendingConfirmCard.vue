@@ -303,7 +303,17 @@ const confirmDesc = computed(() => {
   return '你同意了才算：账单是 TA 回复了你的疑问，还款同意后才从「还剩」里扣掉'
 })
 const markSeen = () => {
-  seenAt.value = new Date().toISOString()
+  // 用服务器时间（这些账单自己的时间）记「看到哪儿了」，不用手机时间：
+  // 手机慢了点完还在，手机快了对方刚记的会被悄悄当成看过
+  const stamps = [
+    seenAt.value,
+    ...Object.values(seenIds.value),
+    ...news.value.map((n) => {
+      const r = records.value.find((x) => x.id === n.id)
+      return r ? stampOf(r) : ''
+    }),
+  ]
+  seenAt.value = stamps.reduce((m, t) => (t > m ? t : m), '')
   try {
     localStorage.setItem(seenKey.value, seenAt.value)
   } catch {

@@ -24,8 +24,10 @@ import { waitingForMe } from '../utils/confirm'
 import { useFixedExpenses } from '../composables/useFixedExpenses'
 import { formatMoneyShort } from '../utils/format'
 import AppIcon from '../components/AppIcon.vue'
+import { recordsToCsv, saveCsv } from '../utils/exportCsv'
+import { toDateKey } from '../utils/format'
 
-const { members, me, partner, myUid, leaveBook, bookActionLoading } = useBooks()
+const { members, me, partner, myUid, nameOf, leaveBook, bookActionLoading } = useBooks()
 const { authDisplayName, signOut } = useSupabaseAuth()
 
 const myName = computed(() => me.value?.displayName || authDisplayName.value)
@@ -55,6 +57,30 @@ const settleSummary = computed(() => {
   ].filter(Boolean)
   return parts.length ? parts.join(' · ') : '都结清了'
 })
+
+// ── 导出账单：共同的 + 自己的，存成 CSV ──
+const exportable = computed(() => records.value.filter((r) => r.type === 'shared' || r.payerUid === myUid.value))
+const exporting = ref(false)
+const onExport = async () => {
+  if (!exportable.value.length) {
+    toast.info('还没有可以导出的账单')
+    return
+  }
+  exporting.value = true
+  try {
+    const csv = recordsToCsv(records.value, {
+      myUid: myUid.value,
+      nameOf,
+      partnerName: partner.value?.displayName ?? 'TA',
+    })
+    const result = await saveCsv(csv, `账本-${toDateKey(new Date())}.csv`)
+    if (result === 'downloaded') toast.success(`已导出 ${exportable.value.length} 笔，用 Excel / Numbers 打开就行`)
+  } catch {
+    toast.error('导出失败，请稍后再试')
+  } finally {
+    exporting.value = false
+  }
+}
 
 // 借款：有等我确认的就提示，否则显示没还清的笔数
 const { loans, repayments, progress } = useLoans()
@@ -174,7 +200,13 @@ const onSeed = async () => {
     <button class="row" @click="bookSettingsOpen = true">
       <span class="row-icon"><AppIcon name="book" :size="18" :stroke="2" /></span>
       <span class="grow">账本设置</span>
-      <small class="faint">结算日 · AA · 分类</small>
+      <small class="faint">结算日 · 预算 · 分类</small>
+      <AppIcon name="chevronRight" :size="16" class="chev" />
+    </button>
+    <button class="row" :disabled="exporting" @click="onExport">
+      <span class="row-icon"><AppIcon name="file" :size="18" :stroke="2" /></span>
+      <span class="grow">导出账单</span>
+      <small class="faint">CSV · 共同的和我的</small>
       <AppIcon name="chevronRight" :size="16" class="chev" />
     </button>
     <button class="row" @click="apiPageOpen = true">

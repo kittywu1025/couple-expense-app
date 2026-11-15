@@ -5,7 +5,7 @@ import CategoryIcon from './CategoryIcon.vue'
 import type { LedgerRecord } from '../types'
 import { recordColor, recordIcon } from '../utils/categories'
 import { formatDateLabel, formatMoney, formatMoneyShort, formatWeekday } from '../utils/format'
-import { canModify, payloadOf, useRecords } from '../composables/useRecords'
+import { canModify, useRecords } from '../composables/useRecords'
 import { confirmAction, haptic } from '../composables/useUi'
 import { toast } from '../composables/useToast'
 import { isAmountSplit, isFullyOwed, isTreat, shareOf, treaterOf } from '../utils/settlement'
@@ -16,7 +16,7 @@ const props = defineProps<{ records: LedgerRecord[] }>()
 
 const { myUid, otherUid, nameOf } = useBooks()
 const selectedId = ref<string | null>(null)
-const { addRecord, deleteRecord } = useRecords()
+const { restoreRecord, deleteRecord } = useRecords()
 
 // 长按快速删除（对方的个人记录不能删）；长按后松手那次点击不打开详情
 let pressTimer: ReturnType<typeof setTimeout> | undefined
@@ -41,7 +41,7 @@ const startPress = (r: LedgerRecord) => {
     const { error } = await deleteRecord(r.id)
     if (error) toast.error(error.message, { title: '删除失败' })
     // 撤销：照原样再记一次
-    else toast.undoable('已删除', () => addRecord(payloadOf(r)))
+    else toast.undoable('已删除', () => restoreRecord(r))
   }, 550)
 }
 const cancelPress = () => clearTimeout(pressTimer)

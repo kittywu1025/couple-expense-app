@@ -39,6 +39,7 @@ const normalizeBook = (row: Record<string, unknown>): Book => ({
   defaultRatio: Number(row.default_ratio ?? 5),
   currency: isCurrencyCode(row.currency) ? row.currency : DEFAULT_CURRENCY,
   customCategories: normalizeCustomCategories(row.custom_categories),
+  monthlyBudget: Number(row.monthly_budget) > 0 ? Number(row.monthly_budget) : null,
   createdBy: String(row.created_by ?? ''),
   createdAt: String(row.created_at ?? ''),
 })
@@ -99,6 +100,9 @@ const loadMembers = async (bookId: string) => {
   members.value = (data ?? []).map(normalizeMember)
 }
 
+/** 最近一次读账本失败（还没读到过账本时显示「重试」，而不是「创建账本」） */
+const bookLoadFailed = ref(false)
+
 const loadBook = async () => {
   if (isDemoMode) {
     currentBook.value ??= { ...demoBook }
@@ -113,12 +117,17 @@ const loadBook = async () => {
 
   booksLoading.value = true
   try {
-    const { data, error } = await supabase
-      .from('book_members')
-      .select('book:books(id, invite_code, settle_day, default_ratio, currency, custom_categories, created_by, created_at)')
-      .eq('user_id', authUser.value.id)
-      .order('joined_at', { ascending: true })
-      .limit(1)
+    const query = (cols: string) =>
+      supabase!
+        .from('book_members')
+        .select(`book:books(${cols})` as 'book:books(id)')
+        .eq('user_id', authUser.value!.id)
+        .order('joined_at', { ascending: true })
+        .limit(1)
+    const base = 'id, invite_code, settle_day, default_ratio, currency, custom_categories, created_by, created_at'
+    let { data, error } = await query(`${base}, monthly_budget`)
+    // 数据库还没加预算这一列（没执行 20261115_polish.sql）：先不带预算读，别的照常用
+    if (error && /monthly_budget/.test(error.message)) ({ data, error } = await query(base))
     if (error) throw error
 
     const raw = data?.[0]?.book as Record<string, unknown> | Record<string, unknown>[] | null | undefined
@@ -129,10 +138,12 @@ const loadBook = async () => {
     } else {
       members.value = []
     }
+    bookLoadFailed.value = false
   } catch (error) {
     console.error('加载账本失败：', error)
-    currentBook.value = null
-    members.value = []
+    // 网络抖一下不能当成「没有账本」：已经在账本里就保持原样，
+    // 否则会掉回「创建账本」页，点了还会多建一个账本
+    bookLoadFailed.value = true
     setSyncWarning(formatSupabaseError(error, '账本信息读取失败，请稍后重试。'))
   } finally {
     booksLoading.value = false
@@ -198,7 +209,9 @@ const leaveBook = () =>
     members.value = []
   }, '退出账本失败，请稍后重试。')
 
-const updateBookSettings = (patch: Partial<Pick<Book, 'settleDay' | 'defaultRatio' | 'currency' | 'customCategories'>>) =>
+const updateBookSettings = (
+  patch: Partial<Pick<Book, 'settleDay' | 'defaultRatio' | 'currency' | 'customCategories' | 'monthlyBudget'>>,
+) =>
   runBookAction(async () => {
     if (isDemoMode && currentBook.value) {
       currentBook.value = { ...currentBook.value, ...patch }
@@ -210,6 +223,7 @@ const updateBookSettings = (patch: Partial<Pick<Book, 'settleDay' | 'defaultRati
     if (patch.defaultRatio !== undefined) payload.default_ratio = patch.defaultRatio
     if (patch.currency !== undefined) payload.currency = patch.currency
     if (patch.customCategories !== undefined) payload.custom_categories = patch.customCategories
+    if (patch.monthlyBudget !== undefined) payload.monthly_budget = patch.monthlyBudget
     const { data, error } = await supabase
       .from('books')
       .update(payload)
@@ -321,6 +335,7 @@ export function useBooks() {
     nameOf,
     genderOf,
     booksLoading,
+    bookLoadFailed,
     bookActionLoading,
     loadBook,
     createBook,
